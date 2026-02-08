@@ -18,6 +18,8 @@ class BattleScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(0x2f7d32);
+    this.cameras.main.setScroll(0, 0);
+    this.cameras.main.setBounds(0, 0, 1920, 1080);
     this.input.mouse?.disableContextMenu();
 
     const centerX = this.scale.width * 0.5;
@@ -252,8 +254,12 @@ class BattleScene extends Phaser.Scene {
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
-  width: 1024,
-  height: 640,
+  width: 1920,
+  height: 1080,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
   parent: 'app',
   scene: [BattleScene],
 };
