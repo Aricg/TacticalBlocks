@@ -19,8 +19,20 @@ export type NetworkUnitSnapshot = {
   y: number;
 };
 
+export type NetworkUnitPositionUpdate = {
+  unitId: string;
+  x: number;
+  y: number;
+};
+
 type UnitAddedHandler = (unit: NetworkUnitSnapshot) => void;
 type UnitRemovedHandler = (unitId: string) => void;
+type TeamAssignedHandler = (team: string) => void;
+type UnitPositionChangedHandler = (position: NetworkUnitPositionUpdate) => void;
+
+type TeamAssignedMessage = {
+  team: string;
+};
 
 export class NetworkManager {
   private readonly client: Client;
@@ -31,6 +43,8 @@ export class NetworkManager {
   constructor(
     private readonly onUnitAdded: UnitAddedHandler,
     private readonly onUnitRemoved: UnitRemovedHandler,
+    private readonly onTeamAssigned: TeamAssignedHandler,
+    private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     endpoint = 'ws://localhost:2567',
     roomName = 'battle',
   ) {
@@ -46,16 +60,37 @@ export class NetworkManager {
     const room = await this.client.joinOrCreate<BattleRoomState>(this.roomName);
     this.room = room;
 
+    room.onMessage('teamAssigned', (message: TeamAssignedMessage) => {
+      this.onTeamAssigned(message.team);
+    });
+
     const $ = getStateCallbacks(room);
     room.onStateChange.once((state) => {
       const detachUnitAdd = $(state).units.onAdd(
         (serverUnit: ServerUnitState, unitKey: string) => {
+          const unitId = serverUnit.unitId || unitKey;
           this.onUnitAdded({
-            unitId: serverUnit.unitId || unitKey,
+            unitId,
             team: serverUnit.team,
             x: serverUnit.x,
             y: serverUnit.y,
           });
+
+          const detachX = $(serverUnit).listen('x', (x: number) => {
+            this.onUnitPositionChanged({
+              unitId,
+              x,
+              y: serverUnit.y,
+            });
+          });
+          const detachY = $(serverUnit).listen('y', (y: number) => {
+            this.onUnitPositionChanged({
+              unitId,
+              x: serverUnit.x,
+              y,
+            });
+          });
+          this.detachCallbacks.push(detachX, detachY);
         },
         true,
       );
@@ -71,6 +106,14 @@ export class NetworkManager {
     room.onError((code, message) => {
       console.error(`Colyseus room error (${code}): ${message ?? 'unknown error'}`);
     });
+  }
+
+  public sendUnitPosition(position: NetworkUnitPositionUpdate): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.room.send('unitPosition', position);
   }
 
   public async disconnect(): Promise<void> {
