@@ -13,6 +13,8 @@ class BattleScene extends Phaser.Scene {
   private readonly unitsById: Map<string, Unit> = new Map<string, Unit>();
   private readonly lastPublishedUnitPositions: Map<string, Phaser.Math.Vector2> =
     new Map<string, Phaser.Math.Vector2>();
+  private readonly remoteUnitTargetPositions: Map<string, Phaser.Math.Vector2> =
+    new Map<string, Phaser.Math.Vector2>();
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
   private networkManager: NetworkManager | null = null;
   private nextUnitPositionSyncTime = 0;
@@ -64,6 +66,10 @@ class BattleScene extends Phaser.Scene {
     GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
   private static readonly POSITION_SYNC_EPSILON =
     GAMEPLAY_CONFIG.network.positionSyncEpsilon;
+  private static readonly REMOTE_POSITION_LERP_RATE =
+    GAMEPLAY_CONFIG.network.remotePositionLerpRate;
+  private static readonly REMOTE_POSITION_SNAP_DISTANCE =
+    GAMEPLAY_CONFIG.network.remotePositionSnapDistance;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -322,7 +328,13 @@ class BattleScene extends Phaser.Scene {
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
     const existingUnit = this.unitsById.get(networkUnit.unitId);
     if (existingUnit) {
-      existingUnit.setPosition(networkUnit.x, networkUnit.y);
+      this.applyNetworkUnitPositionSnapshot(
+        existingUnit,
+        networkUnit.unitId,
+        networkUnit.x,
+        networkUnit.y,
+        true,
+      );
       return;
     }
 
@@ -333,6 +345,12 @@ class BattleScene extends Phaser.Scene {
     const spawnedUnit = new Unit(this, networkUnit.x, networkUnit.y, team);
     this.units.push(spawnedUnit);
     this.unitsById.set(networkUnit.unitId, spawnedUnit);
+    if (spawnedUnit.team !== this.localPlayerTeam) {
+      this.remoteUnitTargetPositions.set(
+        networkUnit.unitId,
+        new Phaser.Math.Vector2(networkUnit.x, networkUnit.y),
+      );
+    }
   }
 
   private removeNetworkUnit(unitId: string): void {
@@ -343,6 +361,7 @@ class BattleScene extends Phaser.Scene {
 
     this.unitsById.delete(unitId);
     this.lastPublishedUnitPositions.delete(unitId);
+    this.remoteUnitTargetPositions.delete(unitId);
     this.selectedUnits.delete(unit);
     const index = this.units.indexOf(unit);
     if (index >= 0) {
@@ -357,7 +376,12 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    unit.setPosition(positionUpdate.x, positionUpdate.y);
+    this.applyNetworkUnitPositionSnapshot(
+      unit,
+      positionUpdate.unitId,
+      positionUpdate.x,
+      positionUpdate.y,
+    );
   }
 
   private applyAssignedTeam(teamValue: string): void {
@@ -370,7 +394,81 @@ class BattleScene extends Phaser.Scene {
     this.clearSelection();
     this.localPlayerTeam = assignedTeam;
     this.lastPublishedUnitPositions.clear();
+    this.rebuildRemotePositionTargets();
     this.refreshFogOfWar();
+  }
+
+  private applyNetworkUnitPositionSnapshot(
+    unit: Unit,
+    unitId: string,
+    x: number,
+    y: number,
+    snapImmediately = false,
+  ): void {
+    if (unit.team === this.localPlayerTeam) {
+      this.remoteUnitTargetPositions.delete(unitId);
+      unit.setPosition(x, y);
+      return;
+    }
+
+    const existingTarget = this.remoteUnitTargetPositions.get(unitId);
+    if (existingTarget) {
+      existingTarget.set(x, y);
+    } else {
+      this.remoteUnitTargetPositions.set(unitId, new Phaser.Math.Vector2(x, y));
+    }
+
+    if (snapImmediately) {
+      unit.setPosition(x, y);
+      return;
+    }
+
+    const distance = Phaser.Math.Distance.Between(unit.x, unit.y, x, y);
+    if (distance >= BattleScene.REMOTE_POSITION_SNAP_DISTANCE) {
+      unit.setPosition(x, y);
+    }
+  }
+
+  private rebuildRemotePositionTargets(): void {
+    this.remoteUnitTargetPositions.clear();
+    for (const [unitId, unit] of this.unitsById) {
+      if (unit.team === this.localPlayerTeam) {
+        continue;
+      }
+      this.remoteUnitTargetPositions.set(
+        unitId,
+        new Phaser.Math.Vector2(unit.x, unit.y),
+      );
+    }
+  }
+
+  private smoothRemoteUnitPositions(deltaMs: number): void {
+    const lerpT = Phaser.Math.Clamp(
+      (BattleScene.REMOTE_POSITION_LERP_RATE * deltaMs) / 1000,
+      0,
+      1,
+    );
+    if (lerpT <= 0) {
+      return;
+    }
+
+    const staleUnitIds: string[] = [];
+    for (const [unitId, target] of this.remoteUnitTargetPositions) {
+      const unit = this.unitsById.get(unitId);
+      if (!unit || !unit.isAlive() || unit.team === this.localPlayerTeam) {
+        staleUnitIds.push(unitId);
+        continue;
+      }
+
+      unit.setPosition(
+        Phaser.Math.Linear(unit.x, target.x, lerpT),
+        Phaser.Math.Linear(unit.y, target.y, lerpT),
+      );
+    }
+
+    for (const unitId of staleUnitIds) {
+      this.remoteUnitTargetPositions.delete(unitId);
+    }
   }
 
   private publishLocalUnitPositions(time: number): void {
@@ -931,6 +1029,7 @@ class BattleScene extends Phaser.Scene {
       unit.resetCurrentDpsOutput();
     }
 
+    this.smoothRemoteUnitPositions(delta);
     for (const unit of this.units) {
       unit.updateMovement(delta);
     }

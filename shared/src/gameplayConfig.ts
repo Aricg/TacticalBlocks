@@ -7,6 +7,8 @@ export const GAMEPLAY_CONFIG = {
     maxPlayers: 2,
     positionSyncIntervalMs: 50,
     positionSyncEpsilon: 0.5,
+    remotePositionLerpRate: 14,
+    remotePositionSnapDistance: 48,
   },
   visibility: {
     fogAlpha: 0.82,

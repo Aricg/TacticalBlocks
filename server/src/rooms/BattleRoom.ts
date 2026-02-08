@@ -40,23 +40,36 @@ export class BattleRoom extends Room<BattleState> {
   private spawnTestUnits(): void {
     const redSpawn = GAMEPLAY_CONFIG.spawn.red;
     const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
-    const redUnit = new Unit(
-      "red-1",
-      "red",
-      redSpawn.x,
-      redSpawn.y,
-      redSpawn.rotation,
-    );
-    const blueUnit = new Unit(
-      "blue-1",
-      "blue",
-      blueSpawn.x,
-      blueSpawn.y,
-      blueSpawn.rotation,
-    );
+    const unitsPerSide = 10;
+    const columns = 5;
+    const spacingX = 32;
+    const spacingY = 28;
+    const centerOffsetX = ((columns - 1) * spacingX) / 2;
 
-    this.state.units.set(redUnit.unitId, redUnit);
-    this.state.units.set(blueUnit.unitId, blueUnit);
+    for (let i = 0; i < unitsPerSide; i += 1) {
+      const column = i % columns;
+      const row = Math.floor(i / columns);
+      const offsetX = column * spacingX - centerOffsetX;
+      const offsetY = row * spacingY;
+
+      const redUnit = new Unit(
+        `red-${i + 1}`,
+        "red",
+        redSpawn.x + offsetX,
+        redSpawn.y + offsetY,
+        redSpawn.rotation,
+      );
+      const blueUnit = new Unit(
+        `blue-${i + 1}`,
+        "blue",
+        blueSpawn.x + offsetX,
+        blueSpawn.y + offsetY,
+        blueSpawn.rotation,
+      );
+
+      this.state.units.set(redUnit.unitId, redUnit);
+      this.state.units.set(blueUnit.unitId, blueUnit);
+    }
   }
 
   private assignTeam(sessionId: string): PlayerTeam {
