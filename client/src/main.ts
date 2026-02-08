@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import {
   NetworkManager,
+  type NetworkUnitHealthUpdate,
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
 } from './NetworkManager';
@@ -60,8 +61,6 @@ class BattleScene extends Phaser.Scene {
     GAMEPLAY_CONFIG.combat.battleJiggleSpeed;
   private static readonly BATTLE_JIGGLE_FREQUENCY =
     GAMEPLAY_CONFIG.combat.battleJiggleFrequency;
-  private static readonly CONTACT_DAMAGE_PER_SECOND =
-    GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
   private static readonly POSITION_SYNC_INTERVAL_MS =
     GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
   private static readonly POSITION_SYNC_EPSILON =
@@ -310,6 +309,9 @@ class BattleScene extends Phaser.Scene {
       (positionUpdate) => {
         this.applyNetworkUnitPosition(positionUpdate);
       },
+      (healthUpdate) => {
+        this.applyNetworkUnitHealth(healthUpdate);
+      },
     );
     void this.networkManager.connect().catch((error: unknown) => {
       console.error('Failed to connect to battle room.', error);
@@ -328,6 +330,7 @@ class BattleScene extends Phaser.Scene {
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
     const existingUnit = this.unitsById.get(networkUnit.unitId);
     if (existingUnit) {
+      existingUnit.setHealth(networkUnit.health);
       this.applyNetworkUnitPositionSnapshot(
         existingUnit,
         networkUnit.unitId,
@@ -342,7 +345,13 @@ class BattleScene extends Phaser.Scene {
       networkUnit.team.toUpperCase() === Team.RED
         ? Team.RED
         : Team.BLUE;
-    const spawnedUnit = new Unit(this, networkUnit.x, networkUnit.y, team);
+    const spawnedUnit = new Unit(
+      this,
+      networkUnit.x,
+      networkUnit.y,
+      team,
+      networkUnit.health,
+    );
     this.units.push(spawnedUnit);
     this.unitsById.set(networkUnit.unitId, spawnedUnit);
     if (spawnedUnit.team !== this.localPlayerTeam) {
@@ -382,6 +391,15 @@ class BattleScene extends Phaser.Scene {
       positionUpdate.x,
       positionUpdate.y,
     );
+  }
+
+  private applyNetworkUnitHealth(healthUpdate: NetworkUnitHealthUpdate): void {
+    const unit = this.unitsById.get(healthUpdate.unitId);
+    if (!unit) {
+      return;
+    }
+
+    unit.setHealth(healthUpdate.health);
   }
 
   private applyAssignedTeam(teamValue: string): void {
@@ -859,8 +877,6 @@ class BattleScene extends Phaser.Scene {
           if (engagementAllowed) {
             a.cancelMovement();
             b.cancelMovement();
-            a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
-            b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
             a.engagedUnits.add(b);
             b.engagedUnits.add(a);
           }
@@ -946,26 +962,6 @@ class BattleScene extends Phaser.Scene {
     );
   }
 
-  private removeDeadUnits(): void {
-    for (let i = this.units.length - 1; i >= 0; i -= 1) {
-      const unit = this.units[i];
-      if (unit.isAlive()) {
-        continue;
-      }
-
-      for (const [unitId, trackedUnit] of this.unitsById) {
-        if (trackedUnit === unit) {
-          this.unitsById.delete(unitId);
-          this.lastPublishedUnitPositions.delete(unitId);
-          break;
-        }
-      }
-      this.selectedUnits.delete(unit);
-      unit.destroy();
-      this.units.splice(i, 1);
-    }
-  }
-
   private refreshFogOfWar(): void {
     this.fogOfWarLayer.clear();
     this.fogOfWarLayer.fill(0x000000, BattleScene.FOG_ALPHA);
@@ -1038,7 +1034,6 @@ class BattleScene extends Phaser.Scene {
       unit.updateCombatRotation(delta);
     }
     this.publishLocalUnitPositions(time);
-    this.removeDeadUnits();
     this.refreshFogOfWar();
     this.renderMovementLines();
   }

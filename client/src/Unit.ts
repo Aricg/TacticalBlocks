@@ -62,7 +62,13 @@ export class Unit extends Phaser.GameObjects.Container {
     [Team.BLUE]: 0x4e6f9e,
   };
 
-  constructor(scene: Phaser.Scene, x: number, y: number, team: Team) {
+  constructor(
+    scene: Phaser.Scene,
+    x: number,
+    y: number,
+    team: Team,
+    health = Unit.HEALTH_MAX,
+  ) {
     super(scene, x, y);
 
     this.selected = false;
@@ -75,7 +81,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.destination = null;
     this.queuedWaypoints = [];
     this.targetRotation = null;
-    this.health = Unit.HEALTH_MAX;
+    this.health = Phaser.Math.Clamp(health, 0, Unit.HEALTH_MAX);
     this.currentDpsOutput = 0;
 
     // Rectangle source-of-truth: centered at local (0,0).
@@ -256,6 +262,11 @@ export class Unit extends Phaser.GameObjects.Container {
 
   public isHealthInRedZone(): boolean {
     return this.getHealthRatio() <= Unit.HEALTH_RED_THRESHOLD;
+  }
+
+  public setHealth(health: number): void {
+    this.health = Phaser.Math.Clamp(health, 0, Unit.HEALTH_MAX);
+    this.refreshHealthVisuals();
   }
 
   private faceCurrentDestination(): void {

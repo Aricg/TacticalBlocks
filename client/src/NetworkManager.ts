@@ -6,6 +6,7 @@ type ServerUnitState = {
   rotation: number;
   team: string;
   unitId: string;
+  health: number;
 };
 
 type BattleRoomState = {
@@ -17,6 +18,7 @@ export type NetworkUnitSnapshot = {
   team: string;
   x: number;
   y: number;
+  health: number;
 };
 
 export type NetworkUnitPositionUpdate = {
@@ -25,10 +27,16 @@ export type NetworkUnitPositionUpdate = {
   y: number;
 };
 
+export type NetworkUnitHealthUpdate = {
+  unitId: string;
+  health: number;
+};
+
 type UnitAddedHandler = (unit: NetworkUnitSnapshot) => void;
 type UnitRemovedHandler = (unitId: string) => void;
 type TeamAssignedHandler = (team: string) => void;
 type UnitPositionChangedHandler = (position: NetworkUnitPositionUpdate) => void;
+type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
 
 type TeamAssignedMessage = {
   team: string;
@@ -45,6 +53,7 @@ export class NetworkManager {
     private readonly onUnitRemoved: UnitRemovedHandler,
     private readonly onTeamAssigned: TeamAssignedHandler,
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
+    private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     endpoint = 'ws://localhost:2567',
     roomName = 'battle',
   ) {
@@ -74,6 +83,7 @@ export class NetworkManager {
             team: serverUnit.team,
             x: serverUnit.x,
             y: serverUnit.y,
+            health: serverUnit.health,
           });
 
           const detachX = $(serverUnit).listen('x', (x: number) => {
@@ -90,7 +100,13 @@ export class NetworkManager {
               y,
             });
           });
-          this.detachCallbacks.push(detachX, detachY);
+          const detachHealth = $(serverUnit).listen('health', (health: number) => {
+            this.onUnitHealthChanged({
+              unitId,
+              health,
+            });
+          });
+          this.detachCallbacks.push(detachX, detachY, detachHealth);
         },
         true,
       );

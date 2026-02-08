@@ -12,11 +12,18 @@ type UnitPositionMessage = {
 
 export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
+  private static readonly CONTACT_DAMAGE_PER_SECOND =
+    GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
+  private static readonly UNIT_HALF_WIDTH = 12;
+  private static readonly UNIT_HALF_HEIGHT = 7;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
     this.spawnTestUnits();
+    this.setSimulationInterval((deltaMs) => {
+      this.updateCombat(deltaMs / 1000);
+    }, 50);
 
     this.onMessage("unitPosition", (client, message: UnitPositionMessage) => {
       this.handleUnitPositionMessage(client, message);
@@ -107,5 +114,69 @@ export class BattleRoom extends Room<BattleState> {
 
     unit.x = message.x;
     unit.y = message.y;
+  }
+
+  private updateCombat(deltaSeconds: number): void {
+    if (deltaSeconds <= 0) {
+      return;
+    }
+
+    const units = Array.from(this.state.units.values());
+    const pendingDamageByUnitId = new Map<string, number>();
+
+    for (let i = 0; i < units.length; i += 1) {
+      const a = units[i];
+      if (a.health <= 0) {
+        continue;
+      }
+
+      for (let j = i + 1; j < units.length; j += 1) {
+        const b = units[j];
+        if (b.health <= 0 || a.team === b.team) {
+          continue;
+        }
+
+        if (!this.areUnitsInContact(a, b)) {
+          continue;
+        }
+
+        const damage = BattleRoom.CONTACT_DAMAGE_PER_SECOND * deltaSeconds;
+        pendingDamageByUnitId.set(
+          a.unitId,
+          (pendingDamageByUnitId.get(a.unitId) ?? 0) + damage,
+        );
+        pendingDamageByUnitId.set(
+          b.unitId,
+          (pendingDamageByUnitId.get(b.unitId) ?? 0) + damage,
+        );
+      }
+    }
+
+    if (pendingDamageByUnitId.size === 0) {
+      return;
+    }
+
+    const deadUnitIds: string[] = [];
+    for (const [unitId, damage] of pendingDamageByUnitId) {
+      const unit = this.state.units.get(unitId);
+      if (!unit || unit.health <= 0) {
+        continue;
+      }
+
+      unit.health = Math.max(0, unit.health - damage);
+      if (unit.health <= 0) {
+        deadUnitIds.push(unitId);
+      }
+    }
+
+    for (const unitId of deadUnitIds) {
+      this.state.units.delete(unitId);
+    }
+  }
+
+  private areUnitsInContact(a: Unit, b: Unit): boolean {
+    const overlapX = Math.abs(a.x - b.x) <= BattleRoom.UNIT_HALF_WIDTH * 2;
+    const overlapY = Math.abs(a.y - b.y) <= BattleRoom.UNIT_HALF_HEIGHT * 2;
+    return overlapX && overlapY;
   }
 }
