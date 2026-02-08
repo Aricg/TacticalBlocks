@@ -7,6 +7,7 @@ export class Unit extends Phaser.GameObjects.Container {
   private readonly speed: number;
   private readonly turnSpeed: number;
   private destination: Phaser.Math.Vector2 | null;
+  private queuedWaypoints: Phaser.Math.Vector2[];
   private targetRotation: number | null;
 
   private readonly unitBody: Phaser.GameObjects.Rectangle;
@@ -36,6 +37,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.speed = 120;
     this.turnSpeed = Phaser.Math.DegToRad(180);
     this.destination = null;
+    this.queuedWaypoints = [];
     this.targetRotation = null;
 
     // Rectangle source-of-truth: centered at local (0,0).
@@ -109,16 +111,40 @@ export class Unit extends Phaser.GameObjects.Container {
   }
 
   public setDestination(x: number, y: number): void {
-    this.destination = new Phaser.Math.Vector2(x, y);
+    this.setPath([new Phaser.Math.Vector2(x, y)]);
+  }
 
-    // Calculate angle to target so the unit faces its move direction.
-    const angleToTarget = Phaser.Math.Angle.Between(this.x, this.y, x, y);
-    this.targetRotation = angleToTarget - Unit.FORWARD_OFFSET;
+  public setPath(path: Phaser.Math.Vector2[]): void {
+    if (path.length === 0) {
+      this.cancelMovement();
+      return;
+    }
+
+    const [first, ...rest] = path;
+    this.destination = first.clone();
+    this.queuedWaypoints = rest.map((point) => point.clone());
+    this.faceCurrentDestination();
   }
 
   public cancelMovement(): void {
     this.destination = null;
+    this.queuedWaypoints = [];
     this.targetRotation = null;
+  }
+
+  private faceCurrentDestination(): void {
+    if (!this.destination) {
+      this.targetRotation = null;
+      return;
+    }
+
+    const angleToTarget = Phaser.Math.Angle.Between(
+      this.x,
+      this.y,
+      this.destination.x,
+      this.destination.y,
+    );
+    this.targetRotation = angleToTarget - Unit.FORWARD_OFFSET;
   }
 
   public updateMovement(deltaMs: number): void {
@@ -153,7 +179,9 @@ export class Unit extends Phaser.GameObjects.Container {
 
     if (distance <= maxStep) {
       this.setPosition(this.destination.x, this.destination.y);
-      this.destination = null;
+      const nextDestination = this.queuedWaypoints.shift() ?? null;
+      this.destination = nextDestination;
+      this.faceCurrentDestination();
       return;
     }
 
