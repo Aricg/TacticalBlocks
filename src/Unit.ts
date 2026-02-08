@@ -12,10 +12,21 @@ export class Unit extends Phaser.GameObjects.Container {
 
   private readonly unitBody: Phaser.GameObjects.Rectangle;
   private readonly facingArrow: Phaser.GameObjects.Triangle;
+  private readonly healthBoxBg: Phaser.GameObjects.Rectangle;
+  private readonly healthBoxFill: Phaser.GameObjects.Rectangle;
+  private readonly dpsText: Phaser.GameObjects.Text;
+  private health: number;
+  private currentDpsOutput: number;
 
   private static readonly BODY_WIDTH = 48;
   private static readonly BODY_HEIGHT = 28;
   private static readonly OUTLINE_WIDTH = 2;
+  private static readonly HEALTH_BOX_WIDTH = 40;
+  private static readonly HEALTH_BOX_HEIGHT = 6;
+  private static readonly HEALTH_BOX_TOP_INSET = 6;
+  private static readonly HEALTH_MAX = 100;
+  private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
+  private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly ARROW_VERTICES = [
     { x: -10, y: 6 },
     { x: 0, y: -10 },
@@ -40,6 +51,8 @@ export class Unit extends Phaser.GameObjects.Container {
     this.destination = null;
     this.queuedWaypoints = [];
     this.targetRotation = null;
+    this.health = Unit.HEALTH_MAX;
+    this.currentDpsOutput = 0;
 
     // Rectangle source-of-truth: centered at local (0,0).
     this.unitBody = new Phaser.GameObjects.Rectangle(
@@ -79,9 +92,51 @@ export class Unit extends Phaser.GameObjects.Container {
     this.facingArrow.setDisplayOrigin(0, 0);
     this.facingArrow.setStrokeStyle(1, 0x222222, 1);
 
-    this.add([this.unitBody, this.facingArrow]);
+    this.healthBoxBg = new Phaser.GameObjects.Rectangle(
+      scene,
+      0,
+      -(Unit.BODY_HEIGHT * 0.5) + Unit.HEALTH_BOX_TOP_INSET,
+      Unit.HEALTH_BOX_WIDTH,
+      Unit.HEALTH_BOX_HEIGHT,
+      0x1a1a1a,
+    );
+    this.healthBoxBg.setOrigin(0.5, 0.5);
+    this.healthBoxBg.setStrokeStyle(1, 0xffffff, 0.7);
+
+    this.healthBoxFill = new Phaser.GameObjects.Rectangle(
+      scene,
+      -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1,
+      this.healthBoxBg.y,
+      Unit.HEALTH_BOX_INNER_WIDTH,
+      Unit.HEALTH_BOX_INNER_HEIGHT,
+      0x63d471,
+    );
+    this.healthBoxFill.setOrigin(0, 0.5);
+
+    this.dpsText = new Phaser.GameObjects.Text(
+      scene,
+      0,
+      Unit.BODY_HEIGHT * 0.5 - 6,
+      '',
+      {
+        fontFamily: 'monospace',
+        fontSize: '8px',
+        color: '#ffffff',
+      },
+    );
+    this.dpsText.setOrigin(0.5, 0.5);
+
+    this.add([
+      this.unitBody,
+      this.facingArrow,
+      this.healthBoxBg,
+      this.healthBoxFill,
+      this.dpsText,
+    ]);
 
     scene.add.existing(this);
+    this.refreshHealthVisuals();
+    this.refreshDpsOutputVisual();
   }
 
   public static fromGameObject(
@@ -131,6 +186,26 @@ export class Unit extends Phaser.GameObjects.Container {
     this.destination = null;
     this.queuedWaypoints = [];
     this.targetRotation = null;
+  }
+
+  public resetCurrentDpsOutput(): void {
+    this.currentDpsOutput = 0;
+    this.refreshDpsOutputVisual();
+  }
+
+  public applyContactDamage(damagePerSecond: number, deltaSeconds: number): void {
+    if (damagePerSecond <= 0 || deltaSeconds <= 0 || this.health <= 0) {
+      return;
+    }
+
+    this.currentDpsOutput += damagePerSecond;
+    this.health = Math.max(0, this.health - damagePerSecond * deltaSeconds);
+    this.refreshHealthVisuals();
+    this.refreshDpsOutputVisual();
+  }
+
+  public isAlive(): boolean {
+    return this.health > 0;
   }
 
   private faceCurrentDestination(): void {
@@ -223,5 +298,24 @@ export class Unit extends Phaser.GameObjects.Container {
       waypoints.push(point.clone());
     }
     return waypoints;
+  }
+
+  private refreshHealthVisuals(): void {
+    const healthRatio = Phaser.Math.Clamp(this.health / Unit.HEALTH_MAX, 0, 1);
+    this.healthBoxFill.setDisplaySize(
+      Unit.HEALTH_BOX_INNER_WIDTH * healthRatio,
+      Unit.HEALTH_BOX_INNER_HEIGHT,
+    );
+    this.healthBoxFill.setFillStyle(healthRatio > 0.35 ? 0x63d471 : 0xd44b4b);
+    this.healthBoxFill.setVisible(healthRatio > 0);
+  }
+
+  private refreshDpsOutputVisual(): void {
+    if (this.currentDpsOutput <= 0) {
+      this.dpsText.setText('');
+      return;
+    }
+
+    this.dpsText.setText(`${Math.round(this.currentDpsOutput)} DPS`);
   }
 }

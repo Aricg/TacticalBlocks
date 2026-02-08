@@ -21,6 +21,7 @@ class BattleScene extends Phaser.Scene {
   private static readonly PREVIEW_PATH_POINT_SPACING = 4;
   private static readonly COMMAND_PATH_POINT_SPACING = 18;
   private static readonly COLLISION_MIN_DISTANCE = 42;
+  private static readonly CONTACT_DAMAGE_PER_SECOND = 12;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -452,11 +453,19 @@ class BattleScene extends Phaser.Scene {
     this.selectedUnits.clear();
   }
 
-  private applyCollisionAvoidance(): void {
+  private applyCollisionAvoidance(deltaSeconds: number): void {
     for (let i = 0; i < this.units.length; i += 1) {
       const a = this.units[i];
+      if (!a.isAlive()) {
+        continue;
+      }
+
       for (let j = i + 1; j < this.units.length; j += 1) {
         const b = this.units[j];
+        if (!b.isAlive()) {
+          continue;
+        }
+
         const delta = new Phaser.Math.Vector2(b.x - a.x, b.y - a.y);
         const distance = Math.max(delta.length(), 0.0001);
         if (distance >= BattleScene.COLLISION_MIN_DISTANCE) {
@@ -466,6 +475,8 @@ class BattleScene extends Phaser.Scene {
         if (a.team !== b.team) {
           a.cancelMovement();
           b.cancelMovement();
+          a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+          b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
         }
 
         const overlap = BattleScene.COLLISION_MIN_DISTANCE - distance;
@@ -473,6 +484,19 @@ class BattleScene extends Phaser.Scene {
         a.setPosition(a.x - separation.x, a.y - separation.y);
         b.setPosition(b.x + separation.x, b.y + separation.y);
       }
+    }
+  }
+
+  private removeDeadUnits(): void {
+    for (let i = this.units.length - 1; i >= 0; i -= 1) {
+      const unit = this.units[i];
+      if (unit.isAlive()) {
+        continue;
+      }
+
+      this.selectedUnits.delete(unit);
+      unit.destroy();
+      this.units.splice(i, 1);
     }
   }
 
@@ -502,9 +526,14 @@ class BattleScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     for (const unit of this.units) {
+      unit.resetCurrentDpsOutput();
+    }
+
+    for (const unit of this.units) {
       unit.updateMovement(delta);
     }
-    this.applyCollisionAvoidance();
+    this.applyCollisionAvoidance(delta / 1000);
+    this.removeDeadUnits();
     this.renderMovementLines();
   }
 }
