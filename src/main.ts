@@ -484,6 +484,8 @@ class BattleScene extends Phaser.Scene {
           a.y += pull.y;
           b.x -= pull.x;
           b.y -= pull.y;
+          a.engagedUnits.add(b);
+          b.engagedUnits.add(a);
         }
 
         // 2. Collision / Combat (Touching)
@@ -493,6 +495,8 @@ class BattleScene extends Phaser.Scene {
             b.cancelMovement();
             a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
             b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+            a.engagedUnits.add(b);
+            b.engagedUnits.add(a);
           }
 
           const overlap = BattleScene.COLLISION_MIN_DISTANCE - distance;
@@ -550,6 +554,9 @@ class BattleScene extends Phaser.Scene {
       unit.updateMovement(delta);
     }
     this.updateUnitInteractions(delta / 1000);
+    for (const unit of this.units) {
+      unit.updateCombatRotation(delta);
+    }
     this.removeDeadUnits();
     this.renderMovementLines();
   }

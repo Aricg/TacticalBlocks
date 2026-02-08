@@ -3,6 +3,7 @@ import { Team } from './Team';
 
 export class Unit extends Phaser.GameObjects.Container {
   public selected: boolean;
+  public readonly engagedUnits: Set<Unit>;
   public readonly team: Team;
   private readonly speed: number;
   private readonly turnSpeed: number;
@@ -45,6 +46,7 @@ export class Unit extends Phaser.GameObjects.Container {
     super(scene, x, y);
 
     this.selected = false;
+    this.engagedUnits = new Set();
     this.team = team;
     this.speed = 120;
     this.turnSpeed = Phaser.Math.DegToRad(180);
@@ -190,6 +192,7 @@ export class Unit extends Phaser.GameObjects.Container {
 
   public resetCurrentDpsOutput(): void {
     this.currentDpsOutput = 0;
+    this.engagedUnits.clear();
     this.refreshDpsOutputVisual();
   }
 
@@ -221,6 +224,32 @@ export class Unit extends Phaser.GameObjects.Container {
       this.destination.y,
     );
     this.targetRotation = angleToTarget - Unit.FORWARD_OFFSET;
+  }
+
+  public updateCombatRotation(deltaMs: number): void {
+    if (this.engagedUnits.size === 0) {
+      return;
+    }
+
+    const target = this.engagedUnits.values().next().value;
+    if (!target) {
+      return;
+    }
+
+    const deltaSeconds = deltaMs / 1000;
+    const targetAngle = Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y);
+    const desiredRotation = targetAngle - Unit.FORWARD_OFFSET;
+
+    const angleDelta = Phaser.Math.Angle.Wrap(desiredRotation - this.rotation);
+    const maxTurnStep = this.turnSpeed * deltaSeconds;
+
+    if (Math.abs(angleDelta) <= maxTurnStep) {
+      this.rotation = desiredRotation;
+    } else {
+      this.rotation = Phaser.Math.Angle.Wrap(
+        this.rotation + Math.sign(angleDelta) * maxTurnStep,
+      );
+    }
   }
 
   public updateMovement(deltaMs: number): void {
