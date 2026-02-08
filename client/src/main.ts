@@ -1,10 +1,13 @@
 import Phaser from 'phaser';
+import { NetworkManager, type NetworkUnitSnapshot } from './NetworkManager';
 import { Team } from './Team';
 import { Unit, UnitHitbox } from './Unit';
 
 class BattleScene extends Phaser.Scene {
   private readonly units: Unit[] = [];
+  private readonly unitsById: Map<string, Unit> = new Map<string, Unit>();
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
+  private networkManager: NetworkManager | null = null;
   private localPlayerTeam: Team = Team.BLUE;
   private suppressCommandOnPointerUp = false;
   private dragStart: Phaser.Math.Vector2 | null = null;
@@ -50,10 +53,6 @@ class BattleScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     this.shiftKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
-
-    const centerX = this.scale.width * 0.5;
-    const centerY = this.scale.height * 0.5;
-    this.spawnUnits(centerX, centerY);
 
     this.selectionBox = this.add.graphics();
     this.selectionBox.setDepth(1000);
@@ -268,49 +267,58 @@ class BattleScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-SPACE', () => {
       this.cancelSelectedUnitMovement();
     });
+
+    this.networkManager = new NetworkManager(
+      (networkUnit) => {
+        this.upsertNetworkUnit(networkUnit);
+      },
+      (unitId) => {
+        this.removeNetworkUnit(unitId);
+      },
+    );
+    void this.networkManager.connect().catch((error: unknown) => {
+      console.error('Failed to connect to battle room.', error);
+    });
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (!this.networkManager) {
+        return;
+      }
+
+      void this.networkManager.disconnect();
+      this.networkManager = null;
+    });
   }
 
-  private spawnUnits(centerX: number, centerY: number): void {
-    const startSeparation = 280;
-    const blueX = centerX - startSeparation * 0.5;
-    const redX = centerX + startSeparation * 0.5;
-    const blueRows = 10;
-    const blueCols = 5;
-    const redRows = 10;
-    const redCols = 3;
-    const rowSpacing = 28;
-    const colSpacing = 36;
-    const blueFacingRotation = Math.PI / 2;
-    const redFacingRotation = -Math.PI / 2;
-
-    const blueTopY = centerY - ((blueRows - 1) * rowSpacing) / 2;
-    const redTopY = centerY - ((redRows - 1) * rowSpacing) / 2;
-
-    for (let col = 0; col < blueCols; col += 1) {
-      for (let row = 0; row < blueRows; row += 1) {
-        const blueUnit = new Unit(
-          this,
-          blueX - col * colSpacing,
-          blueTopY + row * rowSpacing,
-          Team.BLUE,
-        );
-        blueUnit.setRotation(blueFacingRotation);
-        this.units.push(blueUnit);
-      }
+  private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
+    const existingUnit = this.unitsById.get(networkUnit.unitId);
+    if (existingUnit) {
+      existingUnit.setPosition(networkUnit.x, networkUnit.y);
+      return;
     }
 
-    for (let col = 0; col < redCols; col += 1) {
-      for (let row = 0; row < redRows; row += 1) {
-        const redUnit = new Unit(
-          this,
-          redX + col * colSpacing,
-          redTopY + row * rowSpacing,
-          Team.RED,
-        );
-        redUnit.setRotation(redFacingRotation);
-        this.units.push(redUnit);
-      }
+    const team =
+      networkUnit.team.toUpperCase() === Team.RED
+        ? Team.RED
+        : Team.BLUE;
+    const spawnedUnit = new Unit(this, networkUnit.x, networkUnit.y, team);
+    this.units.push(spawnedUnit);
+    this.unitsById.set(networkUnit.unitId, spawnedUnit);
+  }
+
+  private removeNetworkUnit(unitId: string): void {
+    const unit = this.unitsById.get(unitId);
+    if (!unit) {
+      return;
     }
+
+    this.unitsById.delete(unitId);
+    this.selectedUnits.delete(unit);
+    const index = this.units.indexOf(unit);
+    if (index >= 0) {
+      this.units.splice(index, 1);
+    }
+    unit.destroy();
   }
 
   private drawSelectionBox(currentX: number, currentY: number): void {
@@ -753,6 +761,12 @@ class BattleScene extends Phaser.Scene {
         continue;
       }
 
+      for (const [unitId, trackedUnit] of this.unitsById) {
+        if (trackedUnit === unit) {
+          this.unitsById.delete(unitId);
+          break;
+        }
+      }
       this.selectedUnits.delete(unit);
       unit.destroy();
       this.units.splice(i, 1);

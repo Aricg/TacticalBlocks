@@ -1,22 +1,11 @@
 {
-  "name": "tacticalblocks",
-  "version": "1.0.0",
-  "description": "Minimal Phaser 3 tactical blocks MVP",
-  "type": "module",
+  "name": "tacticalblocks-workspace",
+  "private": true,
+  "version": "0.1.0",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "phaser": "^3.90.0"
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\""
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "vite": "^6.4.1"
+    "concurrently": "^9.1.2"
   }
 }
