@@ -21,8 +21,12 @@ class BattleScene extends Phaser.Scene {
   private static readonly PREVIEW_PATH_POINT_SPACING = 4;
   private static readonly COMMAND_PATH_POINT_SPACING = 50;
   private static readonly COLLISION_MIN_DISTANCE = 42;
-  private static readonly ENGAGEMENT_MAGNET_DISTANCE = 100;
-  private static readonly MAGNETISM_SPEED = 80;
+  private static readonly CONTACT_ENGAGE_DISTANCE = 50;
+  private static readonly ENGAGEMENT_MAGNET_DISTANCE = 80;
+  private static readonly ENGAGEMENT_HOLD_DISTANCE = 120;
+  private static readonly MAGNETISM_SPEED = 20;
+  private static readonly BATTLE_JIGGLE_SPEED = 44;
+  private static readonly BATTLE_JIGGLE_FREQUENCY = 0.018;
   private static readonly CONTACT_DAMAGE_PER_SECOND = 12;
 
   constructor() {
@@ -234,15 +238,18 @@ class BattleScene extends Phaser.Scene {
     const startSeparation = 180;
     const blueX = centerX - startSeparation * 0.5;
     const redX = centerX + startSeparation * 0.5;
-    const rowOffsets = [-80, 0, 80];
+    const blueRowOffsets = [-120, -60, 0, 60, 120];
+    const redRowOffsets = [-80, 0, 80];
     const blueFacingRotation = Math.PI / 2;
     const redFacingRotation = -Math.PI / 2;
 
-    for (const rowOffset of rowOffsets) {
+    for (const rowOffset of blueRowOffsets) {
       const blueUnit = new Unit(this, blueX, centerY + rowOffset, Team.BLUE);
       blueUnit.setRotation(blueFacingRotation);
       this.units.push(blueUnit);
+    }
 
+    for (const rowOffset of redRowOffsets) {
       const redUnit = new Unit(this, redX, centerY + rowOffset, Team.RED);
       redUnit.setRotation(redFacingRotation);
       this.units.push(redUnit);
@@ -456,6 +463,8 @@ class BattleScene extends Phaser.Scene {
   }
 
   private updateUnitInteractions(deltaSeconds: number): void {
+    const timeNow = this.time.now;
+
     for (let i = 0; i < this.units.length; i += 1) {
       const a = this.units[i];
       if (!a.isAlive()) {
@@ -470,15 +479,27 @@ class BattleScene extends Phaser.Scene {
 
         const delta = new Phaser.Math.Vector2(b.x - a.x, b.y - a.y);
         const distance = Math.max(delta.length(), 0.0001);
+        const opposingTeams = a.team !== b.team;
+        const stickyEngagement =
+          opposingTeams &&
+          (a.wasEngagedWith(b) || b.wasEngagedWith(a)) &&
+          distance <= BattleScene.ENGAGEMENT_HOLD_DISTANCE;
+        const shouldMagnetize =
+          opposingTeams &&
+          distance > BattleScene.COLLISION_MIN_DISTANCE &&
+          (distance <= BattleScene.ENGAGEMENT_MAGNET_DISTANCE || stickyEngagement);
+        const shouldBattleJiggle =
+          opposingTeams &&
+          (distance <= BattleScene.CONTACT_ENGAGE_DISTANCE || stickyEngagement);
+        const safeDirection =
+          distance > 0.0001
+            ? delta.clone().scale(1 / distance)
+            : new Phaser.Math.Vector2(1, 0);
 
         // 1. Magnetism (Opposing teams, close but not touching)
-        if (
-          a.team !== b.team &&
-          distance <= BattleScene.ENGAGEMENT_MAGNET_DISTANCE &&
-          distance > BattleScene.COLLISION_MIN_DISTANCE
-        ) {
-          const pull = delta
-            .normalize()
+        if (shouldMagnetize) {
+          const pull = safeDirection
+            .clone()
             .scale(BattleScene.MAGNETISM_SPEED * deltaSeconds);
           a.x += pull.x;
           a.y += pull.y;
@@ -488,9 +509,23 @@ class BattleScene extends Phaser.Scene {
           b.engagedUnits.add(a);
         }
 
-        // 2. Collision / Combat (Touching)
-        if (distance < BattleScene.COLLISION_MIN_DISTANCE) {
-          if (a.team !== b.team) {
+        // 2. Combat close-range jitter cue (opposing teams only)
+        if (shouldBattleJiggle) {
+          const phase =
+            timeNow * BattleScene.BATTLE_JIGGLE_FREQUENCY + i * 1.7 + j * 2.3;
+          const jiggleStep =
+            Math.sin(phase) * BattleScene.BATTLE_JIGGLE_SPEED * deltaSeconds;
+          a.x += safeDirection.x * jiggleStep;
+          a.y += safeDirection.y * jiggleStep;
+          b.x -= safeDirection.x * jiggleStep;
+          b.y -= safeDirection.y * jiggleStep;
+          a.engagedUnits.add(b);
+          b.engagedUnits.add(a);
+        }
+
+        // 3. Contact combat + hard collision separation
+        if (distance <= BattleScene.CONTACT_ENGAGE_DISTANCE) {
+          if (opposingTeams) {
             a.cancelMovement();
             b.cancelMovement();
             a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
@@ -500,9 +535,11 @@ class BattleScene extends Phaser.Scene {
           }
 
           const overlap = BattleScene.COLLISION_MIN_DISTANCE - distance;
-          const separation = delta.normalize().scale(overlap * 0.5);
-          a.setPosition(a.x - separation.x, a.y - separation.y);
-          b.setPosition(b.x + separation.x, b.y + separation.y);
+          if (overlap > 0) {
+            const separation = safeDirection.clone().scale(overlap * 0.5);
+            a.setPosition(a.x - separation.x, a.y - separation.y);
+            b.setPosition(b.x + separation.x, b.y + separation.y);
+          }
         }
       }
     }

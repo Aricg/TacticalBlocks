@@ -4,6 +4,7 @@ import { Team } from './Team';
 export class Unit extends Phaser.GameObjects.Container {
   public selected: boolean;
   public readonly engagedUnits: Set<Unit>;
+  private readonly previouslyEngagedUnits: Set<Unit>;
   public readonly team: Team;
   private readonly speed: number;
   private readonly turnSpeed: number;
@@ -47,6 +48,7 @@ export class Unit extends Phaser.GameObjects.Container {
 
     this.selected = false;
     this.engagedUnits = new Set();
+    this.previouslyEngagedUnits = new Set();
     this.team = team;
     this.speed = 120;
     this.turnSpeed = Phaser.Math.DegToRad(180);
@@ -192,8 +194,16 @@ export class Unit extends Phaser.GameObjects.Container {
 
   public resetCurrentDpsOutput(): void {
     this.currentDpsOutput = 0;
+    this.previouslyEngagedUnits.clear();
+    for (const engagedUnit of this.engagedUnits) {
+      this.previouslyEngagedUnits.add(engagedUnit);
+    }
     this.engagedUnits.clear();
     this.refreshDpsOutputVisual();
+  }
+
+  public wasEngagedWith(unit: Unit): boolean {
+    return this.previouslyEngagedUnits.has(unit);
   }
 
   public applyContactDamage(damagePerSecond: number, deltaSeconds: number): void {
