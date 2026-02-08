@@ -151,4 +151,8 @@ export class Unit extends Phaser.GameObjects.Container {
     const stepY = Math.sin(moveAngle) * maxStep;
     this.setPosition(this.x + stepX, this.y + stepY);
   }
+
+  public getDestination(): Phaser.Math.Vector2 | null {
+    return this.destination ? this.destination.clone() : null;
+  }
 }

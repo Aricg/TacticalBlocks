@@ -8,6 +8,7 @@ class BattleScene extends Phaser.Scene {
   private dragStart: Phaser.Math.Vector2 | null = null;
   private boxSelecting = false;
   private selectionBox!: Phaser.GameObjects.Graphics;
+  private movementLines!: Phaser.GameObjects.Graphics;
 
   private static readonly DRAG_THRESHOLD = 10;
   private static readonly COLLISION_MIN_DISTANCE = 42;
@@ -28,6 +29,8 @@ class BattleScene extends Phaser.Scene {
 
     this.selectionBox = this.add.graphics();
     this.selectionBox.setDepth(1000);
+    this.movementLines = this.add.graphics();
+    this.movementLines.setDepth(900);
 
     this.input.on(
       'gameobjectdown',
@@ -244,11 +247,29 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private renderMovementLines(): void {
+    this.movementLines.clear();
+    this.movementLines.lineStyle(2, 0xf4e7b2, 0.75);
+
+    for (const unit of this.units) {
+      const destination = unit.getDestination();
+      if (!destination) {
+        continue;
+      }
+
+      this.movementLines.beginPath();
+      this.movementLines.moveTo(unit.x, unit.y);
+      this.movementLines.lineTo(destination.x, destination.y);
+      this.movementLines.strokePath();
+    }
+  }
+
   update(_time: number, delta: number): void {
     for (const unit of this.units) {
       unit.updateMovement(delta);
     }
     this.applyCollisionAvoidance();
+    this.renderMovementLines();
   }
 }
 
