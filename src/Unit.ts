@@ -24,6 +24,7 @@ export class Unit extends Phaser.GameObjects.Container {
 
   // Local forward is drawn upward in unit space.
   private static readonly FORWARD_OFFSET = -Math.PI / 2;
+  private static readonly REFACE_ANGLE_THRESHOLD = Phaser.Math.DegToRad(3);
   private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
     [Team.RED]: 0xa05555,
     [Team.BLUE]: 0x4e6f9e,
@@ -153,6 +154,23 @@ export class Unit extends Phaser.GameObjects.Container {
     }
 
     const deltaSeconds = deltaMs / 1000;
+    const desiredRotation =
+      Phaser.Math.Angle.Between(
+        this.x,
+        this.y,
+        this.destination.x,
+        this.destination.y,
+      ) - Unit.FORWARD_OFFSET;
+
+    // Collision separation can shove a unit sideways. If its heading drifts
+    // away from the current waypoint, re-enter rotate state before moving.
+    if (this.targetRotation === null) {
+      const headingError = Phaser.Math.Angle.Wrap(desiredRotation - this.rotation);
+      if (Math.abs(headingError) > Unit.REFACE_ANGLE_THRESHOLD) {
+        this.targetRotation = desiredRotation;
+      }
+    }
+
     if (this.targetRotation !== null) {
       const maxTurnStep = this.turnSpeed * deltaSeconds;
       const angleDelta = Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation);
