@@ -42,7 +42,9 @@
   - `dist/` is the build output.
   - Local `start-dev.sh` for environment setup.
 
-## 5. Roadmap / Next Steps
-- Implement multiple units selection (Box selection).
-- Add "Formations" (units moving in a group relative to each other).
-- Implement basic collision avoidance
+  Potential Improvement (Refactoring):
+   * The pointerdown and pointermove logic in main.ts is starting to get quite
+     dense with branching conditions (if (this.selectedUnits.size > 0), if
+     (this.pathDrawing), etc.). While perfectly functional for an MVP, this might
+     be a good candidate for a simple State Machine if more complex interaction
+     modes (like attack-move or guard) are added.
