@@ -1,6 +1,7 @@
 import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
+import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 
 type PlayerTeam = "BLUE" | "RED";
 type UnitPositionMessage = {
@@ -13,7 +14,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
 
   onCreate(): void {
-    this.maxClients = 2;
+    this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
     this.spawnTestUnits();
 
@@ -37,8 +38,22 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private spawnTestUnits(): void {
-    const redUnit = new Unit("red-1", "red", 220, 300, 0);
-    const blueUnit = new Unit("blue-1", "blue", 580, 300, Math.PI);
+    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
+    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
+    const redUnit = new Unit(
+      "red-1",
+      "red",
+      redSpawn.x,
+      redSpawn.y,
+      redSpawn.rotation,
+    );
+    const blueUnit = new Unit(
+      "blue-1",
+      "blue",
+      blueSpawn.x,
+      blueSpawn.y,
+      blueSpawn.rotation,
+    );
 
     this.state.units.set(redUnit.unitId, redUnit);
     this.state.units.set(blueUnit.unitId, blueUnit);

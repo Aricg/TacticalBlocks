@@ -4,6 +4,7 @@ import {
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
 } from './NetworkManager';
+import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import { Team } from './Team';
 import { Unit, UnitHitbox } from './Unit';
 
@@ -30,26 +31,39 @@ class BattleScene extends Phaser.Scene {
   private visionBrush!: Phaser.GameObjects.Arc;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
 
-  private static readonly MAP_WIDTH = 1920;
-  private static readonly MAP_HEIGHT = 1080;
-  private static readonly FOG_ALPHA = 0.82;
-  private static readonly VISION_RADIUS = 240;
-  private static readonly ENEMY_VISIBILITY_PADDING = 24;
-  private static readonly FOG_DEPTH = 925;
-  private static readonly DRAG_THRESHOLD = 10;
-  private static readonly PREVIEW_PATH_POINT_SPACING = 4;
-  private static readonly COMMAND_PATH_POINT_SPACING = 50;
-  private static readonly ENGAGEMENT_MAGNET_DISTANCE = 80;
-  private static readonly ENGAGEMENT_HOLD_DISTANCE = 120;
-  private static readonly MAGNETISM_SPEED = 14;
-  private static readonly ALLY_COLLISION_PUSH_SPEED = 180;
-  private static readonly ALLY_SOFT_SEPARATION_DISTANCE = 28;
-  private static readonly ALLY_SOFT_SEPARATION_PUSH_SPEED = 90;
-  private static readonly BATTLE_JIGGLE_SPEED = 44;
-  private static readonly BATTLE_JIGGLE_FREQUENCY = 0.018;
-  private static readonly CONTACT_DAMAGE_PER_SECOND = 12;
-  private static readonly POSITION_SYNC_INTERVAL_MS = 50;
-  private static readonly POSITION_SYNC_EPSILON = 0.5;
+  private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
+  private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
+  private static readonly FOG_ALPHA = GAMEPLAY_CONFIG.visibility.fogAlpha;
+  private static readonly VISION_RADIUS = GAMEPLAY_CONFIG.visibility.visionRadius;
+  private static readonly ENEMY_VISIBILITY_PADDING =
+    GAMEPLAY_CONFIG.visibility.enemyVisibilityPadding;
+  private static readonly FOG_DEPTH = GAMEPLAY_CONFIG.visibility.fogDepth;
+  private static readonly DRAG_THRESHOLD = GAMEPLAY_CONFIG.input.dragThreshold;
+  private static readonly PREVIEW_PATH_POINT_SPACING =
+    GAMEPLAY_CONFIG.input.previewPathPointSpacing;
+  private static readonly COMMAND_PATH_POINT_SPACING =
+    GAMEPLAY_CONFIG.input.commandPathPointSpacing;
+  private static readonly ENGAGEMENT_MAGNET_DISTANCE =
+    GAMEPLAY_CONFIG.movement.engagementMagnetDistance;
+  private static readonly ENGAGEMENT_HOLD_DISTANCE =
+    GAMEPLAY_CONFIG.movement.engagementHoldDistance;
+  private static readonly MAGNETISM_SPEED = GAMEPLAY_CONFIG.movement.magnetismSpeed;
+  private static readonly ALLY_COLLISION_PUSH_SPEED =
+    GAMEPLAY_CONFIG.movement.allyCollisionPushSpeed;
+  private static readonly ALLY_SOFT_SEPARATION_DISTANCE =
+    GAMEPLAY_CONFIG.movement.allySoftSeparationDistance;
+  private static readonly ALLY_SOFT_SEPARATION_PUSH_SPEED =
+    GAMEPLAY_CONFIG.movement.allySoftSeparationPushSpeed;
+  private static readonly BATTLE_JIGGLE_SPEED =
+    GAMEPLAY_CONFIG.combat.battleJiggleSpeed;
+  private static readonly BATTLE_JIGGLE_FREQUENCY =
+    GAMEPLAY_CONFIG.combat.battleJiggleFrequency;
+  private static readonly CONTACT_DAMAGE_PER_SECOND =
+    GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
+  private static readonly POSITION_SYNC_INTERVAL_MS =
+    GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
+  private static readonly POSITION_SYNC_EPSILON =
+    GAMEPLAY_CONFIG.network.positionSyncEpsilon;
 
   constructor() {
     super({ key: 'BattleScene' });
