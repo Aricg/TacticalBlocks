@@ -116,6 +116,11 @@ export class Unit extends Phaser.GameObjects.Container {
     this.targetRotation = angleToTarget - Unit.FORWARD_OFFSET;
   }
 
+  public cancelMovement(): void {
+    this.destination = null;
+    this.targetRotation = null;
+  }
+
   public updateMovement(deltaMs: number): void {
     if (!this.destination) {
       return;

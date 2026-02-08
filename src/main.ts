@@ -130,16 +130,27 @@ class BattleScene extends Phaser.Scene {
 
       this.commandSelectedUnits(pointer.worldX, pointer.worldY);
     });
+
+    this.input.keyboard?.on('keydown-SPACE', () => {
+      this.cancelSelectedUnitMovement();
+    });
   }
 
   private spawnUnits(_centerX: number, centerY: number): void {
     const blueX = 420;
     const redX = 1500;
     const rowOffsets = [-80, 0, 80];
+    const blueFacingRotation = Math.PI / 2;
+    const redFacingRotation = -Math.PI / 2;
 
     for (const rowOffset of rowOffsets) {
-      this.units.push(new Unit(this, blueX, centerY + rowOffset, Team.BLUE));
-      this.units.push(new Unit(this, redX, centerY + rowOffset, Team.RED));
+      const blueUnit = new Unit(this, blueX, centerY + rowOffset, Team.BLUE);
+      blueUnit.setRotation(blueFacingRotation);
+      this.units.push(blueUnit);
+
+      const redUnit = new Unit(this, redX, centerY + rowOffset, Team.RED);
+      redUnit.setRotation(redFacingRotation);
+      this.units.push(redUnit);
     }
   }
 
@@ -218,6 +229,12 @@ class BattleScene extends Phaser.Scene {
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
       unit.setDestination(targetX + offsetX, targetY + offsetY);
+    }
+  }
+
+  private cancelSelectedUnitMovement(): void {
+    for (const unit of this.selectedUnits) {
+      unit.cancelMovement();
     }
   }
 
