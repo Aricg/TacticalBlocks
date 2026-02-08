@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
+import { Team } from './Team';
 import { Unit } from './Unit';
 
 class BattleScene extends Phaser.Scene {
   private readonly units: Unit[] = [];
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
+  private localPlayerTeam: Team = Team.BLUE;
   private suppressCommandOnPointerUp = false;
   private dragStart: Phaser.Math.Vector2 | null = null;
   private boxSelecting = false;
@@ -45,6 +47,9 @@ class BattleScene extends Phaser.Scene {
 
         const clickedUnit = Unit.fromGameObject(gameObject);
         if (!clickedUnit) {
+          return;
+        }
+        if (clickedUnit.team !== this.localPlayerTeam) {
           return;
         }
 
@@ -127,18 +132,14 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
-  private spawnUnits(centerX: number, centerY: number): void {
-    const offsets = [
-      { x: -140, y: -60 },
-      { x: -60, y: -60 },
-      { x: 20, y: -60 },
-      { x: -140, y: 20 },
-      { x: -60, y: 20 },
-      { x: 20, y: 20 },
-    ];
+  private spawnUnits(_centerX: number, centerY: number): void {
+    const blueX = 420;
+    const redX = 1500;
+    const rowOffsets = [-80, 0, 80];
 
-    for (const offset of offsets) {
-      this.units.push(new Unit(this, centerX + offset.x, centerY + offset.y));
+    for (const rowOffset of rowOffsets) {
+      this.units.push(new Unit(this, blueX, centerY + rowOffset, Team.BLUE));
+      this.units.push(new Unit(this, redX, centerY + rowOffset, Team.RED));
     }
   }
 
@@ -192,7 +193,7 @@ class BattleScene extends Phaser.Scene {
     for (const unit of this.units) {
       const withinX = unit.x >= minX && unit.x <= maxX;
       const withinY = unit.y >= minY && unit.y <= maxY;
-      if (withinX && withinY) {
+      if (withinX && withinY && unit.team === this.localPlayerTeam) {
         this.selectedUnits.add(unit);
         unit.setSelected(true);
       }

@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
+import { Team } from './Team';
 
 export class Unit extends Phaser.GameObjects.Container {
   public selected: boolean;
+  public readonly team: Team;
   private readonly speed: number;
   private readonly turnSpeed: number;
   private destination: Phaser.Math.Vector2 | null;
@@ -21,11 +23,16 @@ export class Unit extends Phaser.GameObjects.Container {
 
   // Local forward is drawn upward in unit space.
   private static readonly FORWARD_OFFSET = -Math.PI / 2;
+  private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
+    [Team.RED]: 0xa05555,
+    [Team.BLUE]: 0x4e6f9e,
+  };
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, team: Team) {
     super(scene, x, y);
 
     this.selected = false;
+    this.team = team;
     this.speed = 120;
     this.turnSpeed = Phaser.Math.DegToRad(180);
     this.destination = null;
@@ -38,7 +45,7 @@ export class Unit extends Phaser.GameObjects.Container {
       0,
       Unit.BODY_WIDTH,
       Unit.BODY_HEIGHT,
-      0xd6c79e,
+      Unit.TEAM_FILL_COLORS[this.team],
     );
     this.unitBody.setOrigin(0.5, 0.5);
     this.unitBody.setStrokeStyle(Unit.OUTLINE_WIDTH, 0x222222, 0.8);
