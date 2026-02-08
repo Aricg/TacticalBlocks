@@ -48,3 +48,10 @@
      (this.pathDrawing), etc.). While perfectly functional for an MVP, this might
      be a good candidate for a simple State Machine if more complex interaction
      modes (like attack-move or guard) are added.
+  
+    New Control Scheme:
+   * Left Click (on unit): Select Unit.
+   * Left Click (on map): Deselect All.
+   * Left Drag (from unit/map with selection): Draw Path.
+   * Left Drag (from map with no selection): Box Select.
+   * Right Click (on map): Move Command.
