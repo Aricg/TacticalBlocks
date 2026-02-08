@@ -227,9 +227,10 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
-  private spawnUnits(_centerX: number, centerY: number): void {
-    const blueX = 420;
-    const redX = 1500;
+  private spawnUnits(centerX: number, centerY: number): void {
+    const startSeparation = 180;
+    const blueX = centerX - startSeparation * 0.5;
+    const redX = centerX + startSeparation * 0.5;
     const rowOffsets = [-80, 0, 80];
     const blueFacingRotation = Math.PI / 2;
     const redFacingRotation = -Math.PI / 2;
@@ -460,6 +461,11 @@ class BattleScene extends Phaser.Scene {
         const distance = Math.max(delta.length(), 0.0001);
         if (distance >= BattleScene.COLLISION_MIN_DISTANCE) {
           continue;
+        }
+
+        if (a.team !== b.team) {
+          a.cancelMovement();
+          b.cancelMovement();
         }
 
         const overlap = BattleScene.COLLISION_MIN_DISTANCE - distance;
