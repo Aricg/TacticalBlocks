@@ -41,6 +41,7 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly HEALTH_BOX_HEIGHT = 4;
   private static readonly HEALTH_BOX_TOP_INSET = 3;
   private static readonly HEALTH_MAX = 100;
+  private static readonly HEALTH_RED_THRESHOLD = 0.35;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly ARROW_VERTICES = [
@@ -253,6 +254,10 @@ export class Unit extends Phaser.GameObjects.Container {
     return this.health > 0;
   }
 
+  public isHealthInRedZone(): boolean {
+    return this.getHealthRatio() <= Unit.HEALTH_RED_THRESHOLD;
+  }
+
   private faceCurrentDestination(): void {
     if (!this.destination) {
       this.targetRotation = null;
@@ -397,13 +402,19 @@ export class Unit extends Phaser.GameObjects.Container {
   }
 
   private refreshHealthVisuals(): void {
-    const healthRatio = Phaser.Math.Clamp(this.health / Unit.HEALTH_MAX, 0, 1);
+    const healthRatio = this.getHealthRatio();
     this.healthBoxFill.setDisplaySize(
       Unit.HEALTH_BOX_INNER_WIDTH * healthRatio,
       Unit.HEALTH_BOX_INNER_HEIGHT,
     );
-    this.healthBoxFill.setFillStyle(healthRatio > 0.35 ? 0x63d471 : 0xd44b4b);
+    this.healthBoxFill.setFillStyle(
+      healthRatio > Unit.HEALTH_RED_THRESHOLD ? 0x63d471 : 0xd44b4b,
+    );
     this.healthBoxFill.setVisible(healthRatio > 0);
+  }
+
+  private getHealthRatio(): number {
+    return Phaser.Math.Clamp(this.health / Unit.HEALTH_MAX, 0, 1);
   }
 
   private refreshDpsOutputVisual(): void {

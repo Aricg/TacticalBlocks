@@ -585,6 +585,12 @@ class BattleScene extends Phaser.Scene {
           distance > 0.0001
             ? delta.clone().scale(1 / distance)
             : new Phaser.Math.Vector2(1, 0);
+        const aCanBePushedByEnemy = this.canBePushedByEnemy(a);
+        const bCanBePushedByEnemy = this.canBePushedByEnemy(b);
+        const pushableUnitCount =
+          Number(aCanBePushedByEnemy) + Number(bCanBePushedByEnemy);
+        const displacementNormalization =
+          pushableUnitCount > 0 ? 2 / pushableUnitCount : 0;
 
         // 0. Soft ally spacing: keep formations from collapsing into dense clumps.
         if (!opposingTeams && distance < BattleScene.ALLY_SOFT_SEPARATION_DISTANCE) {
@@ -614,10 +620,16 @@ class BattleScene extends Phaser.Scene {
           const pull = safeDirection
             .clone()
             .scale(BattleScene.MAGNETISM_SPEED * deltaSeconds);
-          a.x += pull.x;
-          a.y += pull.y;
-          b.x -= pull.x;
-          b.y -= pull.y;
+          if (aCanBePushedByEnemy) {
+            const aStep = displacementNormalization;
+            a.x += pull.x * aStep;
+            a.y += pull.y * aStep;
+          }
+          if (bCanBePushedByEnemy) {
+            const bStep = displacementNormalization;
+            b.x -= pull.x * bStep;
+            b.y -= pull.y * bStep;
+          }
           a.engagedUnits.add(b);
           b.engagedUnits.add(a);
         }
@@ -628,10 +640,16 @@ class BattleScene extends Phaser.Scene {
             timeNow * BattleScene.BATTLE_JIGGLE_FREQUENCY + i * 1.7 + j * 2.3;
           const jiggleStep =
             Math.sin(phase) * BattleScene.BATTLE_JIGGLE_SPEED * deltaSeconds;
-          a.x += safeDirection.x * jiggleStep;
-          a.y += safeDirection.y * jiggleStep;
-          b.x -= safeDirection.x * jiggleStep;
-          b.y -= safeDirection.y * jiggleStep;
+          if (aCanBePushedByEnemy) {
+            const aStep = jiggleStep * displacementNormalization;
+            a.x += safeDirection.x * aStep;
+            a.y += safeDirection.y * aStep;
+          }
+          if (bCanBePushedByEnemy) {
+            const bStep = jiggleStep * displacementNormalization;
+            b.x -= safeDirection.x * bStep;
+            b.y -= safeDirection.y * bStep;
+          }
           a.engagedUnits.add(b);
           b.engagedUnits.add(a);
         }
@@ -646,12 +664,34 @@ class BattleScene extends Phaser.Scene {
             a.engagedUnits.add(b);
             b.engagedUnits.add(a);
           }
-          const separation = overlap.normal.clone().scale(overlap.depth * 0.5);
-          a.setPosition(a.x - separation.x, a.y - separation.y);
-          b.setPosition(b.x + separation.x, b.y + separation.y);
+          const totalPushable =
+            pushableUnitCount;
+          if (totalPushable > 0) {
+            const separationPerShare = overlap.depth / totalPushable;
+            if (aCanBePushedByEnemy) {
+              const separationA = overlap.normal
+                .clone()
+                .scale(separationPerShare);
+              a.setPosition(a.x - separationA.x, a.y - separationA.y);
+            }
+            if (bCanBePushedByEnemy) {
+              const separationB = overlap.normal
+                .clone()
+                .scale(separationPerShare);
+              b.setPosition(b.x + separationB.x, b.y + separationB.y);
+            }
+          }
         }
       }
     }
+  }
+
+  private canBePushedByEnemy(unit: Unit): boolean {
+    if (unit.team === this.localPlayerTeam) {
+      return true;
+    }
+
+    return unit.isHealthInRedZone();
   }
 
   private getHitboxOverlap(
