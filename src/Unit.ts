@@ -195,4 +195,15 @@ export class Unit extends Phaser.GameObjects.Container {
   public getDestination(): Phaser.Math.Vector2 | null {
     return this.destination ? this.destination.clone() : null;
   }
+
+  public getWaypoints(): Phaser.Math.Vector2[] {
+    const waypoints: Phaser.Math.Vector2[] = [];
+    if (this.destination) {
+      waypoints.push(this.destination.clone());
+    }
+    for (const point of this.queuedWaypoints) {
+      waypoints.push(point.clone());
+    }
+    return waypoints;
+  }
 }

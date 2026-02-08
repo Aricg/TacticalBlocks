@@ -18,7 +18,8 @@ class BattleScene extends Phaser.Scene {
   private movementLines!: Phaser.GameObjects.Graphics;
 
   private static readonly DRAG_THRESHOLD = 10;
-  private static readonly PATH_POINT_SPACING = 18;
+  private static readonly PREVIEW_PATH_POINT_SPACING = 4;
+  private static readonly COMMAND_PATH_POINT_SPACING = 18;
   private static readonly COLLISION_MIN_DISTANCE = 42;
 
   constructor() {
@@ -170,8 +171,9 @@ class BattleScene extends Phaser.Scene {
 
         if (this.pathDrawing) {
           this.appendDraggedPathPoint(pointer.worldX, pointer.worldY);
-          if (this.draggedPath.length > 1) {
-            this.commandSelectedUnitsAlongPath(this.draggedPath);
+          const commandPath = this.buildCommandPath(this.draggedPath);
+          if (commandPath.length > 1) {
+            this.commandSelectedUnitsAlongPath(commandPath);
           } else {
             // Path was too short, do nothing?
           }
@@ -354,19 +356,76 @@ class BattleScene extends Phaser.Scene {
   private appendDraggedPathPoint(x: number, y: number, forceAppend = false): void {
     const nextPoint = new Phaser.Math.Vector2(x, y);
     const lastPoint = this.draggedPath[this.draggedPath.length - 1];
-    const shouldAppendSecondPoint = this.draggedPath.length === 1;
-    const shouldAppend =
-      forceAppend ||
-      shouldAppendSecondPoint ||
-      !lastPoint ||
-      Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, x, y) >=
-        BattleScene.PATH_POINT_SPACING;
-
-    if (shouldAppend) {
+    if (!lastPoint || forceAppend || this.draggedPath.length === 1) {
       this.draggedPath.push(nextPoint);
-    } else {
-      this.draggedPath[this.draggedPath.length - 1] = nextPoint;
+      return;
     }
+
+    const distance = Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, x, y);
+    if (distance < BattleScene.PREVIEW_PATH_POINT_SPACING) {
+      this.draggedPath[this.draggedPath.length - 1] = nextPoint;
+      return;
+    }
+
+    const segmentCount = Math.floor(
+      distance / BattleScene.PREVIEW_PATH_POINT_SPACING,
+    );
+    for (let i = 1; i <= segmentCount; i += 1) {
+      const t =
+        (i * BattleScene.PREVIEW_PATH_POINT_SPACING) / distance;
+      if (t >= 1) {
+        break;
+      }
+      this.draggedPath.push(
+        new Phaser.Math.Vector2(
+          Phaser.Math.Linear(lastPoint.x, x, t),
+          Phaser.Math.Linear(lastPoint.y, y, t),
+        ),
+      );
+    }
+
+    this.draggedPath.push(nextPoint);
+  }
+
+  private buildCommandPath(path: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
+    if (path.length === 0) {
+      return [];
+    }
+
+    if (path.length === 1) {
+      return [path[0].clone()];
+    }
+
+    const commandPath: Phaser.Math.Vector2[] = [path[0].clone()];
+    for (let i = 1; i < path.length - 1; i += 1) {
+      const lastKeptPoint = commandPath[commandPath.length - 1];
+      const candidatePoint = path[i];
+      if (
+        Phaser.Math.Distance.Between(
+          lastKeptPoint.x,
+          lastKeptPoint.y,
+          candidatePoint.x,
+          candidatePoint.y,
+        ) >= BattleScene.COMMAND_PATH_POINT_SPACING
+      ) {
+        commandPath.push(candidatePoint.clone());
+      }
+    }
+
+    const finalPoint = path[path.length - 1];
+    const lastKeptPoint = commandPath[commandPath.length - 1];
+    if (
+      Phaser.Math.Distance.Between(
+        finalPoint.x,
+        finalPoint.y,
+        lastKeptPoint.x,
+        lastKeptPoint.y,
+      ) > 0
+    ) {
+      commandPath.push(finalPoint.clone());
+    }
+
+    return commandPath;
   }
 
   private drawPathPreview(): void {
@@ -414,17 +473,24 @@ class BattleScene extends Phaser.Scene {
   private renderMovementLines(): void {
     this.movementLines.clear();
     this.movementLines.lineStyle(2, 0xf4e7b2, 0.75);
+    this.movementLines.fillStyle(0xf4e7b2, 0.9);
 
     for (const unit of this.units) {
-      const destination = unit.getDestination();
-      if (!destination) {
+      const waypoints = unit.getWaypoints();
+      if (waypoints.length === 0) {
         continue;
       }
 
       this.movementLines.beginPath();
       this.movementLines.moveTo(unit.x, unit.y);
-      this.movementLines.lineTo(destination.x, destination.y);
+      for (const waypoint of waypoints) {
+        this.movementLines.lineTo(waypoint.x, waypoint.y);
+      }
       this.movementLines.strokePath();
+
+      for (const waypoint of waypoints) {
+        this.movementLines.fillCircle(waypoint.x, waypoint.y, 3);
+      }
     }
   }
 
