@@ -1,0 +1,24 @@
+
+Framework: Phaser 3 (Local Development)
+Task: Create a Minimal Viable Product (MVP) for a top-down, real-time tactical simulation.
+Project Structure:
+Set up a standard local web project structure (e.g., assuming a main.js and an index.html).
+Do not use CDNs. Assume Phaser 3 is installed locally via npm or available in the local project folder.
+Functional Requirements:
+The Map: Initialize a Phaser Scene with a green background.
+The Unit:
+Create a class for a "Unit" that renders as a simple 2D block.
+The unit should have a "selected" state (boolean).
+Input Logic:
+Selection: Implement logic to detect clicks on the block to select it.
+Command: If a unit is selected, clicking on an empty area of the map must set a destination.
+Movement:
+The unit should move toward the destination in real-time.
+Let the AI determine the most efficient Phaser-native way to handle the movement (e.g., Velocity-based or Tween-based).
+The unit should stop once it reaches the target.
+Technical Preference:
+Use clean, modular JavaScript or TypeScript.
+Implement a simple state check to ensure "Selection" and "Movement commands" don't conflict (i.e., clicking the unit to select it shouldn't also trigger a move command to that same spot).
+
+Use TypeScript. Leverage strict typing to ensure you maintains a consistent understanding of the Unit class and Phaser 3 API
+
