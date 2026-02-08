@@ -16,8 +16,16 @@ class BattleScene extends Phaser.Scene {
   private selectionBox!: Phaser.GameObjects.Graphics;
   private pathPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
+  private fogOfWarLayer!: Phaser.GameObjects.RenderTexture;
+  private visionBrush!: Phaser.GameObjects.Arc;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
 
+  private static readonly MAP_WIDTH = 1920;
+  private static readonly MAP_HEIGHT = 1080;
+  private static readonly FOG_ALPHA = 0.82;
+  private static readonly VISION_RADIUS = 240;
+  private static readonly ENEMY_VISIBILITY_PADDING = 24;
+  private static readonly FOG_DEPTH = 925;
   private static readonly DRAG_THRESHOLD = 10;
   private static readonly PREVIEW_PATH_POINT_SPACING = 4;
   private static readonly COMMAND_PATH_POINT_SPACING = 50;
@@ -36,7 +44,7 @@ class BattleScene extends Phaser.Scene {
   create(): void {
     this.cameras.main.setBackgroundColor(0x2f7d32);
     this.cameras.main.setScroll(0, 0);
-    this.cameras.main.setBounds(0, 0, 1920, 1080);
+    this.cameras.main.setBounds(0, 0, BattleScene.MAP_WIDTH, BattleScene.MAP_HEIGHT);
     this.input.mouse?.disableContextMenu();
     this.shiftKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
@@ -51,6 +59,23 @@ class BattleScene extends Phaser.Scene {
     this.pathPreview.setDepth(950);
     this.movementLines = this.add.graphics();
     this.movementLines.setDepth(900);
+    this.fogOfWarLayer = this.add.renderTexture(
+      0,
+      0,
+      BattleScene.MAP_WIDTH,
+      BattleScene.MAP_HEIGHT,
+    );
+    this.fogOfWarLayer.setOrigin(0, 0);
+    this.fogOfWarLayer.setDepth(BattleScene.FOG_DEPTH);
+    this.visionBrush = this.add.circle(
+      0,
+      0,
+      BattleScene.VISION_RADIUS,
+      0xffffff,
+      1,
+    );
+    this.visionBrush.setVisible(false);
+    this.refreshFogOfWar();
 
     this.input.on(
       'gameobjectdown',
@@ -653,6 +678,40 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private refreshFogOfWar(): void {
+    this.fogOfWarLayer.clear();
+    this.fogOfWarLayer.fill(0x000000, BattleScene.FOG_ALPHA);
+
+    const allyVisionSources = this.units.filter(
+      (unit) => unit.team === this.localPlayerTeam && unit.isAlive(),
+    );
+
+    for (const unit of allyVisionSources) {
+      this.fogOfWarLayer.erase(this.visionBrush, unit.x, unit.y);
+    }
+
+    const revealRadiusSq =
+      (BattleScene.VISION_RADIUS + BattleScene.ENEMY_VISIBILITY_PADDING) **
+      2;
+    for (const unit of this.units) {
+      if (unit.team === this.localPlayerTeam) {
+        unit.setVisible(true);
+        continue;
+      }
+
+      let isVisibleToPlayer = false;
+      for (const ally of allyVisionSources) {
+        const dx = unit.x - ally.x;
+        const dy = unit.y - ally.y;
+        if (dx * dx + dy * dy <= revealRadiusSq) {
+          isVisibleToPlayer = true;
+          break;
+        }
+      }
+      unit.setVisible(isVisibleToPlayer);
+    }
+  }
+
   private renderMovementLines(): void {
     this.movementLines.clear();
     this.movementLines.lineStyle(2, 0xf4e7b2, 0.75);
@@ -690,6 +749,7 @@ class BattleScene extends Phaser.Scene {
       unit.updateCombatRotation(delta);
     }
     this.removeDeadUnits();
+    this.refreshFogOfWar();
     this.renderMovementLines();
   }
 }
