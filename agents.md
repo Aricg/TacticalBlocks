@@ -1,6 +1,7 @@
-# Project Persona: Historical Battle Simulator (MVP)
+# Project Persona: Historical Battle Simulator
 
-nvm use 20.18.1
+**Status:** MVP Implemented (Phase 1)
+**Version:** 0.1.0
 
 ## 1. Project Overview
 - **Genre:** Top-down 2D real-time tactical simulation.
@@ -9,25 +10,39 @@ nvm use 20.18.1
 
 ## 2. Technical Stack
 - **Engine:** Phaser 3 (Local installation via npm).
-- **Environment:** Local development on macOS (Vite as the bundler).
-- **Architecture:** Modular JavaScript. Avoid global variables; use classes for Game Objects (Units).
-- **No CDNs:** All dependencies must be managed locally.
+- **Build Tool:** Vite.
+- **Language:** TypeScript (Strict mode).
+- **Architecture:** Component-based. Game logic is encapsulated within custom Classes extending Phaser GameObjects.
 
-## 3. Visual Standards
-- **Map:** Plain green background.
-- **Units:** Simple 2D rectangles.
-- **Movement:** Units should rotate to face their destination and move at a constant speed.
+## 3. Current Implementation (Phase 1 MVP)
 
-## 4. Interaction Logic
-- **Selection:** Left-click on a unit to select it. Only one unit can be selected at a time (for now).
-- **Commands:** If a unit is selected, clicking on the map (terrain) issues a "Move" command.
-- **State Management:** Ensure "Selecting a unit" and "Moving a unit" are distinct actions to avoid accidental moves when trying to select.
+### The Unit (`src/Unit.ts`)
+- **Structure:** Extends `Phaser.GameObjects.Container`.
+- **Visuals:** 
+  - `Phaser.GameObjects.Rectangle` representing the formation body.
+  - `Phaser.GameObjects.Triangle` representing the facing direction.
+- **Movement Logic:** Custom kinematic steering behavior (No Arcade Physics).
+  - **State 1 (Rotate):** Unit rotates in place until facing the target coordinates.
+  - **State 2 (Move):** Once aligned, unit moves forward at constant speed until reaching the destination.
+- **Selection:** Visual feedback via stroke/outline color change (White = Selected, Dark = Unselected).
 
-## 5. Coding Guidelines for AI
-- **Logic over Physics:** Prefer coordinate-based movement or Phaser Tweens over complex Arcade Physics unless specified.
-- **Modularity:** Keep the Unit logic inside a `Unit` class.
-- **Comments:** Provide brief comments for tactical logic (e.g., "Calculate angle to target").
-- **Mac Specifics:** Assume a standard Mac file structure and Terminal commands (zsh).
+### The Scene (`src/main.ts`)
+- **Map:** Simple green background (`0x2f7d32`).
+- **Input Handling:**
+  - **Left-Click (Unit):** Selects the unit. Stops event propagation to prevent triggering a move command simultaneously.
+  - **Left-Click (Terrain):** If a unit is selected, issues a Move command to the clicked location.
+  - **Right-Click:** Deselects the current unit.
 
-## 6. Current MVP Goal
-- A single green screen with one block that can be selected and moved via mouse clicks.
+## 4. Coding Standards & Conventions
+- **State Management:** Distinct states for "Selecting" and "Commanding" to avoid input conflicts.
+- **Math:** Use `Phaser.Math` helpers (Vector2, Angle) for all spatial calculations.
+- **Typing:** strictly typed; avoid `any`. Use `Unit.fromGameObject` helper for type-safe event delegation.
+- **File Structure:** 
+  - `src/` contains all source code.
+  - `dist/` is the build output.
+  - Local `start-dev.sh` for environment setup.
+
+## 5. Roadmap / Next Steps
+- Implement multiple units selection (Box selection).
+- Add "Formations" (units moving in a group relative to each other).
+- Implement basic collision avoidance
