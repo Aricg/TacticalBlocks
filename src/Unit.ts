@@ -34,19 +34,19 @@ export class Unit extends Phaser.GameObjects.Container {
   private health: number;
   private currentDpsOutput: number;
 
-  private static readonly BODY_WIDTH = 48;
-  private static readonly BODY_HEIGHT = 28;
+  private static readonly BODY_WIDTH = 24;
+  private static readonly BODY_HEIGHT = 14;
   private static readonly OUTLINE_WIDTH = 2;
-  private static readonly HEALTH_BOX_WIDTH = 40;
-  private static readonly HEALTH_BOX_HEIGHT = 6;
-  private static readonly HEALTH_BOX_TOP_INSET = 6;
+  private static readonly HEALTH_BOX_WIDTH = 20;
+  private static readonly HEALTH_BOX_HEIGHT = 4;
+  private static readonly HEALTH_BOX_TOP_INSET = 3;
   private static readonly HEALTH_MAX = 100;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly ARROW_VERTICES = [
-    { x: -10, y: 6 },
-    { x: 0, y: -10 },
-    { x: 10, y: 6 },
+    { x: -5, y: 3 },
+    { x: 0, y: -5 },
+    { x: 5, y: 3 },
   ] as const;
 
   // Local forward is drawn upward in unit space.

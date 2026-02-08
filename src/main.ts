@@ -31,8 +31,10 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMMAND_PATH_POINT_SPACING = 50;
   private static readonly ENGAGEMENT_MAGNET_DISTANCE = 80;
   private static readonly ENGAGEMENT_HOLD_DISTANCE = 120;
-  private static readonly MAGNETISM_SPEED = 20;
-  private static readonly ALLY_COLLISION_PUSH_SPEED = 120;
+  private static readonly MAGNETISM_SPEED = 14;
+  private static readonly ALLY_COLLISION_PUSH_SPEED = 180;
+  private static readonly ALLY_SOFT_SEPARATION_DISTANCE = 28;
+  private static readonly ALLY_SOFT_SEPARATION_PUSH_SPEED = 90;
   private static readonly BATTLE_JIGGLE_SPEED = 44;
   private static readonly BATTLE_JIGGLE_FREQUENCY = 0.018;
   private static readonly CONTACT_DAMAGE_PER_SECOND = 12;
@@ -269,24 +271,45 @@ class BattleScene extends Phaser.Scene {
   }
 
   private spawnUnits(centerX: number, centerY: number): void {
-    const startSeparation = 180;
+    const startSeparation = 280;
     const blueX = centerX - startSeparation * 0.5;
     const redX = centerX + startSeparation * 0.5;
-    const blueRowOffsets = [-120, -60, 0, 60, 120];
-    const redRowOffsets = [-80, 0, 80];
+    const blueRows = 10;
+    const blueCols = 5;
+    const redRows = 10;
+    const redCols = 3;
+    const rowSpacing = 28;
+    const colSpacing = 36;
     const blueFacingRotation = Math.PI / 2;
     const redFacingRotation = -Math.PI / 2;
 
-    for (const rowOffset of blueRowOffsets) {
-      const blueUnit = new Unit(this, blueX, centerY + rowOffset, Team.BLUE);
-      blueUnit.setRotation(blueFacingRotation);
-      this.units.push(blueUnit);
+    const blueTopY = centerY - ((blueRows - 1) * rowSpacing) / 2;
+    const redTopY = centerY - ((redRows - 1) * rowSpacing) / 2;
+
+    for (let col = 0; col < blueCols; col += 1) {
+      for (let row = 0; row < blueRows; row += 1) {
+        const blueUnit = new Unit(
+          this,
+          blueX - col * colSpacing,
+          blueTopY + row * rowSpacing,
+          Team.BLUE,
+        );
+        blueUnit.setRotation(blueFacingRotation);
+        this.units.push(blueUnit);
+      }
     }
 
-    for (const rowOffset of redRowOffsets) {
-      const redUnit = new Unit(this, redX, centerY + rowOffset, Team.RED);
-      redUnit.setRotation(redFacingRotation);
-      this.units.push(redUnit);
+    for (let col = 0; col < redCols; col += 1) {
+      for (let row = 0; row < redRows; row += 1) {
+        const redUnit = new Unit(
+          this,
+          redX + col * colSpacing,
+          redTopY + row * rowSpacing,
+          Team.RED,
+        );
+        redUnit.setRotation(redFacingRotation);
+        this.units.push(redUnit);
+      }
     }
   }
 
@@ -543,21 +566,38 @@ class BattleScene extends Phaser.Scene {
         const overlap = this.getHitboxOverlap(a, b);
         const hitboxesOverlap = overlap !== null;
         const opposingTeams = a.team !== b.team;
+        const previouslyEngagedPair =
+          opposingTeams && (a.wasEngagedWith(b) || b.wasEngagedWith(a));
+        const canStartNewEngagement =
+          opposingTeams && a.engagedUnits.size === 0 && b.engagedUnits.size === 0;
+        const engagementAllowed = previouslyEngagedPair || canStartNewEngagement;
         const stickyEngagement =
-          opposingTeams &&
-          (a.wasEngagedWith(b) || b.wasEngagedWith(a)) &&
+          previouslyEngagedPair &&
           distance <= BattleScene.ENGAGEMENT_HOLD_DISTANCE;
         const shouldMagnetize =
-          opposingTeams &&
+          engagementAllowed &&
           !hitboxesOverlap &&
           (distance <= BattleScene.ENGAGEMENT_MAGNET_DISTANCE || stickyEngagement);
         const shouldBattleJiggle =
-          opposingTeams &&
+          engagementAllowed &&
           (hitboxesOverlap || stickyEngagement);
         const safeDirection =
           distance > 0.0001
             ? delta.clone().scale(1 / distance)
             : new Phaser.Math.Vector2(1, 0);
+
+        // 0. Soft ally spacing: keep formations from collapsing into dense clumps.
+        if (!opposingTeams && distance < BattleScene.ALLY_SOFT_SEPARATION_DISTANCE) {
+          const spacingRatio =
+            1 - distance / BattleScene.ALLY_SOFT_SEPARATION_DISTANCE;
+          const pushDistance =
+            BattleScene.ALLY_SOFT_SEPARATION_PUSH_SPEED *
+            spacingRatio *
+            deltaSeconds;
+          const separation = safeDirection.clone().scale(pushDistance * 0.5);
+          a.setPosition(a.x - separation.x, a.y - separation.y);
+          b.setPosition(b.x + separation.x, b.y + separation.y);
+        }
 
         // 0. Ally collision response: apply a separation force each frame while overlapping.
         if (!opposingTeams && overlap) {
@@ -598,13 +638,14 @@ class BattleScene extends Phaser.Scene {
 
         // 3. Contact combat + hard collision separation (same hitbox model as selection body)
         if (opposingTeams && overlap) {
-          a.cancelMovement();
-          b.cancelMovement();
-          a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
-          b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
-          a.engagedUnits.add(b);
-          b.engagedUnits.add(a);
-
+          if (engagementAllowed) {
+            a.cancelMovement();
+            b.cancelMovement();
+            a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+            b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+            a.engagedUnits.add(b);
+            b.engagedUnits.add(a);
+          }
           const separation = overlap.normal.clone().scale(overlap.depth * 0.5);
           a.setPosition(a.x - separation.x, a.y - separation.y);
           b.setPosition(b.x + separation.x, b.y + separation.y);
