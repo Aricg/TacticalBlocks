@@ -1,6 +1,19 @@
 import Phaser from 'phaser';
 import { Team } from './Team';
 
+type MovementCommandMode = {
+  speedMultiplier: number;
+  rotateToFace: boolean;
+};
+
+export type UnitHitbox = {
+  center: Phaser.Math.Vector2;
+  axisX: Phaser.Math.Vector2;
+  axisY: Phaser.Math.Vector2;
+  halfWidth: number;
+  halfHeight: number;
+};
+
 export class Unit extends Phaser.GameObjects.Container {
   public selected: boolean;
   public readonly engagedUnits: Set<Unit>;
@@ -8,6 +21,7 @@ export class Unit extends Phaser.GameObjects.Container {
   public readonly team: Team;
   private readonly speed: number;
   private readonly turnSpeed: number;
+  private movementCommandMode: MovementCommandMode;
   private destination: Phaser.Math.Vector2 | null;
   private queuedWaypoints: Phaser.Math.Vector2[];
   private targetRotation: number | null;
@@ -38,6 +52,10 @@ export class Unit extends Phaser.GameObjects.Container {
   // Local forward is drawn upward in unit space.
   private static readonly FORWARD_OFFSET = -Math.PI / 2;
   private static readonly REFACE_ANGLE_THRESHOLD = Phaser.Math.DegToRad(3);
+  private static readonly DEFAULT_MOVEMENT_COMMAND_MODE: MovementCommandMode = {
+    speedMultiplier: 1,
+    rotateToFace: true,
+  };
   private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
     [Team.RED]: 0xa05555,
     [Team.BLUE]: 0x4e6f9e,
@@ -52,6 +70,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.team = team;
     this.speed = 120;
     this.turnSpeed = Phaser.Math.DegToRad(180);
+    this.movementCommandMode = { ...Unit.DEFAULT_MOVEMENT_COMMAND_MODE };
     this.destination = null;
     this.queuedWaypoints = [];
     this.targetRotation = null;
@@ -170,15 +189,27 @@ export class Unit extends Phaser.GameObjects.Container {
     );
   }
 
-  public setDestination(x: number, y: number): void {
-    this.setPath([new Phaser.Math.Vector2(x, y)]);
+  public setDestination(
+    x: number,
+    y: number,
+    movementCommandMode?: Partial<MovementCommandMode>,
+  ): void {
+    this.setPath([new Phaser.Math.Vector2(x, y)], movementCommandMode);
   }
 
-  public setPath(path: Phaser.Math.Vector2[]): void {
+  public setPath(
+    path: Phaser.Math.Vector2[],
+    movementCommandMode?: Partial<MovementCommandMode>,
+  ): void {
     if (path.length === 0) {
       this.cancelMovement();
       return;
     }
+
+    this.movementCommandMode = {
+      ...Unit.DEFAULT_MOVEMENT_COMMAND_MODE,
+      ...movementCommandMode,
+    };
 
     const [first, ...rest] = path;
     this.destination = first.clone();
@@ -190,6 +221,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.destination = null;
     this.queuedWaypoints = [];
     this.targetRotation = null;
+    this.movementCommandMode = { ...Unit.DEFAULT_MOVEMENT_COMMAND_MODE };
   }
 
   public resetCurrentDpsOutput(): void {
@@ -223,6 +255,11 @@ export class Unit extends Phaser.GameObjects.Container {
 
   private faceCurrentDestination(): void {
     if (!this.destination) {
+      this.targetRotation = null;
+      return;
+    }
+
+    if (!this.movementCommandMode.rotateToFace) {
       this.targetRotation = null;
       return;
     }
@@ -268,51 +305,54 @@ export class Unit extends Phaser.GameObjects.Container {
     }
 
     const deltaSeconds = deltaMs / 1000;
-    const desiredRotation =
-      Phaser.Math.Angle.Between(
-        this.x,
-        this.y,
-        this.destination.x,
-        this.destination.y,
-      ) - Unit.FORWARD_OFFSET;
+    if (this.movementCommandMode.rotateToFace) {
+      const desiredRotation =
+        Phaser.Math.Angle.Between(
+          this.x,
+          this.y,
+          this.destination.x,
+          this.destination.y,
+        ) - Unit.FORWARD_OFFSET;
 
-    // Collision separation can shove a unit sideways. If its heading drifts
-    // away from the current waypoint, re-enter rotate state before moving.
-    if (this.targetRotation === null) {
-      const headingError = Phaser.Math.Angle.Wrap(desiredRotation - this.rotation);
-      if (Math.abs(headingError) > Unit.REFACE_ANGLE_THRESHOLD) {
-        this.targetRotation = desiredRotation;
+      // Collision separation can shove a unit sideways. If its heading drifts
+      // away from the current waypoint, re-enter rotate state before moving.
+      if (this.targetRotation === null) {
+        const headingError = Phaser.Math.Angle.Wrap(desiredRotation - this.rotation);
+        if (Math.abs(headingError) > Unit.REFACE_ANGLE_THRESHOLD) {
+          this.targetRotation = desiredRotation;
+        }
       }
-    }
 
-    if (this.targetRotation !== null) {
-      const maxTurnStep = this.turnSpeed * deltaSeconds;
-      const angleDelta = Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation);
+      if (this.targetRotation !== null) {
+        const maxTurnStep = this.turnSpeed * deltaSeconds;
+        const angleDelta = Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation);
 
-      if (Math.abs(angleDelta) <= maxTurnStep) {
-        this.rotation = this.targetRotation;
-        this.targetRotation = null;
-      } else {
-        this.rotation = Phaser.Math.Angle.Wrap(
-          this.rotation + Math.sign(angleDelta) * maxTurnStep,
-        );
+        if (Math.abs(angleDelta) <= maxTurnStep) {
+          this.rotation = this.targetRotation;
+          this.targetRotation = null;
+        } else {
+          this.rotation = Phaser.Math.Angle.Wrap(
+            this.rotation + Math.sign(angleDelta) * maxTurnStep,
+          );
+        }
       }
-    }
 
-    // Move only after unit has finished turning to face the destination.
-    // We allow movement if the heading is "close enough" to prevent stuttering in crowds.
-    const isFacingDestination =
-      this.targetRotation === null ||
-      Math.abs(Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation)) <= 0.35;
+      // Move only after unit has finished turning to face the destination.
+      // We allow movement if the heading is "close enough" to prevent stuttering in crowds.
+      const isFacingDestination =
+        this.targetRotation === null ||
+        Math.abs(Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation)) <= 0.35;
 
-    if (!isFacingDestination) {
-      return;
+      if (!isFacingDestination) {
+        return;
+      }
     }
 
     const toTargetX = this.destination.x - this.x;
     const toTargetY = this.destination.y - this.y;
     const distance = Math.hypot(toTargetX, toTargetY);
-    const maxStep = this.speed * deltaSeconds;
+    const maxStep =
+      this.speed * this.movementCommandMode.speedMultiplier * deltaSeconds;
 
     if (distance <= maxStep) {
       this.setPosition(this.destination.x, this.destination.y);
@@ -322,10 +362,9 @@ export class Unit extends Phaser.GameObjects.Container {
       return;
     }
 
-    // Move along the unit's declared local forward axis.
-    const moveAngle = this.rotation + Unit.FORWARD_OFFSET;
-    const stepX = Math.cos(moveAngle) * maxStep;
-    const stepY = Math.sin(moveAngle) * maxStep;
+    const stepScale = maxStep / distance;
+    const stepX = toTargetX * stepScale;
+    const stepY = toTargetY * stepScale;
     this.setPosition(this.x + stepX, this.y + stepY);
   }
 
@@ -342,6 +381,19 @@ export class Unit extends Phaser.GameObjects.Container {
       waypoints.push(point.clone());
     }
     return waypoints;
+  }
+
+  public getHitbox(): UnitHitbox {
+    const cos = Math.cos(this.rotation);
+    const sin = Math.sin(this.rotation);
+
+    return {
+      center: new Phaser.Math.Vector2(this.x, this.y),
+      axisX: new Phaser.Math.Vector2(cos, sin),
+      axisY: new Phaser.Math.Vector2(-sin, cos),
+      halfWidth: Unit.BODY_WIDTH * 0.5,
+      halfHeight: Unit.BODY_HEIGHT * 0.5,
+    };
   }
 
   private refreshHealthVisuals(): void {

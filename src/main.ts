@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Team } from './Team';
-import { Unit } from './Unit';
+import { Unit, UnitHitbox } from './Unit';
 
 class BattleScene extends Phaser.Scene {
   private readonly units: Unit[] = [];
@@ -16,15 +16,15 @@ class BattleScene extends Phaser.Scene {
   private selectionBox!: Phaser.GameObjects.Graphics;
   private pathPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
+  private shiftKey: Phaser.Input.Keyboard.Key | null = null;
 
   private static readonly DRAG_THRESHOLD = 10;
   private static readonly PREVIEW_PATH_POINT_SPACING = 4;
   private static readonly COMMAND_PATH_POINT_SPACING = 50;
-  private static readonly COLLISION_MIN_DISTANCE = 42;
-  private static readonly CONTACT_ENGAGE_DISTANCE = 50;
   private static readonly ENGAGEMENT_MAGNET_DISTANCE = 80;
   private static readonly ENGAGEMENT_HOLD_DISTANCE = 120;
   private static readonly MAGNETISM_SPEED = 20;
+  private static readonly ALLY_COLLISION_PUSH_SPEED = 120;
   private static readonly BATTLE_JIGGLE_SPEED = 44;
   private static readonly BATTLE_JIGGLE_FREQUENCY = 0.018;
   private static readonly CONTACT_DAMAGE_PER_SECOND = 12;
@@ -38,6 +38,8 @@ class BattleScene extends Phaser.Scene {
     this.cameras.main.setScroll(0, 0);
     this.cameras.main.setBounds(0, 0, 1920, 1080);
     this.input.mouse?.disableContextMenu();
+    this.shiftKey =
+      this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
 
     const centerX = this.scale.width * 0.5;
     const centerY = this.scale.height * 0.5;
@@ -93,7 +95,11 @@ class BattleScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.button === 2) {
-        this.commandSelectedUnits(pointer.worldX, pointer.worldY);
+        this.commandSelectedUnits(
+          pointer.worldX,
+          pointer.worldY,
+          this.isShiftHeld(pointer),
+        );
         return;
       }
 
@@ -180,7 +186,10 @@ class BattleScene extends Phaser.Scene {
           this.appendDraggedPathPoint(pointer.worldX, pointer.worldY);
           const commandPath = this.buildCommandPath(this.draggedPath);
           if (commandPath.length > 1) {
-            this.commandSelectedUnitsAlongPath(commandPath);
+            this.commandSelectedUnitsAlongPath(
+              commandPath,
+              this.isShiftHeld(pointer),
+            );
           } else {
             // Path was too short, do nothing?
           }
@@ -313,7 +322,11 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  private commandSelectedUnits(targetX: number, targetY: number): void {
+  private commandSelectedUnits(
+    targetX: number,
+    targetY: number,
+    shiftHeld = false,
+  ): void {
     if (this.selectedUnits.size === 0) {
       return;
     }
@@ -327,14 +340,25 @@ class BattleScene extends Phaser.Scene {
     formationCenterX /= this.selectedUnits.size;
     formationCenterY /= this.selectedUnits.size;
 
+    const movementCommandMode = shiftHeld
+      ? { speedMultiplier: 0.5, rotateToFace: false }
+      : undefined;
+
     for (const unit of this.selectedUnits) {
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
-      unit.setDestination(targetX + offsetX, targetY + offsetY);
+      unit.setDestination(
+        targetX + offsetX,
+        targetY + offsetY,
+        movementCommandMode,
+      );
     }
   }
 
-  private commandSelectedUnitsAlongPath(path: Phaser.Math.Vector2[]): void {
+  private commandSelectedUnitsAlongPath(
+    path: Phaser.Math.Vector2[],
+    shiftHeld = false,
+  ): void {
     if (this.selectedUnits.size === 0 || path.length === 0) {
       return;
     }
@@ -348,14 +372,26 @@ class BattleScene extends Phaser.Scene {
     formationCenterX /= this.selectedUnits.size;
     formationCenterY /= this.selectedUnits.size;
 
+    const movementCommandMode = shiftHeld
+      ? { speedMultiplier: 0.5, rotateToFace: false }
+      : undefined;
+
     for (const unit of this.selectedUnits) {
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
       const unitPath = path.map(
         (point) => new Phaser.Math.Vector2(point.x + offsetX, point.y + offsetY),
       );
-      unit.setPath(unitPath);
+      unit.setPath(unitPath, movementCommandMode);
     }
+  }
+
+  private isShiftHeld(pointer: Phaser.Input.Pointer): boolean {
+    const pointerEvent = pointer.event as
+      | MouseEvent
+      | PointerEvent
+      | undefined;
+    return Boolean(pointerEvent?.shiftKey || this.shiftKey?.isDown);
   }
 
   private cancelSelectedUnitMovement(): void {
@@ -479,6 +515,8 @@ class BattleScene extends Phaser.Scene {
 
         const delta = new Phaser.Math.Vector2(b.x - a.x, b.y - a.y);
         const distance = Math.max(delta.length(), 0.0001);
+        const overlap = this.getHitboxOverlap(a, b);
+        const hitboxesOverlap = overlap !== null;
         const opposingTeams = a.team !== b.team;
         const stickyEngagement =
           opposingTeams &&
@@ -486,15 +524,25 @@ class BattleScene extends Phaser.Scene {
           distance <= BattleScene.ENGAGEMENT_HOLD_DISTANCE;
         const shouldMagnetize =
           opposingTeams &&
-          distance > BattleScene.COLLISION_MIN_DISTANCE &&
+          !hitboxesOverlap &&
           (distance <= BattleScene.ENGAGEMENT_MAGNET_DISTANCE || stickyEngagement);
         const shouldBattleJiggle =
           opposingTeams &&
-          (distance <= BattleScene.CONTACT_ENGAGE_DISTANCE || stickyEngagement);
+          (hitboxesOverlap || stickyEngagement);
         const safeDirection =
           distance > 0.0001
             ? delta.clone().scale(1 / distance)
             : new Phaser.Math.Vector2(1, 0);
+
+        // 0. Ally collision response: apply a separation force each frame while overlapping.
+        if (!opposingTeams && overlap) {
+          const maxPushDistance =
+            BattleScene.ALLY_COLLISION_PUSH_SPEED * deltaSeconds;
+          const pushDistance = Math.min(overlap.depth * 0.5, maxPushDistance);
+          const separation = overlap.normal.clone().scale(pushDistance);
+          a.setPosition(a.x - separation.x, a.y - separation.y);
+          b.setPosition(b.x + separation.x, b.y + separation.y);
+        }
 
         // 1. Magnetism (Opposing teams, close but not touching)
         if (shouldMagnetize) {
@@ -523,26 +571,73 @@ class BattleScene extends Phaser.Scene {
           b.engagedUnits.add(a);
         }
 
-        // 3. Contact combat + hard collision separation
-        if (distance <= BattleScene.CONTACT_ENGAGE_DISTANCE) {
-          if (opposingTeams) {
-            a.cancelMovement();
-            b.cancelMovement();
-            a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
-            b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
-            a.engagedUnits.add(b);
-            b.engagedUnits.add(a);
-          }
+        // 3. Contact combat + hard collision separation (same hitbox model as selection body)
+        if (opposingTeams && overlap) {
+          a.cancelMovement();
+          b.cancelMovement();
+          a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+          b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+          a.engagedUnits.add(b);
+          b.engagedUnits.add(a);
 
-          const overlap = BattleScene.COLLISION_MIN_DISTANCE - distance;
-          if (overlap > 0) {
-            const separation = safeDirection.clone().scale(overlap * 0.5);
-            a.setPosition(a.x - separation.x, a.y - separation.y);
-            b.setPosition(b.x + separation.x, b.y + separation.y);
-          }
+          const separation = overlap.normal.clone().scale(overlap.depth * 0.5);
+          a.setPosition(a.x - separation.x, a.y - separation.y);
+          b.setPosition(b.x + separation.x, b.y + separation.y);
         }
       }
     }
+  }
+
+  private getHitboxOverlap(
+    a: Unit,
+    b: Unit,
+  ): { normal: Phaser.Math.Vector2; depth: number } | null {
+    const hitboxA = a.getHitbox();
+    const hitboxB = b.getHitbox();
+    const centerDelta = hitboxB.center.clone().subtract(hitboxA.center);
+    const axes = [hitboxA.axisX, hitboxA.axisY, hitboxB.axisX, hitboxB.axisY];
+
+    let minimumOverlap = Number.POSITIVE_INFINITY;
+    let minimumAxis: Phaser.Math.Vector2 | null = null;
+
+    for (const axis of axes) {
+      const centerDistance = Math.abs(centerDelta.dot(axis));
+      const projectedRadiusA = this.projectHitboxRadius(hitboxA, axis);
+      const projectedRadiusB = this.projectHitboxRadius(hitboxB, axis);
+      const overlap = projectedRadiusA + projectedRadiusB - centerDistance;
+
+      if (overlap <= 0) {
+        return null;
+      }
+
+      if (overlap < minimumOverlap) {
+        minimumOverlap = overlap;
+        minimumAxis = axis.clone();
+      }
+    }
+
+    if (!minimumAxis) {
+      return null;
+    }
+
+    if (centerDelta.dot(minimumAxis) < 0) {
+      minimumAxis.scale(-1);
+    }
+
+    return {
+      normal: minimumAxis,
+      depth: minimumOverlap,
+    };
+  }
+
+  private projectHitboxRadius(
+    hitbox: UnitHitbox,
+    axis: Phaser.Math.Vector2,
+  ): number {
+    return (
+      hitbox.halfWidth * Math.abs(axis.dot(hitbox.axisX)) +
+      hitbox.halfHeight * Math.abs(axis.dot(hitbox.axisY))
+    );
   }
 
   private removeDeadUnits(): void {
