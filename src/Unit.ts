@@ -6,9 +6,19 @@ export class Unit extends Phaser.GameObjects.Container {
   private readonly turnSpeed: number;
   private destination: Phaser.Math.Vector2 | null;
   private targetRotation: number | null;
+
   private readonly unitBody: Phaser.GameObjects.Rectangle;
+  private readonly facingArrow: Phaser.GameObjects.Triangle;
+
   private static readonly BODY_WIDTH = 48;
   private static readonly BODY_HEIGHT = 28;
+  private static readonly OUTLINE_WIDTH = 2;
+  private static readonly ARROW_VERTICES = [
+    { x: -10, y: 6 },
+    { x: 0, y: -10 },
+    { x: 10, y: 6 },
+  ] as const;
+
   // Local forward is drawn upward in unit space.
   private static readonly FORWARD_OFFSET = -Math.PI / 2;
 
@@ -20,55 +30,81 @@ export class Unit extends Phaser.GameObjects.Container {
     this.turnSpeed = Phaser.Math.DegToRad(180);
     this.destination = null;
     this.targetRotation = null;
-    this.unitBody = scene.add.rectangle(
+
+    // Rectangle source-of-truth: centered at local (0,0).
+    this.unitBody = new Phaser.GameObjects.Rectangle(
+      scene,
       0,
       0,
       Unit.BODY_WIDTH,
       Unit.BODY_HEIGHT,
       0xd6c79e,
     );
-    const arrowOffsetY = -Unit.BODY_HEIGHT * 0.5 - 2;
-    const facingArrow = scene.add.triangle(
+    this.unitBody.setOrigin(0.5, 0.5);
+    this.unitBody.setStrokeStyle(Unit.OUTLINE_WIDTH, 0x222222, 0.8);
+    this.unitBody.setInteractive({ cursor: 'pointer' });
+    this.unitBody.setData('unit', this);
+
+    const [v1, v2, v3] = Unit.ARROW_VERTICES;
+    const centroidX = (v1.x + v2.x + v3.x) / 3;
+    const centroidY = (v1.y + v2.y + v3.y) / 3;
+    const r1 = { x: v1.x - centroidX, y: v1.y - centroidY };
+    const r2 = { x: v2.x - centroidX, y: v2.y - centroidY };
+    const r3 = { x: v3.x - centroidX, y: v3.y - centroidY };
+
+    // Rebased triangle is placed at local (0,0), matching rectangle center.
+    this.facingArrow = new Phaser.GameObjects.Triangle(
+      scene,
       0,
-      arrowOffsetY,
       0,
-      -10,
-      -8,
-      8,
-      8,
-      8,
+      r1.x,
+      r1.y,
+      r2.x,
+      r2.y,
+      r3.x,
+      r3.y,
       0x1f1f1f,
     );
+    // Vertices are centroid-rebased, so (0,0) is the triangle center of mass.
+    this.facingArrow.setDisplayOrigin(0, 0);
+    this.facingArrow.setStrokeStyle(1, 0x222222, 1);
 
-    this.unitBody.setStrokeStyle(2, 0x222222, 0.8);
-    this.add([this.unitBody, facingArrow]);
-
-    this.setSize(Unit.BODY_WIDTH, Unit.BODY_HEIGHT);
-    this.setInteractive(
-      new Phaser.Geom.Rectangle(
-        -Unit.BODY_WIDTH * 0.5,
-        -Unit.BODY_HEIGHT * 0.5,
-        Unit.BODY_WIDTH,
-        Unit.BODY_HEIGHT,
-      ),
-      Phaser.Geom.Rectangle.Contains,
-    );
-    if (this.input) {
-      this.input.cursor = 'pointer';
-    }
+    this.add([this.unitBody, this.facingArrow]);
 
     scene.add.existing(this);
   }
 
+  public static fromGameObject(
+    gameObject: Phaser.GameObjects.GameObject,
+  ): Unit | null {
+    if (gameObject instanceof Unit) {
+      return gameObject;
+    }
+
+    const withData = gameObject as Phaser.GameObjects.GameObject & {
+      getData?: (key: string) => unknown;
+    };
+    if (!withData.getData) {
+      return null;
+    }
+
+    const owner = withData.getData('unit');
+    return owner instanceof Unit ? owner : null;
+  }
+
   public setSelected(isSelected: boolean): void {
     this.selected = isSelected;
-    this.unitBody.setStrokeStyle(2, isSelected ? 0xffffff : 0x222222, 1);
+    this.unitBody.setStrokeStyle(
+      Unit.OUTLINE_WIDTH,
+      isSelected ? 0xffffff : 0x222222,
+      1,
+    );
   }
 
   public setDestination(x: number, y: number): void {
     this.destination = new Phaser.Math.Vector2(x, y);
 
-    // Calculate angle to target so the block faces its move direction.
+    // Calculate angle to target so the unit faces its move direction.
     const angleToTarget = Phaser.Math.Angle.Between(this.x, this.y, x, y);
     this.targetRotation = angleToTarget - Unit.FORWARD_OFFSET;
   }

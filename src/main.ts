@@ -12,6 +12,7 @@ class BattleScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(0x2f7d32);
+    this.input.mouse?.disableContextMenu();
 
     const centerX = this.scale.width * 0.5;
     const centerY = this.scale.height * 0.5;
@@ -28,11 +29,12 @@ class BattleScene extends Phaser.Scene {
           return;
         }
 
-        if (!(gameObject instanceof Unit)) {
+        const clickedUnit = Unit.fromGameObject(gameObject);
+        if (!clickedUnit) {
           return;
         }
 
-        this.selectUnit(gameObject);
+        this.selectUnit(clickedUnit);
         this.suppressTerrainClick = true;
 
         // Prevent this same click from also firing a terrain move command.
@@ -41,6 +43,12 @@ class BattleScene extends Phaser.Scene {
     );
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button === 2) {
+        this.clearSelection();
+        this.suppressTerrainClick = false;
+        return;
+      }
+
       if (pointer.button !== 0) {
         return;
       }
@@ -65,6 +73,15 @@ class BattleScene extends Phaser.Scene {
 
     this.selectedUnit = unit;
     this.selectedUnit.setSelected(true);
+  }
+
+  private clearSelection(): void {
+    if (!this.selectedUnit) {
+      return;
+    }
+
+    this.selectedUnit.setSelected(false);
+    this.selectedUnit = null;
   }
 
   update(_time: number, delta: number): void {
