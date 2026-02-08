@@ -19,8 +19,10 @@ class BattleScene extends Phaser.Scene {
 
   private static readonly DRAG_THRESHOLD = 10;
   private static readonly PREVIEW_PATH_POINT_SPACING = 4;
-  private static readonly COMMAND_PATH_POINT_SPACING = 18;
+  private static readonly COMMAND_PATH_POINT_SPACING = 50;
   private static readonly COLLISION_MIN_DISTANCE = 42;
+  private static readonly ENGAGEMENT_MAGNET_DISTANCE = 100;
+  private static readonly MAGNETISM_SPEED = 80;
   private static readonly CONTACT_DAMAGE_PER_SECOND = 12;
 
   constructor() {
@@ -453,7 +455,7 @@ class BattleScene extends Phaser.Scene {
     this.selectedUnits.clear();
   }
 
-  private applyCollisionAvoidance(deltaSeconds: number): void {
+  private updateUnitInteractions(deltaSeconds: number): void {
     for (let i = 0; i < this.units.length; i += 1) {
       const a = this.units[i];
       if (!a.isAlive()) {
@@ -468,21 +470,36 @@ class BattleScene extends Phaser.Scene {
 
         const delta = new Phaser.Math.Vector2(b.x - a.x, b.y - a.y);
         const distance = Math.max(delta.length(), 0.0001);
-        if (distance >= BattleScene.COLLISION_MIN_DISTANCE) {
-          continue;
+
+        // 1. Magnetism (Opposing teams, close but not touching)
+        if (
+          a.team !== b.team &&
+          distance <= BattleScene.ENGAGEMENT_MAGNET_DISTANCE &&
+          distance > BattleScene.COLLISION_MIN_DISTANCE
+        ) {
+          const pull = delta
+            .normalize()
+            .scale(BattleScene.MAGNETISM_SPEED * deltaSeconds);
+          a.x += pull.x;
+          a.y += pull.y;
+          b.x -= pull.x;
+          b.y -= pull.y;
         }
 
-        if (a.team !== b.team) {
-          a.cancelMovement();
-          b.cancelMovement();
-          a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
-          b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
-        }
+        // 2. Collision / Combat (Touching)
+        if (distance < BattleScene.COLLISION_MIN_DISTANCE) {
+          if (a.team !== b.team) {
+            a.cancelMovement();
+            b.cancelMovement();
+            a.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+            b.applyContactDamage(BattleScene.CONTACT_DAMAGE_PER_SECOND, deltaSeconds);
+          }
 
-        const overlap = BattleScene.COLLISION_MIN_DISTANCE - distance;
-        const separation = delta.normalize().scale(overlap * 0.5);
-        a.setPosition(a.x - separation.x, a.y - separation.y);
-        b.setPosition(b.x + separation.x, b.y + separation.y);
+          const overlap = BattleScene.COLLISION_MIN_DISTANCE - distance;
+          const separation = delta.normalize().scale(overlap * 0.5);
+          a.setPosition(a.x - separation.x, a.y - separation.y);
+          b.setPosition(b.x + separation.x, b.y + separation.y);
+        }
       }
     }
   }
@@ -532,7 +549,7 @@ class BattleScene extends Phaser.Scene {
     for (const unit of this.units) {
       unit.updateMovement(delta);
     }
-    this.applyCollisionAvoidance(delta / 1000);
+    this.updateUnitInteractions(delta / 1000);
     this.removeDeadUnits();
     this.renderMovementLines();
   }

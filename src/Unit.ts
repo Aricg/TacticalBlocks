@@ -261,7 +261,12 @@ export class Unit extends Phaser.GameObjects.Container {
     }
 
     // Move only after unit has finished turning to face the destination.
-    if (this.targetRotation !== null) {
+    // We allow movement if the heading is "close enough" to prevent stuttering in crowds.
+    const isFacingDestination =
+      this.targetRotation === null ||
+      Math.abs(Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation)) <= 0.35;
+
+    if (!isFacingDestination) {
       return;
     }
 
