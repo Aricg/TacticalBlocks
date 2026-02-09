@@ -53,6 +53,8 @@ export class Unit extends Phaser.GameObjects.Container {
   // Local forward is drawn upward in unit space.
   private static readonly FORWARD_OFFSET = -Math.PI / 2;
   private static readonly REFACE_ANGLE_THRESHOLD = Phaser.Math.DegToRad(3);
+  private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE = 0.35;
+  private static readonly MIN_WAYPOINT_DISTANCE = 1;
   private static readonly DEFAULT_MOVEMENT_COMMAND_MODE: MovementCommandMode = {
     speedMultiplier: 1,
     rotateToFace: true,
@@ -218,7 +220,28 @@ export class Unit extends Phaser.GameObjects.Container {
       ...movementCommandMode,
     };
 
-    const [first, ...rest] = path;
+    let firstUsableWaypointIndex = 0;
+    while (firstUsableWaypointIndex < path.length) {
+      const waypoint = path[firstUsableWaypointIndex];
+      const distanceToWaypoint = Phaser.Math.Distance.Between(
+        this.x,
+        this.y,
+        waypoint.x,
+        waypoint.y,
+      );
+      if (distanceToWaypoint >= Unit.MIN_WAYPOINT_DISTANCE) {
+        break;
+      }
+      firstUsableWaypointIndex += 1;
+    }
+
+    const usablePath = path.slice(firstUsableWaypointIndex);
+    if (usablePath.length === 0) {
+      this.cancelMovement();
+      return;
+    }
+
+    const [first, ...rest] = usablePath;
     this.destination = first.clone();
     this.queuedWaypoints = rest.map((point) => point.clone());
     this.faceCurrentDestination();
@@ -321,6 +344,9 @@ export class Unit extends Phaser.GameObjects.Container {
     }
 
     const deltaSeconds = deltaMs / 1000;
+    const maxStep =
+      this.speed * this.movementCommandMode.speedMultiplier * deltaSeconds;
+
     if (this.movementCommandMode.rotateToFace) {
       const desiredRotation =
         Phaser.Math.Angle.Between(
@@ -357,31 +383,49 @@ export class Unit extends Phaser.GameObjects.Container {
       // We allow movement if the heading is "close enough" to prevent stuttering in crowds.
       const isFacingDestination =
         this.targetRotation === null ||
-        Math.abs(Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation)) <= 0.35;
+        Math.abs(Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation)) <=
+          Unit.WAYPOINT_MOVE_ANGLE_TOLERANCE;
 
       if (!isFacingDestination) {
         return;
       }
     }
 
-    const toTargetX = this.destination.x - this.x;
-    const toTargetY = this.destination.y - this.y;
-    const distance = Math.hypot(toTargetX, toTargetY);
-    const maxStep =
-      this.speed * this.movementCommandMode.speedMultiplier * deltaSeconds;
+    let remainingStep = maxStep;
+    while (this.destination && remainingStep > 0) {
+      const toTargetX = this.destination.x - this.x;
+      const toTargetY = this.destination.y - this.y;
+      const distance = Math.hypot(toTargetX, toTargetY);
 
-    if (distance <= maxStep) {
-      this.setPosition(this.destination.x, this.destination.y);
-      const nextDestination = this.queuedWaypoints.shift() ?? null;
-      this.destination = nextDestination;
-      this.faceCurrentDestination();
+      if (distance <= remainingStep) {
+        this.setPosition(this.destination.x, this.destination.y);
+        remainingStep -= distance;
+
+        const nextDestination = this.queuedWaypoints.shift() ?? null;
+        this.destination = nextDestination;
+        this.faceCurrentDestination();
+
+        if (!this.destination) {
+          return;
+        }
+
+        if (this.movementCommandMode.rotateToFace && this.targetRotation !== null) {
+          const headingError = Math.abs(
+            Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation),
+          );
+          if (headingError > Unit.WAYPOINT_MOVE_ANGLE_TOLERANCE) {
+            return;
+          }
+        }
+        continue;
+      }
+
+      const stepScale = remainingStep / distance;
+      const stepX = toTargetX * stepScale;
+      const stepY = toTargetY * stepScale;
+      this.setPosition(this.x + stepX, this.y + stepY);
       return;
     }
-
-    const stepScale = maxStep / distance;
-    const stepX = toTargetX * stepScale;
-    const stepY = toTargetY * stepScale;
-    this.setPosition(this.x + stepX, this.y + stepY);
   }
 
   public getDestination(): Phaser.Math.Vector2 | null {
