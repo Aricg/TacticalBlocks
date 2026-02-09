@@ -24,6 +24,8 @@ type DominanceTarget = {
   weight: number;
 };
 
+const DEFAULT_ENEMY_PRESSURE_DEBUFF_FLOOR = 0.05;
+
 export class InfluenceGridSystem {
   private readonly gridWidth: number;
   private readonly gridHeight: number;
@@ -41,6 +43,7 @@ export class InfluenceGridSystem {
   private staticVelocityEpsilon: number;
   private dominancePowerMultiplier: number;
   private dominanceMinFloor: number;
+  private enemyPressureDebuffFloor: number;
   private coreMinInfluenceFactor: number;
   private maxExtraDecayAtZero: number;
   private maxAbsTacticalScore: number;
@@ -98,6 +101,11 @@ export class InfluenceGridSystem {
       GAMEPLAY_CONFIG.influence.dominancePowerMultiplier,
     );
     this.dominanceMinFloor = Math.max(0, GAMEPLAY_CONFIG.influence.dominanceMinFloor);
+    this.enemyPressureDebuffFloor = PhaserMath.clamp(
+      DEFAULT_ENEMY_PRESSURE_DEBUFF_FLOOR,
+      0,
+      1,
+    );
     this.coreMinInfluenceFactor = Math.max(
       0,
       GAMEPLAY_CONFIG.influence.coreMinInfluenceFactor,
@@ -121,6 +129,11 @@ export class InfluenceGridSystem {
     this.staticCityCapGate = PhaserMath.clamp(tuning.staticCityCapGate, 0, 1);
     this.unitCapThreshold = Math.max(0.1, tuning.unitCapThreshold);
     this.unitInfluenceMultiplier = Math.max(0, tuning.unitInfluenceMultiplier);
+    this.enemyPressureDebuffFloor = PhaserMath.clamp(
+      tuning.influenceEnemyPressureDebuffFloor,
+      0,
+      1,
+    );
     this.coreMinInfluenceFactor = Math.max(0, tuning.influenceCoreMinInfluenceFactor);
     this.maxExtraDecayAtZero = PhaserMath.clamp(
       tuning.influenceMaxExtraDecayAtZero,
@@ -179,6 +192,10 @@ export class InfluenceGridSystem {
         this.staticCityCapGate < 0.5 ||
         !this.hasStaticSourceReachedCoreCap(scores, source),
     );
+    const contestMultiplierByUnitId = this.buildContestMultiplierByUnitId(
+      activeUnits,
+      contributingStaticSources,
+    );
 
     for (let index = 0; index < cellCount; index += 1) {
       const cellX = index % this.gridWidth;
@@ -188,7 +205,9 @@ export class InfluenceGridSystem {
 
       for (const unit of contributingUnits) {
         const distance = Math.hypot(worldX - unit.x, worldY - unit.y);
-        const localInfluence = unit.power / (distance * distance + 1);
+        const contestMultiplier = contestMultiplierByUnitId.get(unit.unitId) ?? 1;
+        const localInfluence =
+          (unit.power * contestMultiplier) / (distance * distance + 1);
         scores[index] += localInfluence * unit.teamSign;
       }
 
@@ -205,7 +224,10 @@ export class InfluenceGridSystem {
         continue;
       }
 
-      const absoluteDominance = this.getAbsoluteDominance(unit.power);
+      const contestMultiplier = contestMultiplierByUnitId.get(unit.unitId) ?? 1;
+      const absoluteDominance = this.getAbsoluteDominance(
+        unit.power * contestMultiplier,
+      );
       for (const target of targets) {
         const weightedFloor = absoluteDominance * target.weight;
         if (unit.teamSign > 0) {
@@ -217,7 +239,12 @@ export class InfluenceGridSystem {
     }
 
     for (const unit of activeUnits) {
-      this.enforceCoreMinimumInfluence(scores, unit);
+      const contestMultiplier = contestMultiplierByUnitId.get(unit.unitId) ?? 1;
+      this.enforceCoreMinimumInfluence(
+        scores,
+        unit,
+        unit.power * contestMultiplier,
+      );
     }
 
     for (let index = 0; index < cellCount; index += 1) {
@@ -248,6 +275,7 @@ export class InfluenceGridSystem {
   private enforceCoreMinimumInfluence(
     scores: Float32Array,
     unit: UnitContributionSource,
+    effectivePower: number,
   ): void {
     const coreRadiusSquared = this.coreRadius * this.coreRadius;
     const minCol = PhaserMath.floorClamp(
@@ -272,7 +300,7 @@ export class InfluenceGridSystem {
     );
     const minimumInfluence = Math.max(
       this.dominanceMinFloor,
-      this.getAbsoluteDominance(unit.power) * this.coreMinInfluenceFactor,
+      this.getAbsoluteDominance(effectivePower) * this.coreMinInfluenceFactor,
     );
 
     for (let row = minRow; row <= maxRow; row += 1) {
@@ -294,6 +322,64 @@ export class InfluenceGridSystem {
         }
       }
     }
+  }
+
+  private buildContestMultiplierByUnitId(
+    activeUnits: UnitContributionSource[],
+    staticSources: StaticInfluenceSource[],
+  ): Map<string, number> {
+    const multiplierByUnitId = new Map<string, number>();
+    for (const unit of activeUnits) {
+      multiplierByUnitId.set(
+        unit.unitId,
+        this.getContestMultiplier(unit, activeUnits, staticSources),
+      );
+    }
+    return multiplierByUnitId;
+  }
+
+  private getContestMultiplier(
+    focusUnit: UnitContributionSource,
+    allUnits: UnitContributionSource[],
+    staticSources: StaticInfluenceSource[],
+  ): number {
+    let alliedPressure = 0;
+    let enemyPressure = 0;
+
+    for (const unit of allUnits) {
+      if (unit.unitId === focusUnit.unitId) {
+        continue;
+      }
+
+      const distance = Math.hypot(focusUnit.x - unit.x, focusUnit.y - unit.y);
+      const pressure = unit.power / (distance * distance + 1);
+      if (unit.teamSign === focusUnit.teamSign) {
+        alliedPressure += pressure;
+      } else {
+        enemyPressure += pressure;
+      }
+    }
+
+    for (const source of staticSources) {
+      const distance = Math.hypot(focusUnit.x - source.x, focusUnit.y - source.y);
+      const pressure = source.power / (distance * distance + 1);
+      if (source.teamSign === focusUnit.teamSign) {
+        alliedPressure += pressure;
+      } else {
+        enemyPressure += pressure;
+      }
+    }
+
+    const totalPressure = alliedPressure + enemyPressure;
+    if (totalPressure <= 0.00001) {
+      return 1;
+    }
+
+    const alliedShare = PhaserMath.clamp(alliedPressure / totalPressure, 0, 1);
+    // Stronger contest debuff: isolated units under enemy pressure can fall well below full strength.
+    // A low floor preserves a visible circle while allowing mid-scale values (~50 on a 100 cap).
+    const minContestMultiplier = this.enemyPressureDebuffFloor;
+    return minContestMultiplier + alliedShare * (1 - minContestMultiplier);
   }
 
   private hasStaticUnitReachedCoreCap(

@@ -407,6 +407,9 @@ class BattleScene extends Phaser.Scene {
     this.tuningPanel?.setValues(runtimeTuning);
     this.visionBrush?.setRadius(this.runtimeTuning.fogVisionRadius);
     this.cityVisionBrush?.setRadius(this.runtimeTuning.cityVisionRadius);
+    for (const unit of this.unitsById.values()) {
+      unit.setHealthMax(this.runtimeTuning.baseUnitHealth);
+    }
     this.influenceRenderer?.setLineStyle({
       lineThickness: this.runtimeTuning.lineThickness,
       lineAlpha: this.runtimeTuning.lineAlpha,
@@ -422,6 +425,7 @@ class BattleScene extends Phaser.Scene {
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
     const existingUnit = this.unitsById.get(networkUnit.unitId);
     if (existingUnit) {
+      existingUnit.setHealthMax(this.runtimeTuning.baseUnitHealth);
       existingUnit.rotation = networkUnit.rotation;
       existingUnit.setHealth(networkUnit.health);
       this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
@@ -447,6 +451,7 @@ class BattleScene extends Phaser.Scene {
       networkUnit.rotation,
       networkUnit.health,
     );
+    spawnedUnit.setHealthMax(this.runtimeTuning.baseUnitHealth);
     this.units.push(spawnedUnit);
     this.unitsById.set(networkUnit.unitId, spawnedUnit);
     this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);

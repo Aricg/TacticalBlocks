@@ -1,7 +1,11 @@
 import { GAMEPLAY_CONFIG } from "./gameplayConfig.js";
 
 export type RuntimeTuning = {
+  baseUnitHealth: number;
+  healthInfluenceMultiplier: number;
   unitMoveSpeed: number;
+  baseContactDps: number;
+  dpsInfluenceMultiplier: number;
   influenceUpdateIntervalFrames: number;
   influenceDecayRate: number;
   influenceDecayZeroEpsilon: number;
@@ -10,6 +14,7 @@ export type RuntimeTuning = {
   staticCityCapGate: number;
   unitCapThreshold: number;
   unitInfluenceMultiplier: number;
+  influenceEnemyPressureDebuffFloor: number;
   influenceCoreMinInfluenceFactor: number;
   influenceMaxExtraDecayAtZero: number;
   fogVisionRadius: number;
@@ -28,7 +33,11 @@ type RuntimeTuningBound = {
 };
 
 export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
+  baseUnitHealth: GAMEPLAY_CONFIG.unit.healthMax,
+  healthInfluenceMultiplier: 0,
   unitMoveSpeed: GAMEPLAY_CONFIG.movement.unitMoveSpeed,
+  baseContactDps: GAMEPLAY_CONFIG.combat.contactDamagePerSecond,
+  dpsInfluenceMultiplier: 0,
   influenceUpdateIntervalFrames: GAMEPLAY_CONFIG.influence.updateIntervalFrames,
   influenceDecayRate: GAMEPLAY_CONFIG.influence.decayRate,
   influenceDecayZeroEpsilon: GAMEPLAY_CONFIG.influence.decayZeroEpsilon,
@@ -37,6 +46,7 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
   staticCityCapGate: GAMEPLAY_CONFIG.influence.staticCityCapGate,
   unitCapThreshold: GAMEPLAY_CONFIG.influence.unitCapThreshold,
   unitInfluenceMultiplier: GAMEPLAY_CONFIG.influence.unitInfluenceMultiplier,
+  influenceEnemyPressureDebuffFloor: 0.05,
   influenceCoreMinInfluenceFactor: GAMEPLAY_CONFIG.influence.coreMinInfluenceFactor,
   influenceMaxExtraDecayAtZero: GAMEPLAY_CONFIG.influence.maxExtraDecayAtZero,
   fogVisionRadius: GAMEPLAY_CONFIG.visibility.visionRadius,
@@ -47,7 +57,11 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
 };
 
 export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound> = {
+  baseUnitHealth: { min: 20, max: 200, step: 1 },
+  healthInfluenceMultiplier: { min: 0, max: 1, step: 0.01 },
   unitMoveSpeed: { min: 20, max: 300, step: 1 },
+  baseContactDps: { min: 1, max: 24, step: 0.1 },
+  dpsInfluenceMultiplier: { min: 0, max: 1, step: 0.01 },
   influenceUpdateIntervalFrames: { min: 1, max: 20, step: 1 },
   influenceDecayRate: { min: 0.7, max: 0.999, step: 0.001 },
   influenceDecayZeroEpsilon: { min: 0, max: 2, step: 0.01 },
@@ -55,7 +69,8 @@ export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound>
   staticUnitCapGate: { min: 0, max: 1, step: 1 },
   staticCityCapGate: { min: 0, max: 1, step: 1 },
   unitCapThreshold: { min: 0.1, max: 2, step: 0.05 },
-  unitInfluenceMultiplier: { min: 0, max: 3, step: 0.05 },
+  unitInfluenceMultiplier: { min: 0, max: 0.1, step: 0.0025 },
+  influenceEnemyPressureDebuffFloor: { min: 0, max: 1, step: 0.01 },
   influenceCoreMinInfluenceFactor: { min: 0, max: 1, step: 0.01 },
   influenceMaxExtraDecayAtZero: { min: 0, max: 0.9, step: 0.01 },
   fogVisionRadius: { min: 40, max: 600, step: 1 },
@@ -84,6 +99,7 @@ export function sanitizeRuntimeTuningUpdate(
     const clamped = clamp(value, bounds.min, bounds.max);
     const normalizedValue =
       key === "influenceUpdateIntervalFrames" ||
+      key === "baseUnitHealth" ||
       key === "citySourceCoreRadius" ||
       key === "staticUnitCapGate" ||
       key === "staticCityCapGate"

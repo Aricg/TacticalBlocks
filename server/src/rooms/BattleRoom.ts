@@ -46,8 +46,6 @@ export class BattleRoom extends Room<BattleState> {
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
 
-  private static readonly CONTACT_DAMAGE_PER_SECOND =
-    GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
   private static readonly UNIT_TURN_SPEED =
     GAMEPLAY_CONFIG.movement.unitTurnSpeedRadians;
   private static readonly UNIT_FORWARD_OFFSET =
@@ -68,6 +66,8 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.map.height / BattleRoom.GRID_HEIGHT;
   private static readonly GRID_CONTACT_DISTANCE =
     Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
+  private static readonly MAX_ABS_TACTICAL_SCORE =
+    GAMEPLAY_CONFIG.influence.maxAbsTacticalScore;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
@@ -245,6 +245,56 @@ export class BattleRoom extends Room<BattleState> {
     };
   }
 
+  private getTeamSign(team: string): 1 | -1 {
+    return team.toUpperCase() === "BLUE" ? 1 : -1;
+  }
+
+  private getInfluenceScoreAtUnit(unit: Unit): number {
+    const grid = this.state.influenceGrid;
+    const cell = this.worldToGridCoordinate(unit.x, unit.y);
+    const index = cell.row * grid.width + cell.col;
+    const score = grid.cells[index];
+    if (typeof score !== "number" || !Number.isFinite(score)) {
+      return 0;
+    }
+    return score;
+  }
+
+  private getInfluenceAdvantageNormalized(unit: Unit): number {
+    const score = this.getInfluenceScoreAtUnit(unit);
+    const alignedScore = score * this.getTeamSign(unit.team);
+    return this.clamp(
+      alignedScore / BattleRoom.MAX_ABS_TACTICAL_SCORE,
+      0,
+      1,
+    );
+  }
+
+  private getInfluenceBuffMultiplier(
+    unit: Unit,
+    influenceMultiplier: number,
+  ): number {
+    return 1 + this.getInfluenceAdvantageNormalized(unit) * influenceMultiplier;
+  }
+
+  private getUnitContactDps(unit: Unit): number {
+    const baseDps = Math.max(0, this.runtimeTuning.baseContactDps);
+    return (
+      baseDps *
+      this.getInfluenceBuffMultiplier(
+        unit,
+        this.runtimeTuning.dpsInfluenceMultiplier,
+      )
+    );
+  }
+
+  private getUnitHealthMitigationMultiplier(unit: Unit): number {
+    return this.getInfluenceBuffMultiplier(
+      unit,
+      this.runtimeTuning.healthInfluenceMultiplier,
+    );
+  }
+
   private gridToWorldCenter(cell: GridCoordinate): Vector2 {
     return {
       x: (cell.col + 0.5) * BattleRoom.CELL_WIDTH,
@@ -382,7 +432,8 @@ export class BattleRoom extends Room<BattleState> {
     const redSpawn = GAMEPLAY_CONFIG.spawn.red;
     const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
     const cityPower =
-      GAMEPLAY_CONFIG.unit.healthMax * this.runtimeTuning.cityInfluenceUnitsEquivalent;
+      this.runtimeTuning.baseUnitHealth *
+      this.runtimeTuning.cityInfluenceUnitsEquivalent;
 
     this.influenceGridSystem.setStaticInfluenceSources([
       {
@@ -410,14 +461,37 @@ export class BattleRoom extends Room<BattleState> {
 
     const normalizedMessage =
       typeof message === "object" && message !== null ? message : {};
+    const previousBaseUnitHealth = this.runtimeTuning.baseUnitHealth;
     this.runtimeTuning = applyRuntimeTuningUpdate(
       this.runtimeTuning,
       normalizedMessage,
     );
+    if (this.runtimeTuning.baseUnitHealth !== previousBaseUnitHealth) {
+      this.rescaleUnitHealthForNewBase(
+        previousBaseUnitHealth,
+        this.runtimeTuning.baseUnitHealth,
+      );
+    }
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
     this.broadcast("runtimeTuningSnapshot", this.runtimeTuning);
     this.updateInfluenceGrid(true);
+  }
+
+  private rescaleUnitHealthForNewBase(
+    previousBaseUnitHealth: number,
+    nextBaseUnitHealth: number,
+  ): void {
+    const safePreviousBase = Math.max(1, previousBaseUnitHealth);
+    const safeNextBase = Math.max(1, nextBaseUnitHealth);
+    for (const unit of this.state.units.values()) {
+      if (unit.health <= 0) {
+        continue;
+      }
+
+      const healthRatio = this.clamp(unit.health / safePreviousBase, 0, 1);
+      unit.health = healthRatio * safeNextBase;
+    }
   }
 
   private spawnTestUnits(): void {
@@ -442,6 +516,7 @@ export class BattleRoom extends Room<BattleState> {
         redSpawn.x + redDepthOffsetX,
         redSpawn.y + offsetY,
         redSpawn.rotation,
+        this.runtimeTuning.baseUnitHealth,
       );
       const blueUnit = new Unit(
         `blue-${i + 1}`,
@@ -449,6 +524,7 @@ export class BattleRoom extends Room<BattleState> {
         blueSpawn.x + blueDepthOffsetX,
         blueSpawn.y + offsetY,
         blueSpawn.rotation,
+        this.runtimeTuning.baseUnitHealth,
       );
 
       this.snapUnitToGrid(redUnit);
@@ -770,6 +846,16 @@ export class BattleRoom extends Room<BattleState> {
 
     const units = Array.from(this.state.units.values()).filter((unit) => unit.health > 0);
     const pendingDamageByUnitId = new Map<string, number>();
+    const unitContactDpsById = new Map<string, number>();
+    const unitHealthMitigationById = new Map<string, number>();
+
+    for (const unit of units) {
+      unitContactDpsById.set(unit.unitId, this.getUnitContactDps(unit));
+      unitHealthMitigationById.set(
+        unit.unitId,
+        this.getUnitHealthMitigationMultiplier(unit),
+      );
+    }
 
     for (let i = 0; i < units.length; i += 1) {
       const a = units[i];
@@ -791,14 +877,21 @@ export class BattleRoom extends Room<BattleState> {
         this.clearMovementForUnit(a.unitId);
         this.clearMovementForUnit(b.unitId);
 
-        const damage = BattleRoom.CONTACT_DAMAGE_PER_SECOND * deltaSeconds;
+        const incomingDamageToA =
+          ((unitContactDpsById.get(b.unitId) ?? this.runtimeTuning.baseContactDps) *
+            deltaSeconds) /
+          Math.max(1, unitHealthMitigationById.get(a.unitId) ?? 1);
+        const incomingDamageToB =
+          ((unitContactDpsById.get(a.unitId) ?? this.runtimeTuning.baseContactDps) *
+            deltaSeconds) /
+          Math.max(1, unitHealthMitigationById.get(b.unitId) ?? 1);
         pendingDamageByUnitId.set(
           a.unitId,
-          (pendingDamageByUnitId.get(a.unitId) ?? 0) + damage,
+          (pendingDamageByUnitId.get(a.unitId) ?? 0) + incomingDamageToA,
         );
         pendingDamageByUnitId.set(
           b.unitId,
-          (pendingDamageByUnitId.get(b.unitId) ?? 0) + damage,
+          (pendingDamageByUnitId.get(b.unitId) ?? 0) + incomingDamageToB,
         );
         this.addEngagement(engagements, a.unitId, b.unitId);
       }

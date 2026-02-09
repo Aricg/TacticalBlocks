@@ -11,7 +11,19 @@ type SliderDescriptor = {
 };
 
 const SLIDERS: SliderDescriptor[] = [
+  { key: 'baseUnitHealth', label: 'Base Unit Health', group: 'Combat' },
+  {
+    key: 'healthInfluenceMultiplier',
+    label: 'Health Influence Bonus',
+    group: 'Combat',
+  },
   { key: 'unitMoveSpeed', label: 'Unit Speed', group: 'Movement' },
+  { key: 'baseContactDps', label: 'Base Contact DPS', group: 'Combat' },
+  {
+    key: 'dpsInfluenceMultiplier',
+    label: 'DPS Influence Bonus',
+    group: 'Combat',
+  },
   {
     key: 'influenceUpdateIntervalFrames',
     label: 'Update Interval (frames)',
@@ -42,6 +54,11 @@ const SLIDERS: SliderDescriptor[] = [
   {
     key: 'unitInfluenceMultiplier',
     label: 'Unit Influence Power',
+    group: 'Influence',
+  },
+  {
+    key: 'influenceEnemyPressureDebuffFloor',
+    label: 'Enemy Pressure Floor',
     group: 'Influence',
   },
   {

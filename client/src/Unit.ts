@@ -25,6 +25,7 @@ export class Unit extends Phaser.GameObjects.Container {
   private readonly healthBoxFill: Phaser.GameObjects.Rectangle;
   private readonly dpsText: Phaser.GameObjects.Text;
   private health: number;
+  private healthMax: number;
   private currentDpsOutput: number;
 
   private static readonly BODY_WIDTH: number = GAMEPLAY_CONFIG.unit.bodyWidth;
@@ -86,7 +87,8 @@ export class Unit extends Phaser.GameObjects.Container {
     this.destination = null;
     this.queuedWaypoints = [];
     this.targetRotation = null;
-    this.health = Phaser.Math.Clamp(health, 0, Unit.HEALTH_MAX);
+    this.healthMax = Unit.HEALTH_MAX;
+    this.health = Phaser.Math.Clamp(health, 0, this.healthMax);
     this.currentDpsOutput = 0;
     this.rotation = rotation;
 
@@ -291,8 +293,14 @@ export class Unit extends Phaser.GameObjects.Container {
     return this.getHealthRatio() <= Unit.HEALTH_RED_THRESHOLD;
   }
 
+  public setHealthMax(healthMax: number): void {
+    this.healthMax = Math.max(1, healthMax);
+    this.health = Phaser.Math.Clamp(this.health, 0, this.healthMax);
+    this.refreshHealthVisuals();
+  }
+
   public setHealth(health: number): void {
-    this.health = Phaser.Math.Clamp(health, 0, Unit.HEALTH_MAX);
+    this.health = Phaser.Math.Clamp(health, 0, this.healthMax);
     this.refreshHealthVisuals();
   }
 
@@ -475,7 +483,7 @@ export class Unit extends Phaser.GameObjects.Container {
   }
 
   private getHealthRatio(): number {
-    return Phaser.Math.Clamp(this.health / Unit.HEALTH_MAX, 0, 1);
+    return Phaser.Math.Clamp(this.health / this.healthMax, 0, 1);
   }
 
   private refreshDpsOutputVisual(): void {

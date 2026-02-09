@@ -33,7 +33,7 @@ export const GAMEPLAY_CONFIG = {
     // Core dominance stamp strength relative to unit power.
     dominancePowerMultiplier: 0.22,
     // Multiplier on per-unit influence contribution.
-    unitInfluenceMultiplier: 0.1,
+    unitInfluenceMultiplier: 0.05,
     // Never allow dominance/core floors below this absolute value.
     dominanceMinFloor: 1,
     // Guaranteed minimum core influence as a fraction of dominance strength.
@@ -41,7 +41,7 @@ export const GAMEPLAY_CONFIG = {
     // Extra decay applied near zero magnitude (small residuals collapse faster).
     maxExtraDecayAtZero: 0.4,
     // Hard cap for signed tactical score in each cell.
-    maxAbsTacticalScore: 500,
+    maxAbsTacticalScore: 100,
     // City source core radius used for static-source cap checks.
     citySourceCoreRadius: 27,
     // 1 enables static-unit cap gate, 0 disables it.
