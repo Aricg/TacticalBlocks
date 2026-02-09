@@ -661,8 +661,18 @@ export class BattleRoom extends Room<BattleState> {
         const bCanBePushedByEnemy = this.canBePushedByEnemy(b);
         const pushableUnitCount =
           Number(aCanBePushedByEnemy) + Number(bCanBePushedByEnemy);
+        // If both opposing units are currently "immovable", fall back to symmetric
+        // displacement for contact resolution so pairs can still close and separate.
+        const useSymmetricEnemyDisplacementFallback =
+          opposingTeams && pushableUnitCount === 0;
+        const aCanBeDisplacedByEnemy =
+          aCanBePushedByEnemy || useSymmetricEnemyDisplacementFallback;
+        const bCanBeDisplacedByEnemy =
+          bCanBePushedByEnemy || useSymmetricEnemyDisplacementFallback;
+        const displacementUnitCount =
+          Number(aCanBeDisplacedByEnemy) + Number(bCanBeDisplacedByEnemy);
         const displacementNormalization =
-          pushableUnitCount > 0 ? 2 / pushableUnitCount : 0;
+          displacementUnitCount > 0 ? 2 / displacementUnitCount : 0;
 
         if (!opposingTeams && distance < BattleRoom.ALLY_SOFT_SEPARATION_DISTANCE) {
           const spacingRatio =
@@ -691,12 +701,12 @@ export class BattleRoom extends Room<BattleState> {
             safeDirection,
             BattleRoom.MAGNETISM_SPEED * deltaSeconds,
           );
-          if (aCanBePushedByEnemy) {
+          if (aCanBeDisplacedByEnemy) {
             const aStep = displacementNormalization;
             a.x += pull.x * aStep;
             a.y += pull.y * aStep;
           }
-          if (bCanBePushedByEnemy) {
+          if (bCanBeDisplacedByEnemy) {
             const bStep = displacementNormalization;
             b.x -= pull.x * bStep;
             b.y -= pull.y * bStep;
@@ -738,10 +748,9 @@ export class BattleRoom extends Room<BattleState> {
             this.addEngagement(engagements, a.unitId, b.unitId);
           }
 
-          const totalPushable = pushableUnitCount;
-          if (totalPushable > 0) {
-            const separationPerShare = overlap.depth / totalPushable;
-            if (aCanBePushedByEnemy) {
+          if (displacementUnitCount > 0) {
+            const separationPerShare = overlap.depth / displacementUnitCount;
+            if (aCanBeDisplacedByEnemy) {
               const separationA = BattleRoom.scaleVector(
                 overlap.normal,
                 separationPerShare,
@@ -749,7 +758,7 @@ export class BattleRoom extends Room<BattleState> {
               a.x -= separationA.x;
               a.y -= separationA.y;
             }
-            if (bCanBePushedByEnemy) {
+            if (bCanBeDisplacedByEnemy) {
               const separationB = BattleRoom.scaleVector(
                 overlap.normal,
                 separationPerShare,
