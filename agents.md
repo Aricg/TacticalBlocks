@@ -35,13 +35,7 @@ move every gameplay state mutation to server authority.
 
 
 
-Combat contact geometry
-Client uses oriented hitbox overlap in main.ts  but server damage uses simpler AABB contact in BattleRoom.ts (line 177).
-Mismatch means different “in contact” truth.
 
-Command execution (not just command input)
-Keep input/path drawing client-side, but send commands (move/path) to server and execute them server-side.
-Do not send authoritative positions from clients.
 
 
 TODO:

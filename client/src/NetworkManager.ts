@@ -158,14 +158,6 @@ export class NetworkManager {
     });
   }
 
-  public sendUnitPosition(position: NetworkUnitPositionUpdate): void {
-    if (!this.room) {
-      return;
-    }
-
-    this.room.send('unitPosition', position);
-  }
-
   public sendUnitPathCommand(command: NetworkUnitPathCommand): void {
     if (!this.room) {
       return;
