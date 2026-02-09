@@ -14,6 +14,8 @@ import { Unit } from './Unit';
 class BattleScene extends Phaser.Scene {
   private readonly units: Unit[] = [];
   private readonly unitsById: Map<string, Unit> = new Map<string, Unit>();
+  private readonly plannedPathsByUnitId: Map<string, Phaser.Math.Vector2[]> =
+    new Map<string, Phaser.Math.Vector2[]>();
   private readonly remoteUnitTargetPositions: Map<string, Phaser.Math.Vector2> =
     new Map<string, Phaser.Math.Vector2>();
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
@@ -49,6 +51,7 @@ class BattleScene extends Phaser.Scene {
     GAMEPLAY_CONFIG.network.remotePositionLerpRate;
   private static readonly REMOTE_POSITION_SNAP_DISTANCE =
     GAMEPLAY_CONFIG.network.remotePositionSnapDistance;
+  private static readonly PLANNED_PATH_WAYPOINT_REACHED_DISTANCE = 12;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -352,6 +355,7 @@ class BattleScene extends Phaser.Scene {
     }
 
     this.unitsById.delete(unitId);
+    this.plannedPathsByUnitId.delete(unitId);
     this.remoteUnitTargetPositions.delete(unitId);
     this.selectedUnits.delete(unit);
     const index = this.units.indexOf(unit);
@@ -402,6 +406,7 @@ class BattleScene extends Phaser.Scene {
 
     this.clearSelection();
     this.localPlayerTeam = assignedTeam;
+    this.plannedPathsByUnitId.clear();
     this.rebuildRemotePositionTargets();
     this.refreshFogOfWar();
   }
@@ -555,11 +560,13 @@ class BattleScene extends Phaser.Scene {
       }
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
+      const unitPath = [new Phaser.Math.Vector2(targetX + offsetX, targetY + offsetY)];
       this.networkManager.sendUnitPathCommand({
         unitId,
-        path: [{ x: targetX + offsetX, y: targetY + offsetY }],
+        path: [{ x: unitPath[0].x, y: unitPath[0].y }],
         movementCommandMode,
       });
+      this.setPlannedPath(unitId, unitPath);
     }
   }
 
@@ -599,6 +606,10 @@ class BattleScene extends Phaser.Scene {
         path: unitPath,
         movementCommandMode,
       });
+      this.setPlannedPath(
+        unitId,
+        unitPath.map((point) => new Phaser.Math.Vector2(point.x, point.y)),
+      );
     }
   }
 
@@ -620,6 +631,47 @@ class BattleScene extends Phaser.Scene {
         continue;
       }
       this.networkManager.sendUnitCancelMovement(unitId);
+      this.plannedPathsByUnitId.delete(unitId);
+    }
+  }
+
+  private setPlannedPath(unitId: string, path: Phaser.Math.Vector2[]): void {
+    if (path.length === 0) {
+      this.plannedPathsByUnitId.delete(unitId);
+      return;
+    }
+
+    this.plannedPathsByUnitId.set(
+      unitId,
+      path.map((point) => point.clone()),
+    );
+  }
+
+  private advancePlannedPaths(): void {
+    const reachedDistanceSq =
+      BattleScene.PLANNED_PATH_WAYPOINT_REACHED_DISTANCE *
+      BattleScene.PLANNED_PATH_WAYPOINT_REACHED_DISTANCE;
+
+    for (const [unitId, path] of this.plannedPathsByUnitId) {
+      const unit = this.unitsById.get(unitId);
+      if (!unit || path.length === 0) {
+        this.plannedPathsByUnitId.delete(unitId);
+        continue;
+      }
+
+      while (path.length > 0) {
+        const nextWaypoint = path[0];
+        const dx = nextWaypoint.x - unit.x;
+        const dy = nextWaypoint.y - unit.y;
+        if (dx * dx + dy * dy > reachedDistanceSq) {
+          break;
+        }
+        path.shift();
+      }
+
+      if (path.length === 0) {
+        this.plannedPathsByUnitId.delete(unitId);
+      }
     }
   }
 
@@ -760,9 +812,9 @@ class BattleScene extends Phaser.Scene {
     this.movementLines.lineStyle(2, 0xf4e7b2, 0.75);
     this.movementLines.fillStyle(0xf4e7b2, 0.9);
 
-    for (const unit of this.units) {
-      const waypoints = unit.getWaypoints();
-      if (waypoints.length === 0) {
+    for (const [unitId, unit] of this.unitsById) {
+      const waypoints = this.plannedPathsByUnitId.get(unitId);
+      if (!waypoints || waypoints.length === 0) {
         continue;
       }
 
@@ -781,6 +833,7 @@ class BattleScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.smoothRemoteUnitPositions(delta);
+    this.advancePlannedPaths();
     this.refreshFogOfWar();
     this.renderMovementLines();
   }
