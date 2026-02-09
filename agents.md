@@ -32,9 +32,6 @@ FIXES TODO:
 move every gameplay state mutation to server authority.
 
 
-Inter-unit physics and collision resolution
-main.ts (updateUnitInteractions) moves units via spacing, magnetism, and separation on each client independently.
-That will diverge under latency/frame differences.
 
 Push/engagement rules
 main.ts (canBePushedByEnemy) depends on localPlayerTeam, so physics is literally perspective-dependent right now.

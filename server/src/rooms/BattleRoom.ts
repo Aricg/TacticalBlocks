@@ -26,13 +26,41 @@ type UnitMovementState = {
   targetRotation: number | null;
   movementCommandMode: MovementCommandMode;
 };
+type UnitHitbox = {
+  center: Vector2;
+  axisX: Vector2;
+  axisY: Vector2;
+  halfWidth: number;
+  halfHeight: number;
+};
+type Overlap = {
+  normal: Vector2;
+  depth: number;
+};
 
 export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
+  private previousEngagementByUnitId = new Map<string, Set<string>>();
+  private simulationTimeMs = 0;
 
   private static readonly CONTACT_DAMAGE_PER_SECOND =
     GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
+  private static readonly BATTLE_JIGGLE_SPEED =
+    GAMEPLAY_CONFIG.combat.battleJiggleSpeed;
+  private static readonly BATTLE_JIGGLE_FREQUENCY =
+    GAMEPLAY_CONFIG.combat.battleJiggleFrequency;
+  private static readonly ENGAGEMENT_MAGNET_DISTANCE =
+    GAMEPLAY_CONFIG.movement.engagementMagnetDistance;
+  private static readonly ENGAGEMENT_HOLD_DISTANCE =
+    GAMEPLAY_CONFIG.movement.engagementHoldDistance;
+  private static readonly MAGNETISM_SPEED = GAMEPLAY_CONFIG.movement.magnetismSpeed;
+  private static readonly ALLY_COLLISION_PUSH_SPEED =
+    GAMEPLAY_CONFIG.movement.allyCollisionPushSpeed;
+  private static readonly ALLY_SOFT_SEPARATION_DISTANCE =
+    GAMEPLAY_CONFIG.movement.allySoftSeparationDistance;
+  private static readonly ALLY_SOFT_SEPARATION_PUSH_SPEED =
+    GAMEPLAY_CONFIG.movement.allySoftSeparationPushSpeed;
   private static readonly UNIT_HALF_WIDTH = 12;
   private static readonly UNIT_HALF_HEIGHT = 7;
   private static readonly UNIT_MOVE_SPEED = 120;
@@ -53,8 +81,11 @@ export class BattleRoom extends Room<BattleState> {
 
     this.setSimulationInterval((deltaMs) => {
       const deltaSeconds = deltaMs / 1000;
+      this.simulationTimeMs += deltaMs;
       this.updateMovement(deltaSeconds);
-      this.updateCombat(deltaSeconds);
+      const engagements = this.updateUnitInteractions(deltaSeconds);
+      this.updateCombatRotation(deltaSeconds, engagements);
+      this.previousEngagementByUnitId = this.cloneEngagementMap(engagements);
     }, GAMEPLAY_CONFIG.network.positionSyncIntervalMs);
 
     this.onMessage("unitPath", (client, message: UnitPathMessage) => {
@@ -86,6 +117,7 @@ export class BattleRoom extends Room<BattleState> {
 
   onDispose(): void {
     this.movementStateByUnitId.clear();
+    this.previousEngagementByUnitId.clear();
     this.sessionTeamById.clear();
   }
 
@@ -166,6 +198,30 @@ export class BattleRoom extends Room<BattleState> {
 
   private static wrapAngle(angle: number): number {
     return Math.atan2(Math.sin(angle), Math.cos(angle));
+  }
+
+  private static distance(a: Vector2, b: Vector2): number {
+    return Math.hypot(b.x - a.x, b.y - a.y);
+  }
+
+  private static scaleVector(v: Vector2, scalar: number): Vector2 {
+    return { x: v.x * scalar, y: v.y * scalar };
+  }
+
+  private static cloneVector(v: Vector2): Vector2 {
+    return { x: v.x, y: v.y };
+  }
+
+  private ensureFiniteUnitState(unit: Unit): void {
+    if (!Number.isFinite(unit.x)) {
+      unit.x = 0;
+    }
+    if (!Number.isFinite(unit.y)) {
+      unit.y = 0;
+    }
+    if (!Number.isFinite(unit.rotation)) {
+      unit.rotation = 0;
+    }
   }
 
   private spawnTestUnits(): void {
@@ -308,6 +364,7 @@ export class BattleRoom extends Room<BattleState> {
       if (unit.health <= 0) {
         continue;
       }
+      this.ensureFiniteUnitState(unit);
 
       const movementState = this.movementStateByUnitId.get(unit.unitId);
       if (!movementState || !movementState.destination) {
@@ -404,45 +461,129 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
-  private updateCombat(deltaSeconds: number): void {
-    if (deltaSeconds <= 0) {
-      return;
-    }
+  private getHitbox(unit: Unit): UnitHitbox {
+    const cos = Math.cos(unit.rotation);
+    const sin = Math.sin(unit.rotation);
 
-    const units = Array.from(this.state.units.values());
-    const pendingDamageByUnitId = new Map<string, number>();
+    return {
+      center: { x: unit.x, y: unit.y },
+      axisX: { x: cos, y: sin },
+      axisY: { x: -sin, y: cos },
+      halfWidth: BattleRoom.UNIT_HALF_WIDTH,
+      halfHeight: BattleRoom.UNIT_HALF_HEIGHT,
+    };
+  }
 
-    for (let i = 0; i < units.length; i += 1) {
-      const a = units[i];
-      if (a.health <= 0) {
-        continue;
+  private projectHitboxRadius(hitbox: UnitHitbox, axis: Vector2): number {
+    const dotXX = axis.x * hitbox.axisX.x + axis.y * hitbox.axisX.y;
+    const dotXY = axis.x * hitbox.axisY.x + axis.y * hitbox.axisY.y;
+    return (
+      hitbox.halfWidth * Math.abs(dotXX) + hitbox.halfHeight * Math.abs(dotXY)
+    );
+  }
+
+  private getHitboxOverlap(a: Unit, b: Unit): Overlap | null {
+    const hitboxA = this.getHitbox(a);
+    const hitboxB = this.getHitbox(b);
+    const centerDelta = {
+      x: hitboxB.center.x - hitboxA.center.x,
+      y: hitboxB.center.y - hitboxA.center.y,
+    };
+    const axes = [hitboxA.axisX, hitboxA.axisY, hitboxB.axisX, hitboxB.axisY];
+
+    let minimumOverlap = Number.POSITIVE_INFINITY;
+    let minimumAxis: Vector2 | null = null;
+
+    for (const axis of axes) {
+      const centerDistance = Math.abs(centerDelta.x * axis.x + centerDelta.y * axis.y);
+      const projectedRadiusA = this.projectHitboxRadius(hitboxA, axis);
+      const projectedRadiusB = this.projectHitboxRadius(hitboxB, axis);
+      const overlap = projectedRadiusA + projectedRadiusB - centerDistance;
+
+      if (overlap <= 0) {
+        return null;
       }
 
-      for (let j = i + 1; j < units.length; j += 1) {
-        const b = units[j];
-        if (b.health <= 0 || a.team === b.team) {
-          continue;
-        }
-
-        if (!this.areUnitsInContact(a, b)) {
-          continue;
-        }
-
-        this.clearMovementForUnit(a.unitId);
-        this.clearMovementForUnit(b.unitId);
-
-        const damage = BattleRoom.CONTACT_DAMAGE_PER_SECOND * deltaSeconds;
-        pendingDamageByUnitId.set(
-          a.unitId,
-          (pendingDamageByUnitId.get(a.unitId) ?? 0) + damage,
-        );
-        pendingDamageByUnitId.set(
-          b.unitId,
-          (pendingDamageByUnitId.get(b.unitId) ?? 0) + damage,
-        );
+      if (overlap < minimumOverlap) {
+        minimumOverlap = overlap;
+        minimumAxis = BattleRoom.cloneVector(axis);
       }
     }
 
+    if (!minimumAxis) {
+      return null;
+    }
+
+    if (centerDelta.x * minimumAxis.x + centerDelta.y * minimumAxis.y < 0) {
+      minimumAxis.x *= -1;
+      minimumAxis.y *= -1;
+    }
+
+    return {
+      normal: minimumAxis,
+      depth: minimumOverlap,
+    };
+  }
+
+  private hasCurrentEngagement(
+    engagements: Map<string, Set<string>>,
+    unitId: string,
+  ): boolean {
+    return (engagements.get(unitId)?.size ?? 0) > 0;
+  }
+
+  private wasEngagedPreviously(aId: string, bId: string): boolean {
+    return this.previousEngagementByUnitId.get(aId)?.has(bId) ?? false;
+  }
+
+  private addEngagement(
+    engagements: Map<string, Set<string>>,
+    aId: string,
+    bId: string,
+  ): void {
+    const aSet = engagements.get(aId);
+    if (aSet) {
+      aSet.add(bId);
+    } else {
+      engagements.set(aId, new Set([bId]));
+    }
+
+    const bSet = engagements.get(bId);
+    if (bSet) {
+      bSet.add(aId);
+    } else {
+      engagements.set(bId, new Set([aId]));
+    }
+  }
+
+  private cloneEngagementMap(
+    source: Map<string, Set<string>>,
+  ): Map<string, Set<string>> {
+    const cloned = new Map<string, Set<string>>();
+    for (const [unitId, peers] of source) {
+      cloned.set(unitId, new Set(peers));
+    }
+    return cloned;
+  }
+
+  private removeUnitFromEngagementMap(
+    engagements: Map<string, Set<string>>,
+    unitId: string,
+  ): void {
+    engagements.delete(unitId);
+    for (const peers of engagements.values()) {
+      peers.delete(unitId);
+    }
+  }
+
+  private canBePushedByEnemy(_unit: Unit): boolean {
+    return true;
+  }
+
+  private applyPendingDamage(
+    pendingDamageByUnitId: Map<string, number>,
+    engagements: Map<string, Set<string>>,
+  ): void {
     if (pendingDamageByUnitId.size === 0) {
       return;
     }
@@ -463,12 +604,203 @@ export class BattleRoom extends Room<BattleState> {
     for (const unitId of deadUnitIds) {
       this.state.units.delete(unitId);
       this.movementStateByUnitId.delete(unitId);
+      this.removeUnitFromEngagementMap(engagements, unitId);
+      this.removeUnitFromEngagementMap(this.previousEngagementByUnitId, unitId);
     }
   }
 
-  private areUnitsInContact(a: Unit, b: Unit): boolean {
-    const overlapX = Math.abs(a.x - b.x) <= BattleRoom.UNIT_HALF_WIDTH * 2;
-    const overlapY = Math.abs(a.y - b.y) <= BattleRoom.UNIT_HALF_HEIGHT * 2;
-    return overlapX && overlapY;
+  private updateUnitInteractions(deltaSeconds: number): Map<string, Set<string>> {
+    const engagements = new Map<string, Set<string>>();
+    if (deltaSeconds <= 0) {
+      return engagements;
+    }
+
+    const units = Array.from(this.state.units.values()).filter((unit) => unit.health > 0);
+    const pendingDamageByUnitId = new Map<string, number>();
+
+    for (let i = 0; i < units.length; i += 1) {
+      const a = units[i];
+      this.ensureFiniteUnitState(a);
+
+      for (let j = i + 1; j < units.length; j += 1) {
+        const b = units[j];
+        this.ensureFiniteUnitState(b);
+
+        const delta = { x: b.x - a.x, y: b.y - a.y };
+        const distance = Math.max(Math.hypot(delta.x, delta.y), 0.0001);
+        const overlap = this.getHitboxOverlap(a, b);
+        const hitboxesOverlap = overlap !== null;
+        const opposingTeams = a.team !== b.team;
+        const previouslyEngagedPair =
+          opposingTeams &&
+          (this.wasEngagedPreviously(a.unitId, b.unitId) ||
+            this.wasEngagedPreviously(b.unitId, a.unitId));
+        const canStartNewEngagement =
+          opposingTeams &&
+          !this.hasCurrentEngagement(engagements, a.unitId) &&
+          !this.hasCurrentEngagement(engagements, b.unitId);
+        const engagementAllowed = previouslyEngagedPair || canStartNewEngagement;
+        const stickyEngagement =
+          previouslyEngagedPair && distance <= BattleRoom.ENGAGEMENT_HOLD_DISTANCE;
+        const shouldMagnetize =
+          engagementAllowed &&
+          !hitboxesOverlap &&
+          (distance <= BattleRoom.ENGAGEMENT_MAGNET_DISTANCE || stickyEngagement);
+        const shouldBattleJiggle =
+          engagementAllowed && (hitboxesOverlap || stickyEngagement);
+        const safeDirection =
+          distance > 0.0001
+            ? BattleRoom.scaleVector(delta, 1 / distance)
+            : { x: 1, y: 0 };
+        const aCanBePushedByEnemy = this.canBePushedByEnemy(a);
+        const bCanBePushedByEnemy = this.canBePushedByEnemy(b);
+        const pushableUnitCount =
+          Number(aCanBePushedByEnemy) + Number(bCanBePushedByEnemy);
+        const displacementNormalization =
+          pushableUnitCount > 0 ? 2 / pushableUnitCount : 0;
+
+        if (!opposingTeams && distance < BattleRoom.ALLY_SOFT_SEPARATION_DISTANCE) {
+          const spacingRatio =
+            1 - distance / BattleRoom.ALLY_SOFT_SEPARATION_DISTANCE;
+          const pushDistance =
+            BattleRoom.ALLY_SOFT_SEPARATION_PUSH_SPEED * spacingRatio * deltaSeconds;
+          const separation = BattleRoom.scaleVector(safeDirection, pushDistance * 0.5);
+          a.x -= separation.x;
+          a.y -= separation.y;
+          b.x += separation.x;
+          b.y += separation.y;
+        }
+
+        if (!opposingTeams && overlap) {
+          const maxPushDistance = BattleRoom.ALLY_COLLISION_PUSH_SPEED * deltaSeconds;
+          const pushDistance = Math.min(overlap.depth * 0.5, maxPushDistance);
+          const separation = BattleRoom.scaleVector(overlap.normal, pushDistance);
+          a.x -= separation.x;
+          a.y -= separation.y;
+          b.x += separation.x;
+          b.y += separation.y;
+        }
+
+        if (shouldMagnetize) {
+          const pull = BattleRoom.scaleVector(
+            safeDirection,
+            BattleRoom.MAGNETISM_SPEED * deltaSeconds,
+          );
+          if (aCanBePushedByEnemy) {
+            const aStep = displacementNormalization;
+            a.x += pull.x * aStep;
+            a.y += pull.y * aStep;
+          }
+          if (bCanBePushedByEnemy) {
+            const bStep = displacementNormalization;
+            b.x -= pull.x * bStep;
+            b.y -= pull.y * bStep;
+          }
+          this.addEngagement(engagements, a.unitId, b.unitId);
+        }
+
+        if (shouldBattleJiggle) {
+          const phase =
+            this.simulationTimeMs * BattleRoom.BATTLE_JIGGLE_FREQUENCY + i * 1.7 + j * 2.3;
+          const jiggleStep =
+            Math.sin(phase) * BattleRoom.BATTLE_JIGGLE_SPEED * deltaSeconds;
+          if (aCanBePushedByEnemy) {
+            const aStep = jiggleStep * displacementNormalization;
+            a.x += safeDirection.x * aStep;
+            a.y += safeDirection.y * aStep;
+          }
+          if (bCanBePushedByEnemy) {
+            const bStep = jiggleStep * displacementNormalization;
+            b.x -= safeDirection.x * bStep;
+            b.y -= safeDirection.y * bStep;
+          }
+          this.addEngagement(engagements, a.unitId, b.unitId);
+        }
+
+        if (opposingTeams && overlap) {
+          if (engagementAllowed) {
+            this.clearMovementForUnit(a.unitId);
+            this.clearMovementForUnit(b.unitId);
+            const damage = BattleRoom.CONTACT_DAMAGE_PER_SECOND * deltaSeconds;
+            pendingDamageByUnitId.set(
+              a.unitId,
+              (pendingDamageByUnitId.get(a.unitId) ?? 0) + damage,
+            );
+            pendingDamageByUnitId.set(
+              b.unitId,
+              (pendingDamageByUnitId.get(b.unitId) ?? 0) + damage,
+            );
+            this.addEngagement(engagements, a.unitId, b.unitId);
+          }
+
+          const totalPushable = pushableUnitCount;
+          if (totalPushable > 0) {
+            const separationPerShare = overlap.depth / totalPushable;
+            if (aCanBePushedByEnemy) {
+              const separationA = BattleRoom.scaleVector(
+                overlap.normal,
+                separationPerShare,
+              );
+              a.x -= separationA.x;
+              a.y -= separationA.y;
+            }
+            if (bCanBePushedByEnemy) {
+              const separationB = BattleRoom.scaleVector(
+                overlap.normal,
+                separationPerShare,
+              );
+              b.x += separationB.x;
+              b.y += separationB.y;
+            }
+          }
+        }
+      }
+    }
+
+    this.applyPendingDamage(pendingDamageByUnitId, engagements);
+    return engagements;
+  }
+
+  private updateCombatRotation(
+    deltaSeconds: number,
+    engagements: Map<string, Set<string>>,
+  ): void {
+    if (deltaSeconds <= 0) {
+      return;
+    }
+
+    for (const [unitId, engagedUnitIds] of engagements) {
+      if (engagedUnitIds.size === 0) {
+        continue;
+      }
+
+      const unit = this.state.units.get(unitId);
+      if (!unit || unit.health <= 0) {
+        continue;
+      }
+
+      const targetId = engagedUnitIds.values().next().value;
+      if (typeof targetId !== "string") {
+        continue;
+      }
+
+      const target = this.state.units.get(targetId);
+      if (!target || target.health <= 0) {
+        continue;
+      }
+
+      const targetAngle = Math.atan2(target.y - unit.y, target.x - unit.x);
+      const desiredRotation = targetAngle - BattleRoom.UNIT_FORWARD_OFFSET;
+      const angleDelta = BattleRoom.wrapAngle(desiredRotation - unit.rotation);
+      const maxTurnStep = BattleRoom.UNIT_TURN_SPEED * deltaSeconds;
+
+      if (Math.abs(angleDelta) <= maxTurnStep) {
+        unit.rotation = desiredRotation;
+      } else {
+        unit.rotation = BattleRoom.wrapAngle(
+          unit.rotation + Math.sign(angleDelta) * maxTurnStep,
+        );
+      }
+    }
   }
 }
