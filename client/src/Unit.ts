@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { Team } from './Team';
+import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 
 type MovementCommandMode = {
   speedMultiplier: number;
@@ -34,14 +35,15 @@ export class Unit extends Phaser.GameObjects.Container {
   private health: number;
   private currentDpsOutput: number;
 
-  private static readonly BODY_WIDTH = 24;
-  private static readonly BODY_HEIGHT = 14;
+  private static readonly BODY_WIDTH: number = GAMEPLAY_CONFIG.unit.bodyWidth;
+  private static readonly BODY_HEIGHT: number = GAMEPLAY_CONFIG.unit.bodyHeight;
   private static readonly OUTLINE_WIDTH = 2;
   private static readonly HEALTH_BOX_WIDTH = 20;
   private static readonly HEALTH_BOX_HEIGHT = 4;
   private static readonly HEALTH_BOX_TOP_INSET = 3;
-  private static readonly HEALTH_MAX = 100;
-  private static readonly HEALTH_RED_THRESHOLD = 0.35;
+  private static readonly HEALTH_MAX: number = GAMEPLAY_CONFIG.unit.healthMax;
+  private static readonly HEALTH_RED_THRESHOLD: number =
+    GAMEPLAY_CONFIG.unit.healthRedThreshold;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly ARROW_VERTICES = [

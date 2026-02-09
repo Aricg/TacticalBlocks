@@ -34,6 +34,12 @@ export const GAMEPLAY_CONFIG = {
     battleJiggleFrequency: 0.018,
     contactDamagePerSecond: 12,
   },
+  unit: {
+    bodyWidth: 24,
+    bodyHeight: 14,
+    healthMax: 100,
+    healthRedThreshold: 0.35,
+  },
   spawn: {
     red: { x: 220, y: 300, rotation: 0 },
     blue: { x: 580, y: 300, rotation: Math.PI },

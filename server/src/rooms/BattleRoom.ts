@@ -61,16 +61,17 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.movement.allySoftSeparationDistance;
   private static readonly ALLY_SOFT_SEPARATION_PUSH_SPEED =
     GAMEPLAY_CONFIG.movement.allySoftSeparationPushSpeed;
-  private static readonly UNIT_HALF_WIDTH = 12;
-  private static readonly UNIT_HALF_HEIGHT = 7;
+  private static readonly UNIT_HALF_WIDTH = GAMEPLAY_CONFIG.unit.bodyWidth * 0.5;
+  private static readonly UNIT_HALF_HEIGHT = GAMEPLAY_CONFIG.unit.bodyHeight * 0.5;
   private static readonly UNIT_MOVE_SPEED = 120;
   private static readonly UNIT_TURN_SPEED = Math.PI;
   private static readonly UNIT_FORWARD_OFFSET = -Math.PI / 2;
   private static readonly REFACE_ANGLE_THRESHOLD = (Math.PI / 180) * 3;
   private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE = 0.35;
   private static readonly MIN_WAYPOINT_DISTANCE = 1;
-  private static readonly UNIT_HEALTH_MAX = 100;
-  private static readonly HEALTH_RED_THRESHOLD = 0.35;
+  private static readonly UNIT_HEALTH_MAX = GAMEPLAY_CONFIG.unit.healthMax;
+  private static readonly HEALTH_RED_THRESHOLD =
+    GAMEPLAY_CONFIG.unit.healthRedThreshold;
   private static readonly DEFAULT_MOVEMENT_COMMAND_MODE: MovementCommandMode = {
     speedMultiplier: 1,
     rotateToFace: true,
