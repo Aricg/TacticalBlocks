@@ -16,6 +16,15 @@ export const GAMEPLAY_CONFIG = {
     visionRadius: 240,
     enemyVisibilityPadding: 24,
   },
+  influence: {
+    gridWidth: 40,
+    gridHeight: 22,
+    updateIntervalFrames: 6,
+    lineColor: 0x111111,
+    lineAlpha: 0.92,
+    lineThickness: 8,
+    splineDensityMultiplier: 8,
+  },
   input: {
     dragThreshold: 10,
     previewPathPointSpacing: 4,

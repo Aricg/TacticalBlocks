@@ -9,8 +9,18 @@ type ServerUnitState = {
   health: number;
 };
 
+type ServerInfluenceGridState = {
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  revision: number;
+  cells: ArrayLike<number>;
+};
+
 type BattleRoomState = {
   units: unknown;
+  influenceGrid: ServerInfluenceGridState;
 };
 
 export type NetworkUnitSnapshot = {
@@ -38,6 +48,15 @@ export type NetworkUnitRotationUpdate = {
   rotation: number;
 };
 
+export type NetworkInfluenceGridUpdate = {
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  revision: number;
+  cells: number[];
+};
+
 export type NetworkUnitPathCommand = {
   unitId: string;
   path: Array<{ x: number; y: number }>;
@@ -54,6 +73,9 @@ type UnitPositionChangedHandler = (position: NetworkUnitPositionUpdate) => void;
 type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
 type UnitRotationChangedHandler = (
   rotationUpdate: NetworkUnitRotationUpdate,
+) => void;
+type InfluenceGridChangedHandler = (
+  influenceGridUpdate: NetworkInfluenceGridUpdate,
 ) => void;
 
 type TeamAssignedMessage = {
@@ -73,6 +95,7 @@ export class NetworkManager {
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
+    private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
     endpoint = 'ws://localhost:2567',
     roomName = 'battle',
   ) {
@@ -94,6 +117,28 @@ export class NetworkManager {
 
     const $ = getStateCallbacks(room);
     room.onStateChange.once((state) => {
+      const emitInfluenceGridUpdate = () => {
+        this.onInfluenceGridChanged({
+          width: state.influenceGrid.width,
+          height: state.influenceGrid.height,
+          cellWidth: state.influenceGrid.cellWidth,
+          cellHeight: state.influenceGrid.cellHeight,
+          revision: state.influenceGrid.revision,
+          cells: Array.from(state.influenceGrid.cells, (value) =>
+            Number.isFinite(value) ? value : 0,
+          ),
+        });
+      };
+
+      const detachInfluenceGridRevision = $(state.influenceGrid).listen(
+        'revision',
+        () => {
+          emitInfluenceGridUpdate();
+        },
+      );
+      this.detachCallbacks.push(detachInfluenceGridRevision);
+      emitInfluenceGridUpdate();
+
       const detachUnitAdd = $(state).units.onAdd(
         (serverUnit: ServerUnitState, unitKey: string) => {
           const unitId = serverUnit.unitId || unitKey;

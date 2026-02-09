@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  type NetworkInfluenceGridUpdate,
   NetworkManager,
   type NetworkUnitHealthUpdate,
   type NetworkUnitPathCommand,
@@ -8,6 +9,7 @@ import {
   type NetworkUnitPositionUpdate,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
+import { InfluenceRenderer } from './InfluenceRenderer';
 import { Team } from './Team';
 import { Unit } from './Unit';
 
@@ -31,6 +33,7 @@ class BattleScene extends Phaser.Scene {
   private selectionBox!: Phaser.GameObjects.Graphics;
   private pathPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
+  private influenceRenderer: InfluenceRenderer | null = null;
   private fogOfWarLayer!: Phaser.GameObjects.RenderTexture;
   private visionBrush!: Phaser.GameObjects.Arc;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
@@ -71,6 +74,7 @@ class BattleScene extends Phaser.Scene {
     this.pathPreview.setDepth(950);
     this.movementLines = this.add.graphics();
     this.movementLines.setDepth(900);
+    this.influenceRenderer = new InfluenceRenderer(this);
     this.fogOfWarLayer = this.add.renderTexture(
       0,
       0,
@@ -298,6 +302,9 @@ class BattleScene extends Phaser.Scene {
       (rotationUpdate) => {
         this.applyNetworkUnitRotation(rotationUpdate);
       },
+      (influenceGridUpdate) => {
+        this.applyInfluenceGrid(influenceGridUpdate);
+      },
     );
     void this.networkManager.connect().catch((error: unknown) => {
       console.error('Failed to connect to battle room.', error);
@@ -310,7 +317,17 @@ class BattleScene extends Phaser.Scene {
 
       void this.networkManager.disconnect();
       this.networkManager = null;
+      if (this.influenceRenderer) {
+        this.influenceRenderer.destroy();
+        this.influenceRenderer = null;
+      }
     });
+  }
+
+  private applyInfluenceGrid(
+    influenceGridUpdate: NetworkInfluenceGridUpdate,
+  ): void {
+    this.influenceRenderer?.setInfluenceGrid(influenceGridUpdate);
   }
 
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
@@ -836,6 +853,7 @@ class BattleScene extends Phaser.Scene {
     this.advancePlannedPaths();
     this.refreshFogOfWar();
     this.renderMovementLines();
+    this.influenceRenderer?.render();
   }
 }
 

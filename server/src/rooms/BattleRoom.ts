@@ -1,6 +1,7 @@
 import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
+import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 
 type PlayerTeam = "BLUE" | "RED";
@@ -42,7 +43,9 @@ export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private previousEngagementByUnitId = new Map<string, Set<string>>();
+  private readonly influenceGridSystem = new InfluenceGridSystem();
   private simulationTimeMs = 0;
+  private simulationFrame = 0;
 
   private static readonly CONTACT_DAMAGE_PER_SECOND =
     GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
@@ -69,6 +72,8 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly REFACE_ANGLE_THRESHOLD = (Math.PI / 180) * 3;
   private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE = 0.35;
   private static readonly MIN_WAYPOINT_DISTANCE = 1;
+  private static readonly INFLUENCE_UPDATE_INTERVAL_FRAMES =
+    Math.max(1, GAMEPLAY_CONFIG.influence.updateIntervalFrames);
   private static readonly UNIT_HEALTH_MAX = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly HEALTH_RED_THRESHOLD =
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
@@ -81,14 +86,17 @@ export class BattleRoom extends Room<BattleState> {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
     this.spawnTestUnits();
+    this.updateInfluenceGrid(true);
 
     this.setSimulationInterval((deltaMs) => {
       const deltaSeconds = deltaMs / 1000;
       this.simulationTimeMs += deltaMs;
+      this.simulationFrame += 1;
       this.updateMovement(deltaSeconds);
       const engagements = this.updateUnitInteractions(deltaSeconds);
       this.updateCombatRotation(deltaSeconds, engagements);
       this.previousEngagementByUnitId = this.cloneEngagementMap(engagements);
+      this.updateInfluenceGrid();
     }, GAMEPLAY_CONFIG.network.positionSyncIntervalMs);
 
     this.onMessage("unitPath", (client, message: UnitPathMessage) => {
@@ -122,6 +130,7 @@ export class BattleRoom extends Room<BattleState> {
     this.movementStateByUnitId.clear();
     this.previousEngagementByUnitId.clear();
     this.sessionTeamById.clear();
+    this.simulationFrame = 0;
   }
 
   private createMovementState(): UnitMovementState {
@@ -225,6 +234,20 @@ export class BattleRoom extends Room<BattleState> {
     if (!Number.isFinite(unit.rotation)) {
       unit.rotation = 0;
     }
+  }
+
+  private updateInfluenceGrid(force = false): void {
+    if (
+      !force &&
+      this.simulationFrame % BattleRoom.INFLUENCE_UPDATE_INTERVAL_FRAMES !== 0
+    ) {
+      return;
+    }
+
+    this.influenceGridSystem.writeInfluenceScores(
+      this.state.influenceGrid,
+      this.state.units.values(),
+    );
   }
 
   private spawnTestUnits(): void {
