@@ -11,7 +11,8 @@ export const GAMEPLAY_CONFIG = {
     remotePositionSnapDistance: 48,
   },
   visibility: {
-    fogAlpha: 0.82,
+    shroudColor: 0x8f979d,
+    shroudAlpha: 0.46,
     fogDepth: 925,
     visionRadius: 240,
     enemyVisibilityPadding: 24,

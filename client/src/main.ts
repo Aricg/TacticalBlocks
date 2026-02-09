@@ -40,7 +40,8 @@ class BattleScene extends Phaser.Scene {
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
-  private static readonly FOG_ALPHA = GAMEPLAY_CONFIG.visibility.fogAlpha;
+  private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
+  private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly VISION_RADIUS = GAMEPLAY_CONFIG.visibility.visionRadius;
   private static readonly ENEMY_VISIBILITY_PADDING =
     GAMEPLAY_CONFIG.visibility.enemyVisibilityPadding;
@@ -792,7 +793,10 @@ class BattleScene extends Phaser.Scene {
 
   private refreshFogOfWar(): void {
     this.fogOfWarLayer.clear();
-    this.fogOfWarLayer.fill(0x000000, BattleScene.FOG_ALPHA);
+    this.fogOfWarLayer.fill(
+      BattleScene.SHROUD_COLOR,
+      BattleScene.SHROUD_ALPHA,
+    );
 
     const allyVisionSources = this.units.filter(
       (unit) => unit.team === this.localPlayerTeam && unit.isAlive(),
