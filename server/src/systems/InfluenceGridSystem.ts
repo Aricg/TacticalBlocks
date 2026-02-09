@@ -34,6 +34,10 @@ export class InfluenceGridSystem {
   private static readonly DOMINANCE_REFERENCE_POWER = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly DOMINANCE_POWER_MULTIPLIER = 0.22;
   private static readonly DOMINANCE_MIN_FLOOR = 1;
+  private static readonly SMALL_MAGNITUDE_DECAY_REFERENCE =
+    InfluenceGridSystem.DOMINANCE_REFERENCE_POWER *
+    InfluenceGridSystem.DOMINANCE_POWER_MULTIPLIER;
+  private static readonly MAX_EXTRA_DECAY_AT_ZERO = 0.3;
   private static readonly MAX_ABS_TACTICAL_SCORE = 500;
 
   constructor() {
@@ -67,7 +71,8 @@ export class InfluenceGridSystem {
     // Persistent field: start from previous frame and decay toward neutral.
     for (let index = 0; index < cellCount; index += 1) {
       const previousScore = stateGrid.cells[index] ?? 0;
-      const decayedScore = previousScore * this.decayRate;
+      const decayedScore =
+        previousScore * this.getDecayRateForMagnitude(previousScore);
       scores[index] =
         Math.abs(decayedScore) < InfluenceGridSystem.DECAY_ZERO_EPSILON
           ? 0
@@ -121,6 +126,17 @@ export class InfluenceGridSystem {
     }
 
     stateGrid.revision += 1;
+  }
+
+  private getDecayRateForMagnitude(value: number): number {
+    const normalizedMagnitude = PhaserMath.clamp(
+      Math.abs(value) / InfluenceGridSystem.SMALL_MAGNITUDE_DECAY_REFERENCE,
+      0,
+      1,
+    );
+    const extraDecay =
+      (1 - normalizedMagnitude) * InfluenceGridSystem.MAX_EXTRA_DECAY_AT_ZERO;
+    return PhaserMath.clamp(this.decayRate - extraDecay, 0, 1);
   }
 
   private hasStaticUnitReachedCoreCap(
