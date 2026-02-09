@@ -27,6 +27,10 @@ class BattleScene extends Phaser.Scene {
     new Map<string, Phaser.Math.Vector2[]>();
   private readonly remoteUnitTargetPositions: Map<string, Phaser.Math.Vector2> =
     new Map<string, Phaser.Math.Vector2>();
+  private readonly lastKnownHealthByUnitId: Map<string, number> =
+    new Map<string, number>();
+  private readonly combatVisualUntilByUnitId: Map<string, number> =
+    new Map<string, number>();
   private readonly cities: City[] = [];
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
   private networkManager: NetworkManager | null = null;
@@ -74,6 +78,9 @@ class BattleScene extends Phaser.Scene {
   private static readonly REMOTE_POSITION_SNAP_DISTANCE =
     GAMEPLAY_CONFIG.network.remotePositionSnapDistance;
   private static readonly PLANNED_PATH_WAYPOINT_REACHED_DISTANCE = 12;
+  private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
+  private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
+  private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -368,6 +375,8 @@ class BattleScene extends Phaser.Scene {
         city.destroy();
       }
       this.cities.length = 0;
+      this.lastKnownHealthByUnitId.clear();
+      this.combatVisualUntilByUnitId.clear();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
     });
@@ -415,6 +424,7 @@ class BattleScene extends Phaser.Scene {
     if (existingUnit) {
       existingUnit.rotation = networkUnit.rotation;
       existingUnit.setHealth(networkUnit.health);
+      this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
       this.applyNetworkUnitPositionSnapshot(
         existingUnit,
         networkUnit.unitId,
@@ -439,6 +449,8 @@ class BattleScene extends Phaser.Scene {
     );
     this.units.push(spawnedUnit);
     this.unitsById.set(networkUnit.unitId, spawnedUnit);
+    this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
+    this.combatVisualUntilByUnitId.delete(networkUnit.unitId);
     this.remoteUnitTargetPositions.set(
       networkUnit.unitId,
       new Phaser.Math.Vector2(networkUnit.x, networkUnit.y),
@@ -454,6 +466,8 @@ class BattleScene extends Phaser.Scene {
     this.unitsById.delete(unitId);
     this.plannedPathsByUnitId.delete(unitId);
     this.remoteUnitTargetPositions.delete(unitId);
+    this.lastKnownHealthByUnitId.delete(unitId);
+    this.combatVisualUntilByUnitId.delete(unitId);
     this.selectedUnits.delete(unit);
     const index = this.units.indexOf(unit);
     if (index >= 0) {
@@ -482,6 +496,12 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
+    const previousHealth =
+      this.lastKnownHealthByUnitId.get(healthUpdate.unitId) ?? healthUpdate.health;
+    if (healthUpdate.health < previousHealth - 0.0001) {
+      this.markUnitInCombatVisual(healthUpdate.unitId);
+    }
+    this.lastKnownHealthByUnitId.set(healthUpdate.unitId, healthUpdate.health);
     unit.setHealth(healthUpdate.health);
   }
 
@@ -569,6 +589,49 @@ class BattleScene extends Phaser.Scene {
 
     for (const unitId of staleUnitIds) {
       this.remoteUnitTargetPositions.delete(unitId);
+    }
+  }
+
+  private markUnitInCombatVisual(unitId: string): void {
+    const existingUntil = this.combatVisualUntilByUnitId.get(unitId) ?? 0;
+    const combatUntil = this.time.now + BattleScene.COMBAT_WIGGLE_HOLD_MS;
+    this.combatVisualUntilByUnitId.set(unitId, Math.max(existingUntil, combatUntil));
+  }
+
+  private getCombatWigglePhaseSeed(unitId: string): number {
+    let hash = 2166136261;
+    for (let i = 0; i < unitId.length; i += 1) {
+      hash ^= unitId.charCodeAt(i);
+      hash +=
+        (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return (Math.abs(hash) % 4096) / 128;
+  }
+
+  private applyCombatVisualWiggle(timeMs: number): void {
+    for (const [unitId, unit] of this.unitsById) {
+      if (!unit.isAlive()) {
+        unit.clearCombatVisualOffset();
+        this.combatVisualUntilByUnitId.delete(unitId);
+        continue;
+      }
+
+      const combatUntil = this.combatVisualUntilByUnitId.get(unitId) ?? 0;
+      if (combatUntil <= timeMs) {
+        unit.clearCombatVisualOffset();
+        if (combatUntil > 0) {
+          this.combatVisualUntilByUnitId.delete(unitId);
+        }
+        continue;
+      }
+
+      const phase =
+        timeMs * BattleScene.COMBAT_WIGGLE_FREQUENCY +
+        this.getCombatWigglePhaseSeed(unitId);
+      const offsetX = Math.sin(phase) * BattleScene.COMBAT_WIGGLE_AMPLITUDE;
+      const offsetY =
+        Math.cos(phase * 1.21) * BattleScene.COMBAT_WIGGLE_AMPLITUDE * 0.5;
+      unit.setCombatVisualOffset(offsetX, offsetY);
     }
   }
 
@@ -1050,6 +1113,7 @@ class BattleScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.smoothRemoteUnitPositions(delta);
+    this.applyCombatVisualWiggle(time);
     this.advancePlannedPaths();
     this.refreshFogOfWar();
     this.renderMovementLines();

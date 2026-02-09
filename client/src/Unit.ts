@@ -33,11 +33,15 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly HEALTH_BOX_WIDTH = 20;
   private static readonly HEALTH_BOX_HEIGHT = 4;
   private static readonly HEALTH_BOX_TOP_INSET = 3;
+  private static readonly HEALTH_BOX_BASE_Y =
+    -(Unit.BODY_HEIGHT * 0.5) + Unit.HEALTH_BOX_TOP_INSET;
   private static readonly HEALTH_MAX: number = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly HEALTH_RED_THRESHOLD: number =
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
+  private static readonly HEALTH_FILL_BASE_X = -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1;
+  private static readonly DPS_TEXT_BASE_Y = Unit.BODY_HEIGHT * 0.5 - 6;
   private static readonly ARROW_VERTICES = [
     { x: -5, y: 3 },
     { x: 0, y: -5 },
@@ -127,7 +131,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.healthBoxBg = new Phaser.GameObjects.Rectangle(
       scene,
       0,
-      -(Unit.BODY_HEIGHT * 0.5) + Unit.HEALTH_BOX_TOP_INSET,
+      Unit.HEALTH_BOX_BASE_Y,
       Unit.HEALTH_BOX_WIDTH,
       Unit.HEALTH_BOX_HEIGHT,
       0x1a1a1a,
@@ -137,8 +141,8 @@ export class Unit extends Phaser.GameObjects.Container {
 
     this.healthBoxFill = new Phaser.GameObjects.Rectangle(
       scene,
-      -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1,
-      this.healthBoxBg.y,
+      Unit.HEALTH_FILL_BASE_X,
+      Unit.HEALTH_BOX_BASE_Y,
       Unit.HEALTH_BOX_INNER_WIDTH,
       Unit.HEALTH_BOX_INNER_HEIGHT,
       0x63d471,
@@ -148,7 +152,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.dpsText = new Phaser.GameObjects.Text(
       scene,
       0,
-      Unit.BODY_HEIGHT * 0.5 - 6,
+      Unit.DPS_TEXT_BASE_Y,
       '',
       {
         fontFamily: 'monospace',
@@ -290,6 +294,21 @@ export class Unit extends Phaser.GameObjects.Container {
   public setHealth(health: number): void {
     this.health = Phaser.Math.Clamp(health, 0, Unit.HEALTH_MAX);
     this.refreshHealthVisuals();
+  }
+
+  public setCombatVisualOffset(offsetX: number, offsetY: number): void {
+    this.unitBody.setPosition(offsetX, offsetY);
+    this.facingArrow.setPosition(offsetX, offsetY);
+    this.healthBoxBg.setPosition(offsetX, Unit.HEALTH_BOX_BASE_Y + offsetY);
+    this.healthBoxFill.setPosition(
+      Unit.HEALTH_FILL_BASE_X + offsetX,
+      Unit.HEALTH_BOX_BASE_Y + offsetY,
+    );
+    this.dpsText.setPosition(offsetX, Unit.DPS_TEXT_BASE_Y + offsetY);
+  }
+
+  public clearCombatVisualOffset(): void {
+    this.setCombatVisualOffset(0, 0);
   }
 
   private faceCurrentDestination(): void {
