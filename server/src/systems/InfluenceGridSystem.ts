@@ -12,6 +12,12 @@ type UnitContributionSource = {
   power: number;
   isStatic: boolean;
 };
+type StaticInfluenceSource = {
+  x: number;
+  y: number;
+  teamSign: TeamSign;
+  power: number;
+};
 
 type DominanceTarget = {
   index: number;
@@ -27,12 +33,14 @@ export class InfluenceGridSystem {
   private readonly coreRadius: number;
   private decayRate: number;
   private decayZeroEpsilon: number;
+  private unitInfluenceMultiplier: number;
   private staticVelocityEpsilon: number;
   private dominancePowerMultiplier: number;
   private dominanceMinFloor: number;
   private coreMinInfluenceFactor: number;
   private maxExtraDecayAtZero: number;
   private maxAbsTacticalScore: number;
+  private staticInfluenceSources: StaticInfluenceSource[] = [];
   private readonly previousUnitPositionById = new Map<
     string,
     { x: number; y: number }
@@ -58,6 +66,10 @@ export class InfluenceGridSystem {
       1,
     );
     this.decayZeroEpsilon = Math.max(0, GAMEPLAY_CONFIG.influence.decayZeroEpsilon);
+    this.unitInfluenceMultiplier = Math.max(
+      0,
+      GAMEPLAY_CONFIG.influence.unitInfluenceMultiplier,
+    );
     this.staticVelocityEpsilon = Math.max(
       0,
       GAMEPLAY_CONFIG.influence.staticVelocityEpsilon,
@@ -85,12 +97,32 @@ export class InfluenceGridSystem {
   public setRuntimeTuning(tuning: RuntimeTuning): void {
     this.decayRate = PhaserMath.clamp(tuning.influenceDecayRate, 0, 1);
     this.decayZeroEpsilon = Math.max(0, tuning.influenceDecayZeroEpsilon);
+    this.unitInfluenceMultiplier = Math.max(0, tuning.unitInfluenceMultiplier);
     this.coreMinInfluenceFactor = Math.max(0, tuning.influenceCoreMinInfluenceFactor);
     this.maxExtraDecayAtZero = PhaserMath.clamp(
       tuning.influenceMaxExtraDecayAtZero,
       0,
       1,
     );
+  }
+
+  public setStaticInfluenceSources(
+    sources: Array<{ x: number; y: number; team: "BLUE" | "RED"; power: number }>,
+  ): void {
+    this.staticInfluenceSources = sources
+      .filter(
+        (source) =>
+          Number.isFinite(source.x) &&
+          Number.isFinite(source.y) &&
+          Number.isFinite(source.power) &&
+          source.power > 0,
+      )
+      .map((source) => ({
+        x: source.x,
+        y: source.y,
+        power: source.power,
+        teamSign: source.team === "BLUE" ? 1 : -1,
+      }));
   }
 
   public writeInfluenceScores(
@@ -130,6 +162,12 @@ export class InfluenceGridSystem {
         const distance = Math.hypot(worldX - unit.x, worldY - unit.y);
         const localInfluence = unit.power / (distance * distance + 1);
         scores[index] += localInfluence * unit.teamSign;
+      }
+
+      for (const source of this.staticInfluenceSources) {
+        const distance = Math.hypot(worldX - source.x, worldY - source.y);
+        const localInfluence = source.power / (distance * distance + 1);
+        scores[index] += localInfluence * source.teamSign;
       }
     }
 
@@ -355,7 +393,7 @@ export class InfluenceGridSystem {
       activeUnitIds.add(unit.unitId);
       const normalizedTeam = unit.team.toUpperCase();
       const teamSign: TeamSign = normalizedTeam === "BLUE" ? 1 : -1;
-      const power = Math.max(0, unit.health);
+      const power = Math.max(0, unit.health * this.unitInfluenceMultiplier);
       const previousPosition = this.previousUnitPositionById.get(unit.unitId);
       const isStatic =
         previousPosition !== undefined &&

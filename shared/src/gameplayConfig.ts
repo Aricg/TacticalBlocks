@@ -15,6 +15,7 @@ export const GAMEPLAY_CONFIG = {
     shroudAlpha: 0.46,
     fogDepth: 925,
     visionRadius: 240,
+    cityVisionRadius: 240,
     enemyVisibilityPadding: 24,
   },
   influence: {
@@ -31,6 +32,8 @@ export const GAMEPLAY_CONFIG = {
     staticVelocityEpsilon: 0.0001,
     // Core dominance stamp strength relative to unit power.
     dominancePowerMultiplier: 0.22,
+    // Multiplier on per-unit influence contribution.
+    unitInfluenceMultiplier: 1,
     // Never allow dominance/core floors below this absolute value.
     dominanceMinFloor: 1,
     // Guaranteed minimum core influence as a fraction of dominance strength.

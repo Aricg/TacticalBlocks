@@ -90,6 +90,7 @@ export class BattleRoom extends Room<BattleState> {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
+    this.syncCityInfluenceSources();
     this.spawnTestUnits();
     this.updateInfluenceGrid(true);
 
@@ -266,6 +267,28 @@ export class BattleRoom extends Room<BattleState> {
     );
   }
 
+  private syncCityInfluenceSources(): void {
+    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
+    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
+    const cityPower =
+      GAMEPLAY_CONFIG.unit.healthMax * this.runtimeTuning.cityInfluenceUnitsEquivalent;
+
+    this.influenceGridSystem.setStaticInfluenceSources([
+      {
+        x: redSpawn.x - GAMEPLAY_CONFIG.cities.backlineOffset,
+        y: redSpawn.y,
+        power: cityPower,
+        team: "RED",
+      },
+      {
+        x: blueSpawn.x + GAMEPLAY_CONFIG.cities.backlineOffset,
+        y: blueSpawn.y,
+        power: cityPower,
+        team: "BLUE",
+      },
+    ]);
+  }
+
   private handleRuntimeTuningUpdate(
     client: Client,
     message: RuntimeTuningUpdateMessage,
@@ -281,6 +304,7 @@ export class BattleRoom extends Room<BattleState> {
       normalizedMessage,
     );
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
+    this.syncCityInfluenceSources();
     this.broadcast("runtimeTuningSnapshot", this.runtimeTuning);
     this.updateInfluenceGrid(true);
   }

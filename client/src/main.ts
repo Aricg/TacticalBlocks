@@ -44,6 +44,7 @@ class BattleScene extends Phaser.Scene {
   private influenceRenderer: InfluenceRenderer | null = null;
   private fogOfWarLayer!: Phaser.GameObjects.RenderTexture;
   private visionBrush!: Phaser.GameObjects.Arc;
+  private cityVisionBrush!: Phaser.GameObjects.Arc;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
@@ -104,6 +105,14 @@ class BattleScene extends Phaser.Scene {
       1,
     );
     this.visionBrush.setVisible(false);
+    this.cityVisionBrush = this.add.circle(
+      0,
+      0,
+      this.runtimeTuning.cityVisionRadius,
+      0xffffff,
+      1,
+    );
+    this.cityVisionBrush.setVisible(false);
     this.tuningPanel = new RuntimeTuningPanel(
       this.runtimeTuning,
       (update) => {
@@ -378,45 +387,15 @@ class BattleScene extends Phaser.Scene {
     );
   }
 
-  private configureCityInfluenceSources(): void {
-    if (!this.influenceRenderer) {
-      return;
-    }
-
-    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
-    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
-
-    this.influenceRenderer.setStaticInfluenceSources([
-      {
-        x: redSpawn.x - BattleScene.CITY_BACKLINE_OFFSET,
-        y: redSpawn.y,
-        power: this.getCityInfluencePower(),
-        team: 'RED',
-      },
-      {
-        x: blueSpawn.x + BattleScene.CITY_BACKLINE_OFFSET,
-        y: blueSpawn.y,
-        power: this.getCityInfluencePower(),
-        team: 'BLUE',
-      },
-    ]);
-  }
-
-  private getCityInfluencePower(): number {
-    return (
-      GAMEPLAY_CONFIG.unit.healthMax * this.runtimeTuning.cityInfluenceUnitsEquivalent
-    );
-  }
-
   private applyRuntimeTuning(runtimeTuning: RuntimeTuning): void {
     this.runtimeTuning = runtimeTuning;
     this.tuningPanel?.setValues(runtimeTuning);
     this.visionBrush?.setRadius(this.runtimeTuning.fogVisionRadius);
+    this.cityVisionBrush?.setRadius(this.runtimeTuning.cityVisionRadius);
     this.influenceRenderer?.setLineStyle({
       lineThickness: this.runtimeTuning.lineThickness,
       lineAlpha: this.runtimeTuning.lineAlpha,
     });
-    this.configureCityInfluenceSources();
   }
 
   private applyInfluenceGrid(
@@ -900,9 +879,35 @@ class BattleScene extends Phaser.Scene {
       this.fogOfWarLayer.erase(this.visionBrush, unit.x, unit.y);
     }
 
-    const revealRadiusSq =
-      (this.runtimeTuning.fogVisionRadius + BattleScene.ENEMY_VISIBILITY_PADDING) **
-      2;
+    const allyCityPosition =
+      this.localPlayerTeam === Team.RED
+        ? {
+            x: GAMEPLAY_CONFIG.spawn.red.x - BattleScene.CITY_BACKLINE_OFFSET,
+            y: GAMEPLAY_CONFIG.spawn.red.y,
+          }
+        : {
+            x: GAMEPLAY_CONFIG.spawn.blue.x + BattleScene.CITY_BACKLINE_OFFSET,
+            y: GAMEPLAY_CONFIG.spawn.blue.y,
+          };
+    this.fogOfWarLayer.erase(
+      this.cityVisionBrush,
+      allyCityPosition.x,
+      allyCityPosition.y,
+    );
+
+    const visibilitySources: Array<{ x: number; y: number; radius: number }> = [
+      ...allyVisionSources.map((unit) => ({
+        x: unit.x,
+        y: unit.y,
+        radius: this.runtimeTuning.fogVisionRadius,
+      })),
+      {
+        x: allyCityPosition.x,
+        y: allyCityPosition.y,
+        radius: this.runtimeTuning.cityVisionRadius,
+      },
+    ];
+
     for (const unit of this.units) {
       if (unit.team === this.localPlayerTeam) {
         unit.setVisible(true);
@@ -910,10 +915,12 @@ class BattleScene extends Phaser.Scene {
       }
 
       let isVisibleToPlayer = false;
-      for (const ally of allyVisionSources) {
-        const dx = unit.x - ally.x;
-        const dy = unit.y - ally.y;
-        if (dx * dx + dy * dy <= revealRadiusSq) {
+      for (const source of visibilitySources) {
+        const dx = unit.x - source.x;
+        const dy = unit.y - source.y;
+        const revealRadius =
+          source.radius + BattleScene.ENEMY_VISIBILITY_PADDING;
+        if (dx * dx + dy * dy <= revealRadius * revealRadius) {
           isVisibleToPlayer = true;
           break;
         }
