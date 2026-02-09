@@ -21,9 +21,11 @@ export class InfluenceGridSystem {
   private readonly cellWidth: number;
   private readonly cellHeight: number;
   private readonly cellDiagonal: number;
+  private readonly decayRate: number;
   private static readonly DOMINANCE_REFERENCE_POWER = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly DOMINANCE_POWER_MULTIPLIER = 0.22;
   private static readonly DOMINANCE_MIN_FLOOR = 1;
+  private static readonly MAX_ABS_TACTICAL_SCORE = 500;
 
   constructor() {
     this.gridWidth = GAMEPLAY_CONFIG.influence.gridWidth;
@@ -31,6 +33,11 @@ export class InfluenceGridSystem {
     this.cellWidth = GAMEPLAY_CONFIG.map.width / this.gridWidth;
     this.cellHeight = GAMEPLAY_CONFIG.map.height / this.gridHeight;
     this.cellDiagonal = Math.hypot(this.cellWidth, this.cellHeight);
+    this.decayRate = PhaserMath.clamp(
+      GAMEPLAY_CONFIG.influence.decayRate,
+      0,
+      1,
+    );
   }
 
   public writeInfluenceScores(
@@ -41,20 +48,23 @@ export class InfluenceGridSystem {
     const cellCount = this.gridWidth * this.gridHeight;
     const scores = new Float32Array(cellCount);
 
+    // Persistent field: start from previous frame and decay toward neutral.
+    for (let index = 0; index < cellCount; index += 1) {
+      const previousScore = stateGrid.cells[index] ?? 0;
+      scores[index] = previousScore * this.decayRate;
+    }
+
     for (let index = 0; index < cellCount; index += 1) {
       const cellX = index % this.gridWidth;
       const cellY = Math.floor(index / this.gridWidth);
       const worldX = (cellX + 0.5) * this.cellWidth;
       const worldY = (cellY + 0.5) * this.cellHeight;
 
-      let score = 0;
       for (const unit of activeUnits) {
         const distance = Math.hypot(worldX - unit.x, worldY - unit.y);
         const localInfluence = unit.power / (distance * distance + 1);
-        score += localInfluence * unit.teamSign;
+        scores[index] += localInfluence * unit.teamSign;
       }
-
-      scores[index] = score;
     }
 
     for (const unit of activeUnits) {
@@ -75,7 +85,11 @@ export class InfluenceGridSystem {
     }
 
     for (let index = 0; index < cellCount; index += 1) {
-      stateGrid.cells[index] = scores[index];
+      stateGrid.cells[index] = PhaserMath.clamp(
+        scores[index],
+        -InfluenceGridSystem.MAX_ABS_TACTICAL_SCORE,
+        InfluenceGridSystem.MAX_ABS_TACTICAL_SCORE,
+      );
     }
 
     stateGrid.revision += 1;

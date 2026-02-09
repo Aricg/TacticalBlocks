@@ -21,6 +21,7 @@ export const GAMEPLAY_CONFIG = {
     gridWidth: 80,
     gridHeight: 44,
     updateIntervalFrames: 6,
+    decayRate: 0.95,
     lineColor: 0x111111,
     lineAlpha: 0.92,
     lineThickness: 8,
