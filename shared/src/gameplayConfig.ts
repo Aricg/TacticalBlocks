@@ -14,7 +14,7 @@ export const GAMEPLAY_CONFIG = {
     shroudColor: 0x8f979d,
     shroudAlpha: 0.46,
     fogDepth: 925,
-    visionRadius: 240,
+    visionRadius: 178,
     cityVisionRadius: 240,
     enemyVisibilityPadding: 24,
   },
@@ -27,21 +27,29 @@ export const GAMEPLAY_CONFIG = {
     // Base per-update decay multiplier applied to existing influence.
     decayRate: 0.95,
     // After decay, snap tiny magnitudes to 0 to prevent crawling/drift.
-    decayZeroEpsilon: 0.05,
+    decayZeroEpsilon: 1.83,
     // Max position delta between influence updates to consider a unit "static".
     staticVelocityEpsilon: 0.0001,
     // Core dominance stamp strength relative to unit power.
     dominancePowerMultiplier: 0.22,
     // Multiplier on per-unit influence contribution.
-    unitInfluenceMultiplier: 1,
+    unitInfluenceMultiplier: 0.1,
     // Never allow dominance/core floors below this absolute value.
     dominanceMinFloor: 1,
     // Guaranteed minimum core influence as a fraction of dominance strength.
-    coreMinInfluenceFactor: 0.1,
+    coreMinInfluenceFactor: 0.13,
     // Extra decay applied near zero magnitude (small residuals collapse faster).
-    maxExtraDecayAtZero: 0.3,
+    maxExtraDecayAtZero: 0.4,
     // Hard cap for signed tactical score in each cell.
     maxAbsTacticalScore: 500,
+    // City source core radius used for static-source cap checks.
+    citySourceCoreRadius: 27,
+    // 1 enables static-unit cap gate, 0 disables it.
+    staticUnitCapGate: 0,
+    // 1 enables static-city cap gate, 0 disables it.
+    staticCityCapGate: 0,
+    // Multiplier applied to unit cap threshold checks.
+    unitCapThreshold: 1.05,
     lineColor: 0x111111,
     lineAlpha: 0.92,
     lineThickness: 8,
@@ -49,7 +57,7 @@ export const GAMEPLAY_CONFIG = {
   },
   cities: {
     backlineOffset: 140,
-    influenceUnitsEquivalent: 10,
+    influenceUnitsEquivalent: 3,
   },
   input: {
     dragThreshold: 10,
@@ -68,8 +76,8 @@ export const GAMEPLAY_CONFIG = {
     maxCommandSpeedMultiplier: 4,
     // Sticky engagement/magnetism tuning.
     engagementMagnetDistance: 80,
-    engagementHoldDistance: 120,
-    magnetismSpeed: 14,
+    engagementHoldDistance: 320,
+    magnetismSpeed: 0,
     allyCollisionPushSpeed: 180,
     allySoftSeparationDistance: 28,
     allySoftSeparationPushSpeed: 90,

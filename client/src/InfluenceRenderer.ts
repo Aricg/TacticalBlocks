@@ -274,40 +274,57 @@ export class InfluenceRenderer {
       return;
     }
 
-    const focusCells = this.getFocusCellCoords(this.debugFocusPoint);
-    const cellWidth = this.gridMeta.cellWidth;
-    const cellHeight = this.gridMeta.cellHeight;
+    const sampledScore = this.sampleInfluenceAtPoint(
+      rawServerCells,
+      this.debugFocusPoint,
+    );
+    const color = this.getDebugColor(sampledScore);
+    const primaryText = this.debugCellValueTexts[0];
+    primaryText.setText(sampledScore.toFixed(2));
+    primaryText.setColor(this.toCssColor(color));
+    primaryText.setPosition(
+      this.debugFocusPoint.x + InfluenceRenderer.DEBUG_TEXT_OFFSET_X,
+      this.debugFocusPoint.y + InfluenceRenderer.DEBUG_TEXT_OFFSET_Y,
+    );
+    primaryText.setVisible(true);
 
-    for (let i = 0; i < this.debugCellValueTexts.length; i += 1) {
-      const text = this.debugCellValueTexts[i];
-      const focusCell = focusCells[i];
-      if (!focusCell) {
-        text.setVisible(false);
-        continue;
-      }
-
-      const index = focusCell.row * this.gridMeta.width + focusCell.col;
-      const score = rawServerCells[index] ?? 0;
-      const centerX = (focusCell.col + 0.5) * cellWidth;
-      const centerY = (focusCell.row + 0.5) * cellHeight;
-      const color = this.getDebugColor(score);
-
-      this.debugGraphics.lineStyle(2, color, 1);
-      this.debugGraphics.strokeRect(
-        focusCell.col * cellWidth,
-        focusCell.row * cellHeight,
-        cellWidth,
-        cellHeight,
-      );
-
-      text.setText(`[${focusCell.col},${focusCell.row}] ${score.toFixed(2)}`);
-      text.setColor(this.toCssColor(color));
-      text.setPosition(
-        centerX + InfluenceRenderer.DEBUG_TEXT_OFFSET_X,
-        centerY + InfluenceRenderer.DEBUG_TEXT_OFFSET_Y,
-      );
-      text.setVisible(true);
+    for (let i = 1; i < this.debugCellValueTexts.length; i += 1) {
+      this.debugCellValueTexts[i].setVisible(false);
     }
+  }
+
+  private sampleInfluenceAtPoint(
+    cells: Float32Array,
+    point: Phaser.Math.Vector2,
+  ): number {
+    if (!this.gridMeta) {
+      return 0;
+    }
+
+    const colBasis = point.x / this.gridMeta.cellWidth - 0.5;
+    const rowBasis = point.y / this.gridMeta.cellHeight - 0.5;
+    const baseCol = Phaser.Math.Clamp(
+      Math.floor(colBasis),
+      0,
+      this.gridMeta.width - 1,
+    );
+    const baseRow = Phaser.Math.Clamp(
+      Math.floor(rowBasis),
+      0,
+      this.gridMeta.height - 1,
+    );
+    const nextCol = Phaser.Math.Clamp(baseCol + 1, 0, this.gridMeta.width - 1);
+    const nextRow = Phaser.Math.Clamp(baseRow + 1, 0, this.gridMeta.height - 1);
+    const tCol = Phaser.Math.Clamp(colBasis - baseCol, 0, 1);
+    const tRow = Phaser.Math.Clamp(rowBasis - baseRow, 0, 1);
+
+    const topLeft = this.getInfluenceValue(cells, baseCol, baseRow);
+    const topRight = this.getInfluenceValue(cells, nextCol, baseRow);
+    const bottomLeft = this.getInfluenceValue(cells, baseCol, nextRow);
+    const bottomRight = this.getInfluenceValue(cells, nextCol, nextRow);
+    const top = Phaser.Math.Linear(topLeft, topRight, tCol);
+    const bottom = Phaser.Math.Linear(bottomLeft, bottomRight, tCol);
+    return Phaser.Math.Linear(top, bottom, tRow);
   }
 
   private getFocusCellCoords(

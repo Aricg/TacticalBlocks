@@ -8,6 +8,10 @@ export type RuntimeTuning = {
   influenceUpdateIntervalFrames: number;
   influenceDecayRate: number;
   influenceDecayZeroEpsilon: number;
+  citySourceCoreRadius: number;
+  staticUnitCapGate: number;
+  staticCityCapGate: number;
+  unitCapThreshold: number;
   unitInfluenceMultiplier: number;
   influenceCoreMinInfluenceFactor: number;
   influenceMaxExtraDecayAtZero: number;
@@ -34,6 +38,10 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
   influenceUpdateIntervalFrames: GAMEPLAY_CONFIG.influence.updateIntervalFrames,
   influenceDecayRate: GAMEPLAY_CONFIG.influence.decayRate,
   influenceDecayZeroEpsilon: GAMEPLAY_CONFIG.influence.decayZeroEpsilon,
+  citySourceCoreRadius: GAMEPLAY_CONFIG.influence.citySourceCoreRadius,
+  staticUnitCapGate: GAMEPLAY_CONFIG.influence.staticUnitCapGate,
+  staticCityCapGate: GAMEPLAY_CONFIG.influence.staticCityCapGate,
+  unitCapThreshold: GAMEPLAY_CONFIG.influence.unitCapThreshold,
   unitInfluenceMultiplier: GAMEPLAY_CONFIG.influence.unitInfluenceMultiplier,
   influenceCoreMinInfluenceFactor: GAMEPLAY_CONFIG.influence.coreMinInfluenceFactor,
   influenceMaxExtraDecayAtZero: GAMEPLAY_CONFIG.influence.maxExtraDecayAtZero,
@@ -52,6 +60,10 @@ export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound>
   influenceUpdateIntervalFrames: { min: 1, max: 20, step: 1 },
   influenceDecayRate: { min: 0.7, max: 0.999, step: 0.001 },
   influenceDecayZeroEpsilon: { min: 0, max: 2, step: 0.01 },
+  citySourceCoreRadius: { min: 0, max: 50, step: 1 },
+  staticUnitCapGate: { min: 0, max: 1, step: 1 },
+  staticCityCapGate: { min: 0, max: 1, step: 1 },
+  unitCapThreshold: { min: 0.1, max: 2, step: 0.05 },
   unitInfluenceMultiplier: { min: 0, max: 3, step: 0.05 },
   influenceCoreMinInfluenceFactor: { min: 0, max: 1, step: 0.01 },
   influenceMaxExtraDecayAtZero: { min: 0, max: 0.9, step: 0.01 },
@@ -80,8 +92,11 @@ export function sanitizeRuntimeTuningUpdate(
     const bounds = RUNTIME_TUNING_BOUNDS[key];
     const clamped = clamp(value, bounds.min, bounds.max);
     const normalizedValue =
-      key === "influenceUpdateIntervalFrames"
-        ? Math.max(1, Math.round(clamped))
+      key === "influenceUpdateIntervalFrames" ||
+      key === "citySourceCoreRadius" ||
+      key === "staticUnitCapGate" ||
+      key === "staticCityCapGate"
+        ? Math.round(clamped)
         : clamped;
     sanitized[key] = normalizedValue as RuntimeTuning[typeof key];
   }

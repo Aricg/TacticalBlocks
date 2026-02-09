@@ -23,6 +23,26 @@ const SLIDERS: SliderDescriptor[] = [
   { key: 'influenceDecayRate', label: 'Decay Rate', group: 'Influence' },
   { key: 'influenceDecayZeroEpsilon', label: 'Decay Zero Epsilon', group: 'Influence' },
   {
+    key: 'citySourceCoreRadius',
+    label: 'City Source Radius',
+    group: 'Influence',
+  },
+  {
+    key: 'staticUnitCapGate',
+    label: 'Static Unit Cap Gate',
+    group: 'Influence',
+  },
+  {
+    key: 'staticCityCapGate',
+    label: 'Static City Cap Gate',
+    group: 'Influence',
+  },
+  {
+    key: 'unitCapThreshold',
+    label: 'Unit Cap Threshold',
+    group: 'Influence',
+  },
+  {
     key: 'unitInfluenceMultiplier',
     label: 'Unit Influence Power',
     group: 'Influence',

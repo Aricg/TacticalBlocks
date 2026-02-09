@@ -31,8 +31,12 @@ export class InfluenceGridSystem {
   private readonly cellHeight: number;
   private readonly cellDiagonal: number;
   private readonly coreRadius: number;
+  private citySourceCoreRadius: number;
   private decayRate: number;
   private decayZeroEpsilon: number;
+  private staticUnitCapGate: number;
+  private staticCityCapGate: number;
+  private unitCapThreshold: number;
   private unitInfluenceMultiplier: number;
   private staticVelocityEpsilon: number;
   private dominancePowerMultiplier: number;
@@ -60,12 +64,27 @@ export class InfluenceGridSystem {
       ),
       Math.min(this.cellWidth, this.cellHeight) * 0.5,
     );
+    this.citySourceCoreRadius = Math.max(
+      GAMEPLAY_CONFIG.influence.citySourceCoreRadius,
+      Math.min(this.cellWidth, this.cellHeight) * 0.5,
+    );
     this.decayRate = PhaserMath.clamp(
       GAMEPLAY_CONFIG.influence.decayRate,
       0,
       1,
     );
     this.decayZeroEpsilon = Math.max(0, GAMEPLAY_CONFIG.influence.decayZeroEpsilon);
+    this.staticUnitCapGate = PhaserMath.clamp(
+      GAMEPLAY_CONFIG.influence.staticUnitCapGate,
+      0,
+      1,
+    );
+    this.staticCityCapGate = PhaserMath.clamp(
+      GAMEPLAY_CONFIG.influence.staticCityCapGate,
+      0,
+      1,
+    );
+    this.unitCapThreshold = Math.max(0.1, GAMEPLAY_CONFIG.influence.unitCapThreshold);
     this.unitInfluenceMultiplier = Math.max(
       0,
       GAMEPLAY_CONFIG.influence.unitInfluenceMultiplier,
@@ -97,6 +116,10 @@ export class InfluenceGridSystem {
   public setRuntimeTuning(tuning: RuntimeTuning): void {
     this.decayRate = PhaserMath.clamp(tuning.influenceDecayRate, 0, 1);
     this.decayZeroEpsilon = Math.max(0, tuning.influenceDecayZeroEpsilon);
+    this.citySourceCoreRadius = Math.max(0, tuning.citySourceCoreRadius);
+    this.staticUnitCapGate = PhaserMath.clamp(tuning.staticUnitCapGate, 0, 1);
+    this.staticCityCapGate = PhaserMath.clamp(tuning.staticCityCapGate, 0, 1);
+    this.unitCapThreshold = Math.max(0.1, tuning.unitCapThreshold);
     this.unitInfluenceMultiplier = Math.max(0, tuning.unitInfluenceMultiplier);
     this.coreMinInfluenceFactor = Math.max(0, tuning.influenceCoreMinInfluenceFactor);
     this.maxExtraDecayAtZero = PhaserMath.clamp(
@@ -145,12 +168,17 @@ export class InfluenceGridSystem {
     }
 
     const contributingUnits = activeUnits.filter((unit) => {
-      if (!unit.isStatic) {
+      if (this.staticUnitCapGate < 0.5 || !unit.isStatic) {
         return true;
       }
 
       return !this.hasStaticUnitReachedCoreCap(scores, unit);
     });
+    const contributingStaticSources = this.staticInfluenceSources.filter(
+      (source) =>
+        this.staticCityCapGate < 0.5 ||
+        !this.hasStaticSourceReachedCoreCap(scores, source),
+    );
 
     for (let index = 0; index < cellCount; index += 1) {
       const cellX = index % this.gridWidth;
@@ -164,7 +192,7 @@ export class InfluenceGridSystem {
         scores[index] += localInfluence * unit.teamSign;
       }
 
-      for (const source of this.staticInfluenceSources) {
+      for (const source of contributingStaticSources) {
         const distance = Math.hypot(worldX - source.x, worldY - source.y);
         const localInfluence = source.power / (distance * distance + 1);
         scores[index] += localInfluence * source.teamSign;
@@ -294,7 +322,7 @@ export class InfluenceGridSystem {
       this.gridHeight - 1,
     );
 
-    const maxInfluence = Math.max(1, unit.power);
+    const maxInfluence = Math.max(1, unit.power * this.unitCapThreshold);
     let hasCoreCell = false;
 
     for (let row = minRow; row <= maxRow; row += 1) {
@@ -311,6 +339,61 @@ export class InfluenceGridSystem {
         hasCoreCell = true;
         const score = scores[row * this.gridWidth + col];
         if (unit.teamSign > 0) {
+          if (score < maxInfluence) {
+            return false;
+          }
+        } else if (score > -maxInfluence) {
+          return false;
+        }
+      }
+    }
+
+    return hasCoreCell;
+  }
+
+  private hasStaticSourceReachedCoreCap(
+    scores: Float32Array,
+    source: StaticInfluenceSource,
+  ): boolean {
+    const coreRadiusSquared = this.citySourceCoreRadius * this.citySourceCoreRadius;
+    const minCol = PhaserMath.floorClamp(
+      (source.x - this.citySourceCoreRadius) / this.cellWidth - 0.5,
+      0,
+      this.gridWidth - 1,
+    );
+    const maxCol = PhaserMath.floorClamp(
+      (source.x + this.citySourceCoreRadius) / this.cellWidth - 0.5,
+      0,
+      this.gridWidth - 1,
+    );
+    const minRow = PhaserMath.floorClamp(
+      (source.y - this.citySourceCoreRadius) / this.cellHeight - 0.5,
+      0,
+      this.gridHeight - 1,
+    );
+    const maxRow = PhaserMath.floorClamp(
+      (source.y + this.citySourceCoreRadius) / this.cellHeight - 0.5,
+      0,
+      this.gridHeight - 1,
+    );
+
+    const maxInfluence = Math.max(1, source.power);
+    let hasCoreCell = false;
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let col = minCol; col <= maxCol; col += 1) {
+        const cellCenterX = (col + 0.5) * this.cellWidth;
+        const cellCenterY = (row + 0.5) * this.cellHeight;
+        const deltaX = cellCenterX - source.x;
+        const deltaY = cellCenterY - source.y;
+        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (distanceSquared > coreRadiusSquared) {
+          continue;
+        }
+
+        hasCoreCell = true;
+        const score = scores[row * this.gridWidth + col];
+        if (source.teamSign > 0) {
           if (score < maxInfluence) {
             return false;
           }
