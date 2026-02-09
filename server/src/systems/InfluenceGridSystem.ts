@@ -34,6 +34,7 @@ export class InfluenceGridSystem {
   private static readonly DOMINANCE_REFERENCE_POWER = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly DOMINANCE_POWER_MULTIPLIER = 0.22;
   private static readonly DOMINANCE_MIN_FLOOR = 1;
+  private static readonly CORE_MIN_INFLUENCE_FACTOR = 0.1;
   private static readonly SMALL_MAGNITUDE_DECAY_REFERENCE =
     InfluenceGridSystem.DOMINANCE_REFERENCE_POWER *
     InfluenceGridSystem.DOMINANCE_POWER_MULTIPLIER;
@@ -117,6 +118,10 @@ export class InfluenceGridSystem {
       }
     }
 
+    for (const unit of activeUnits) {
+      this.enforceCoreMinimumInfluence(scores, unit);
+    }
+
     for (let index = 0; index < cellCount; index += 1) {
       stateGrid.cells[index] = PhaserMath.clamp(
         scores[index],
@@ -137,6 +142,58 @@ export class InfluenceGridSystem {
     const extraDecay =
       (1 - normalizedMagnitude) * InfluenceGridSystem.MAX_EXTRA_DECAY_AT_ZERO;
     return PhaserMath.clamp(this.decayRate - extraDecay, 0, 1);
+  }
+
+  private enforceCoreMinimumInfluence(
+    scores: Float32Array,
+    unit: UnitContributionSource,
+  ): void {
+    const coreRadiusSquared = this.coreRadius * this.coreRadius;
+    const minCol = PhaserMath.floorClamp(
+      (unit.x - this.coreRadius) / this.cellWidth - 0.5,
+      0,
+      this.gridWidth - 1,
+    );
+    const maxCol = PhaserMath.floorClamp(
+      (unit.x + this.coreRadius) / this.cellWidth - 0.5,
+      0,
+      this.gridWidth - 1,
+    );
+    const minRow = PhaserMath.floorClamp(
+      (unit.y - this.coreRadius) / this.cellHeight - 0.5,
+      0,
+      this.gridHeight - 1,
+    );
+    const maxRow = PhaserMath.floorClamp(
+      (unit.y + this.coreRadius) / this.cellHeight - 0.5,
+      0,
+      this.gridHeight - 1,
+    );
+    const minimumInfluence = Math.max(
+      InfluenceGridSystem.DOMINANCE_MIN_FLOOR,
+      this.getAbsoluteDominance(unit.power) *
+        InfluenceGridSystem.CORE_MIN_INFLUENCE_FACTOR,
+    );
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let col = minCol; col <= maxCol; col += 1) {
+        const cellCenterX = (col + 0.5) * this.cellWidth;
+        const cellCenterY = (row + 0.5) * this.cellHeight;
+        const deltaX = cellCenterX - unit.x;
+        const deltaY = cellCenterY - unit.y;
+        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (distanceSquared > coreRadiusSquared) {
+          continue;
+        }
+
+        const index = row * this.gridWidth + col;
+        if (unit.teamSign > 0) {
+          scores[index] = Math.max(scores[index], minimumInfluence);
+        } else {
+          scores[index] = Math.min(scores[index], -minimumInfluence);
+        }
+      }
+    }
   }
 
   private hasStaticUnitReachedCoreCap(
