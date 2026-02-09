@@ -255,23 +255,77 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getInfluenceScoreAtUnit(unit: Unit): number {
+    return this.getInfluenceScoreAtPoint(unit.x, unit.y);
+  }
+
+  private getInfluenceScoreAtPoint(x: number, y: number): number {
     const grid = this.state.influenceGrid;
-    const cell = this.worldToGridCoordinate(unit.x, unit.y);
-    const index = cell.row * grid.width + cell.col;
-    const score = grid.cells[index];
-    if (typeof score !== "number" || !Number.isFinite(score)) {
+    const colBasis = x / BattleRoom.CELL_WIDTH - 0.5;
+    const rowBasis = y / BattleRoom.CELL_HEIGHT - 0.5;
+
+    const baseCol = this.clamp(Math.floor(colBasis), 0, grid.width - 1);
+    const baseRow = this.clamp(Math.floor(rowBasis), 0, grid.height - 1);
+    const nextCol = this.clamp(baseCol + 1, 0, grid.width - 1);
+    const nextRow = this.clamp(baseRow + 1, 0, grid.height - 1);
+    const tCol = this.clamp(colBasis - baseCol, 0, 1);
+    const tRow = this.clamp(rowBasis - baseRow, 0, 1);
+
+    const topLeft = this.getInfluenceScoreAtCell(baseCol, baseRow);
+    const topRight = this.getInfluenceScoreAtCell(nextCol, baseRow);
+    const bottomLeft = this.getInfluenceScoreAtCell(baseCol, nextRow);
+    const bottomRight = this.getInfluenceScoreAtCell(nextCol, nextRow);
+
+    const top = topLeft + (topRight - topLeft) * tCol;
+    const bottom = bottomLeft + (bottomRight - bottomLeft) * tCol;
+    return top + (bottom - top) * tRow;
+  }
+
+  private getInfluenceScoreAtCell(col: number, row: number): number {
+    const grid = this.state.influenceGrid;
+    const index = row * grid.width + col;
+    const value = grid.cells[index];
+    if (typeof value !== "number" || !Number.isFinite(value)) {
       return 0;
     }
-    return score;
+    return value;
   }
 
   private getInfluenceAdvantageNormalized(unit: Unit): number {
-    const score = this.getInfluenceScoreAtUnit(unit);
-    const alignedScore = score * this.getTeamSign(unit.team);
+    return this.getInfluenceAdvantageNormalizedAtPoint(
+      unit.x,
+      unit.y,
+      this.getTeamSign(unit.team),
+    );
+  }
+
+  private getInfluenceAdvantageNormalizedAtPoint(
+    x: number,
+    y: number,
+    teamSign: 1 | -1,
+  ): number {
+    const score = this.getInfluenceScoreAtPoint(x, y);
+    const alignedScore = score * teamSign;
     return this.clamp(
       alignedScore / BattleRoom.MAX_ABS_TACTICAL_SCORE,
       0,
       1,
+    );
+  }
+
+  private shapeCombatInfluenceAdvantage(rawAdvantage: number): number {
+    return Math.pow(
+      rawAdvantage,
+      BattleRoom.COMBAT_INFLUENCE_SHAPE_EXPONENT,
+    );
+  }
+
+  private getCombatInfluenceAdvantageAtPoint(
+    x: number,
+    y: number,
+    teamSign: 1 | -1,
+  ): number {
+    return this.shapeCombatInfluenceAdvantage(
+      this.getInfluenceAdvantageNormalizedAtPoint(x, y, teamSign),
     );
   }
 
@@ -333,10 +387,7 @@ export class BattleRoom extends Room<BattleState> {
     for (const unit of units) {
       aliveUnitIds.add(unit.unitId);
       const rawAdvantage = this.getInfluenceAdvantageNormalized(unit);
-      const shapedAdvantage = Math.pow(
-        rawAdvantage,
-        BattleRoom.COMBAT_INFLUENCE_SHAPE_EXPONENT,
-      );
+      const shapedAdvantage = this.shapeCombatInfluenceAdvantage(rawAdvantage);
       const previousAdvantage = this.combatInfluenceAdvantageByUnitId.get(unit.unitId);
       const smoothedAdvantage =
         previousAdvantage === undefined
@@ -914,24 +965,7 @@ export class BattleRoom extends Room<BattleState> {
 
     const units = Array.from(this.state.units.values()).filter((unit) => unit.health > 0);
     const pendingDamageByUnitId = new Map<string, number>();
-    const unitContactDpsById = new Map<string, number>();
-    const unitHealthMitigationById = new Map<string, number>();
-    const combatInfluenceAdvantageByUnitId =
-      this.buildCombatInfluenceAdvantageByUnitId(units, deltaSeconds);
-
-    for (const unit of units) {
-      const combatInfluenceAdvantage =
-        combatInfluenceAdvantageByUnitId.get(unit.unitId) ??
-        this.getInfluenceAdvantageNormalized(unit);
-      unitContactDpsById.set(
-        unit.unitId,
-        this.getUnitContactDps(combatInfluenceAdvantage),
-      );
-      unitHealthMitigationById.set(
-        unit.unitId,
-        this.getUnitHealthMitigationMultiplier(combatInfluenceAdvantage),
-      );
-    }
+    this.buildCombatInfluenceAdvantageByUnitId(units, deltaSeconds);
 
     for (let i = 0; i < units.length; i += 1) {
       const a = units[i];
@@ -953,14 +987,32 @@ export class BattleRoom extends Room<BattleState> {
         this.clearMovementForUnit(a.unitId);
         this.clearMovementForUnit(b.unitId);
 
+        // Use a shared engagement sample point so both sides evaluate the same local battle context.
+        const engagementX = (a.x + b.x) * 0.5;
+        const engagementY = (a.y + b.y) * 0.5;
+        const aCombatInfluenceAdvantage = this.getCombatInfluenceAdvantageAtPoint(
+          engagementX,
+          engagementY,
+          this.getTeamSign(a.team),
+        );
+        const bCombatInfluenceAdvantage = this.getCombatInfluenceAdvantageAtPoint(
+          engagementX,
+          engagementY,
+          this.getTeamSign(b.team),
+        );
+        const aContactDps = this.getUnitContactDps(aCombatInfluenceAdvantage);
+        const bContactDps = this.getUnitContactDps(bCombatInfluenceAdvantage);
+        const aHealthMitigation =
+          this.getUnitHealthMitigationMultiplier(aCombatInfluenceAdvantage);
+        const bHealthMitigation =
+          this.getUnitHealthMitigationMultiplier(bCombatInfluenceAdvantage);
+
         const incomingDamageToA =
-          ((unitContactDpsById.get(b.unitId) ?? this.runtimeTuning.baseContactDps) *
-            deltaSeconds) /
-          Math.max(1, unitHealthMitigationById.get(a.unitId) ?? 1);
+          (bContactDps * deltaSeconds) /
+          Math.max(1, aHealthMitigation);
         const incomingDamageToB =
-          ((unitContactDpsById.get(a.unitId) ?? this.runtimeTuning.baseContactDps) *
-            deltaSeconds) /
-          Math.max(1, unitHealthMitigationById.get(b.unitId) ?? 1);
+          (aContactDps * deltaSeconds) /
+          Math.max(1, bHealthMitigation);
         pendingDamageByUnitId.set(
           a.unitId,
           (pendingDamageByUnitId.get(a.unitId) ?? 0) + incomingDamageToA,

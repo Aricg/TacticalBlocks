@@ -168,6 +168,8 @@ export class InfluenceGridSystem {
     const activeUnits = this.collectActiveUnits(units);
     const cellCount = this.gridWidth * this.gridHeight;
     const scores = new Float32Array(cellCount);
+    const blueFloorByCell = new Float32Array(cellCount);
+    const redFloorByCell = new Float32Array(cellCount);
 
     // Persistent field: start from previous frame and decay toward neutral.
     for (let index = 0; index < cellCount; index += 1) {
@@ -230,21 +232,39 @@ export class InfluenceGridSystem {
       );
       for (const target of targets) {
         const weightedFloor = absoluteDominance * target.weight;
-        if (unit.teamSign > 0) {
-          scores[target.index] = Math.max(scores[target.index], weightedFloor);
-        } else {
-          scores[target.index] = Math.min(scores[target.index], -weightedFloor);
-        }
+        this.setTeamFloorAtIndex(
+          blueFloorByCell,
+          redFloorByCell,
+          target.index,
+          unit.teamSign,
+          weightedFloor,
+        );
       }
     }
 
     for (const unit of activeUnits) {
       const contestMultiplier = contestMultiplierByUnitId.get(unit.unitId) ?? 1;
       this.enforceCoreMinimumInfluence(
-        scores,
+        blueFloorByCell,
+        redFloorByCell,
         unit,
         unit.power * contestMultiplier,
       );
+    }
+
+    // Resolve floors order-independently. In contested cells, avoid forcing either
+    // side's floor so small numerical asymmetries can't accumulate into side bias.
+    for (let index = 0; index < cellCount; index += 1) {
+      const blueFloor = blueFloorByCell[index];
+      const redFloor = redFloorByCell[index];
+      if (blueFloor > 0 && redFloor > 0) {
+        continue;
+      }
+      if (blueFloor > 0) {
+        scores[index] = Math.max(scores[index], blueFloor);
+      } else if (redFloor > 0) {
+        scores[index] = Math.min(scores[index], -redFloor);
+      }
     }
 
     for (let index = 0; index < cellCount; index += 1) {
@@ -273,7 +293,8 @@ export class InfluenceGridSystem {
   }
 
   private enforceCoreMinimumInfluence(
-    scores: Float32Array,
+    blueFloorByCell: Float32Array,
+    redFloorByCell: Float32Array,
     unit: UnitContributionSource,
     effectivePower: number,
   ): void {
@@ -315,12 +336,32 @@ export class InfluenceGridSystem {
         }
 
         const index = row * this.gridWidth + col;
-        if (unit.teamSign > 0) {
-          scores[index] = Math.max(scores[index], minimumInfluence);
-        } else {
-          scores[index] = Math.min(scores[index], -minimumInfluence);
-        }
+        this.setTeamFloorAtIndex(
+          blueFloorByCell,
+          redFloorByCell,
+          index,
+          unit.teamSign,
+          minimumInfluence,
+        );
       }
+    }
+  }
+
+  private setTeamFloorAtIndex(
+    blueFloorByCell: Float32Array,
+    redFloorByCell: Float32Array,
+    index: number,
+    teamSign: TeamSign,
+    floorMagnitude: number,
+  ): void {
+    if (floorMagnitude <= 0) {
+      return;
+    }
+
+    if (teamSign > 0) {
+      blueFloorByCell[index] = Math.max(blueFloorByCell[index], floorMagnitude);
+    } else {
+      redFloorByCell[index] = Math.max(redFloorByCell[index], floorMagnitude);
     }
   }
 
