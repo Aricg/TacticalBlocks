@@ -853,7 +853,7 @@ class BattleScene extends Phaser.Scene {
     this.advancePlannedPaths();
     this.refreshFogOfWar();
     this.renderMovementLines();
-    this.influenceRenderer?.render();
+    this.influenceRenderer?.render(delta);
   }
 }
 

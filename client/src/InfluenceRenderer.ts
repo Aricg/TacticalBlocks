@@ -10,11 +10,32 @@ export type InfluenceGridSnapshot = {
   cells: number[];
 };
 
+type GridMeta = {
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+};
+
+type ContourSegment = {
+  aKey: string;
+  bKey: string;
+};
+
 export class InfluenceRenderer {
   private readonly frontLineGraphics: Phaser.GameObjects.Graphics;
-  private influenceGrid: InfluenceGridSnapshot | null = null;
+  private gridMeta: GridMeta | null = null;
+  private previousServerCells: Float32Array | null = null;
+  private targetServerCells: Float32Array | null = null;
+  private displayCells: Float32Array | null = null;
+  private latestRevision = -1;
+  private interpolationElapsedMs = 0;
 
   private static readonly EPSILON = 0.0001;
+  private static readonly KEY_PRECISION = 1000;
+  private static readonly INTERPOLATION_DURATION_MS =
+    GAMEPLAY_CONFIG.network.positionSyncIntervalMs *
+    GAMEPLAY_CONFIG.influence.updateIntervalFrames;
 
   constructor(scene: Phaser.Scene) {
     this.frontLineGraphics = scene.add.graphics();
@@ -25,138 +46,420 @@ export class InfluenceRenderer {
     if (influenceGrid.cells.length !== influenceGrid.width * influenceGrid.height) {
       return;
     }
+    if (influenceGrid.revision <= this.latestRevision) {
+      return;
+    }
 
-    this.influenceGrid = {
+    const nextGridMeta: GridMeta = {
       width: influenceGrid.width,
       height: influenceGrid.height,
       cellWidth: influenceGrid.cellWidth,
       cellHeight: influenceGrid.cellHeight,
-      revision: influenceGrid.revision,
-      cells: influenceGrid.cells.slice(),
     };
+    const nextTargetCells = Float32Array.from(influenceGrid.cells);
+
+    const isResized =
+      !this.gridMeta ||
+      this.gridMeta.width !== nextGridMeta.width ||
+      this.gridMeta.height !== nextGridMeta.height;
+
+    if (isResized || !this.displayCells) {
+      this.gridMeta = nextGridMeta;
+      this.previousServerCells = nextTargetCells.slice();
+      this.targetServerCells = nextTargetCells;
+      this.displayCells = nextTargetCells.slice();
+      this.interpolationElapsedMs = InfluenceRenderer.INTERPOLATION_DURATION_MS;
+      this.latestRevision = influenceGrid.revision;
+      return;
+    }
+
+    this.interpolateDisplayGrid(0);
+    this.previousServerCells = this.displayCells.slice();
+    this.targetServerCells = nextTargetCells;
+    this.gridMeta = nextGridMeta;
+    this.interpolationElapsedMs = 0;
+    this.latestRevision = influenceGrid.revision;
   }
 
-  public render(): void {
+  public render(deltaMs: number): void {
     this.frontLineGraphics.clear();
-    if (!this.influenceGrid) {
+    if (
+      !this.gridMeta ||
+      !this.displayCells ||
+      !this.previousServerCells ||
+      !this.targetServerCells
+    ) {
       return;
     }
 
-    const frontLinePoints = this.buildFrontLinePoints(this.influenceGrid);
-    if (frontLinePoints.length < 2) {
+    this.interpolateDisplayGrid(deltaMs);
+    const contourPaths = this.extractContourPaths();
+    if (contourPaths.length === 0) {
       return;
     }
 
-    const smoothedPoints = this.smoothPoints(frontLinePoints);
     this.frontLineGraphics.lineStyle(
       GAMEPLAY_CONFIG.influence.lineThickness,
       GAMEPLAY_CONFIG.influence.lineColor,
       GAMEPLAY_CONFIG.influence.lineAlpha,
     );
-    this.frontLineGraphics.beginPath();
-    this.frontLineGraphics.moveTo(smoothedPoints[0].x, smoothedPoints[0].y);
-    for (let i = 1; i < smoothedPoints.length; i += 1) {
-      this.frontLineGraphics.lineTo(smoothedPoints[i].x, smoothedPoints[i].y);
+
+    for (const path of contourPaths) {
+      if (path.length < 2) {
+        continue;
+      }
+
+      const smoothedPath = this.smoothPath(path);
+      if (smoothedPath.length < 2) {
+        continue;
+      }
+
+      this.frontLineGraphics.beginPath();
+      this.frontLineGraphics.moveTo(smoothedPath[0].x, smoothedPath[0].y);
+      for (let i = 1; i < smoothedPath.length; i += 1) {
+        this.frontLineGraphics.lineTo(smoothedPath[i].x, smoothedPath[i].y);
+      }
+      this.frontLineGraphics.strokePath();
     }
-    this.frontLineGraphics.strokePath();
   }
 
   public destroy(): void {
     this.frontLineGraphics.destroy();
-    this.influenceGrid = null;
+    this.gridMeta = null;
+    this.previousServerCells = null;
+    this.targetServerCells = null;
+    this.displayCells = null;
   }
 
-  private buildFrontLinePoints(influenceGrid: InfluenceGridSnapshot): Phaser.Math.Vector2[] {
-    const points: Phaser.Math.Vector2[] = [];
-    const mapCenterX = (influenceGrid.width * influenceGrid.cellWidth) * 0.5;
-    let previousX: number | null = null;
+  private interpolateDisplayGrid(deltaMs: number): void {
+    if (!this.previousServerCells || !this.targetServerCells || !this.displayCells) {
+      return;
+    }
 
-    for (let row = 0; row < influenceGrid.height; row += 1) {
-      const rowCrossings = this.findRowCrossings(influenceGrid, row);
-      if (rowCrossings.length === 0) {
-        continue;
-      }
+    this.interpolationElapsedMs = Math.min(
+      this.interpolationElapsedMs + Math.max(0, deltaMs),
+      InfluenceRenderer.INTERPOLATION_DURATION_MS,
+    );
 
-      const targetX = previousX ?? mapCenterX;
-      let chosenX = rowCrossings[0];
-      let bestDistance = Math.abs(chosenX - targetX);
+    const interpolationT =
+      InfluenceRenderer.INTERPOLATION_DURATION_MS <= 0
+        ? 1
+        : Phaser.Math.Clamp(
+            this.interpolationElapsedMs / InfluenceRenderer.INTERPOLATION_DURATION_MS,
+            0,
+            1,
+          );
 
-      for (let i = 1; i < rowCrossings.length; i += 1) {
-        const candidateX = rowCrossings[i];
-        const distance = Math.abs(candidateX - targetX);
-        if (distance < bestDistance) {
-          chosenX = candidateX;
-          bestDistance = distance;
+    for (let i = 0; i < this.displayCells.length; i += 1) {
+      this.displayCells[i] = Phaser.Math.Linear(
+        this.previousServerCells[i],
+        this.targetServerCells[i],
+        interpolationT,
+      );
+    }
+  }
+
+  private extractContourPaths(): Phaser.Math.Vector2[][] {
+    if (!this.gridMeta || !this.displayCells) {
+      return [];
+    }
+
+    const width = this.gridMeta.width;
+    const height = this.gridMeta.height;
+    const pointByKey = new Map<string, Phaser.Math.Vector2>();
+    const segments: ContourSegment[] = [];
+    const segmentKeySet = new Set<string>();
+
+    for (let row = 0; row < height - 1; row += 1) {
+      for (let col = 0; col < width - 1; col += 1) {
+        const topLeftValue = this.getInfluenceValue(col, row);
+        const topRightValue = this.getInfluenceValue(col + 1, row);
+        const bottomRightValue = this.getInfluenceValue(col + 1, row + 1);
+        const bottomLeftValue = this.getInfluenceValue(col, row + 1);
+
+        const caseIndex =
+          Number(topLeftValue > 0) |
+          (Number(topRightValue > 0) << 1) |
+          (Number(bottomRightValue > 0) << 2) |
+          (Number(bottomLeftValue > 0) << 3);
+
+        if (caseIndex === 0 || caseIndex === 15) {
+          continue;
+        }
+
+        const topLeftPoint = this.getGridPoint(col, row);
+        const topRightPoint = this.getGridPoint(col + 1, row);
+        const bottomRightPoint = this.getGridPoint(col + 1, row + 1);
+        const bottomLeftPoint = this.getGridPoint(col, row + 1);
+
+        const edgePoints = [
+          this.interpolatePoint(topLeftPoint, topRightPoint, topLeftValue, topRightValue),
+          this.interpolatePoint(
+            topRightPoint,
+            bottomRightPoint,
+            topRightValue,
+            bottomRightValue,
+          ),
+          this.interpolatePoint(
+            bottomLeftPoint,
+            bottomRightPoint,
+            bottomLeftValue,
+            bottomRightValue,
+          ),
+          this.interpolatePoint(
+            topLeftPoint,
+            bottomLeftPoint,
+            topLeftValue,
+            bottomLeftValue,
+          ),
+        ];
+
+        for (const edgePoint of edgePoints) {
+          pointByKey.set(this.pointKey(edgePoint), edgePoint);
+        }
+
+        const centerValue =
+          (topLeftValue + topRightValue + bottomRightValue + bottomLeftValue) * 0.25;
+        const edgePairs = this.getEdgePairs(caseIndex, centerValue);
+
+        for (const [aEdge, bEdge] of edgePairs) {
+          const aPoint = edgePoints[aEdge];
+          const bPoint = edgePoints[bEdge];
+          const aKey = this.pointKey(aPoint);
+          const bKey = this.pointKey(bPoint);
+          if (aKey === bKey) {
+            continue;
+          }
+
+          const segmentKey = `${aKey}|${bKey}`;
+          const inverseSegmentKey = `${bKey}|${aKey}`;
+          if (segmentKeySet.has(segmentKey) || segmentKeySet.has(inverseSegmentKey)) {
+            continue;
+          }
+
+          segmentKeySet.add(segmentKey);
+          segments.push({ aKey, bKey });
         }
       }
-
-      points.push(
-        new Phaser.Math.Vector2(
-          chosenX,
-          (row + 0.5) * influenceGrid.cellHeight,
-        ),
-      );
-      previousX = chosenX;
     }
 
-    return points;
+    if (segments.length === 0) {
+      return [];
+    }
+
+    return this.stitchSegmentsIntoPaths(segments, pointByKey);
   }
 
-  private findRowCrossings(influenceGrid: InfluenceGridSnapshot, row: number): number[] {
-    const crossings: number[] = [];
-    for (let col = 0; col < influenceGrid.width - 1; col += 1) {
-      const leftScore = this.getInfluenceValue(influenceGrid, col, row);
-      const rightScore = this.getInfluenceValue(influenceGrid, col + 1, row);
-      const edgeT = this.getZeroCrossingT(leftScore, rightScore);
-      if (edgeT === null) {
+  private getEdgePairs(caseIndex: number, centerValue: number): Array<[number, number]> {
+    switch (caseIndex) {
+      case 1:
+        return [[3, 0]];
+      case 2:
+        return [[0, 1]];
+      case 3:
+        return [[3, 1]];
+      case 4:
+        return [[1, 2]];
+      case 5:
+        return centerValue > 0 ? [[0, 1], [2, 3]] : [[0, 3], [1, 2]];
+      case 6:
+        return [[0, 2]];
+      case 7:
+        return [[3, 2]];
+      case 8:
+        return [[2, 3]];
+      case 9:
+        return [[0, 2]];
+      case 10:
+        return centerValue > 0 ? [[0, 3], [1, 2]] : [[0, 1], [2, 3]];
+      case 11:
+        return [[1, 2]];
+      case 12:
+        return [[1, 3]];
+      case 13:
+        return [[0, 1]];
+      case 14:
+        return [[0, 3]];
+      default:
+        return [];
+    }
+  }
+
+  private stitchSegmentsIntoPaths(
+    segments: ContourSegment[],
+    pointByKey: Map<string, Phaser.Math.Vector2>,
+  ): Phaser.Math.Vector2[][] {
+    const adjacency = new Map<string, number[]>();
+    for (let i = 0; i < segments.length; i += 1) {
+      const segment = segments[i];
+      const aConnections = adjacency.get(segment.aKey);
+      if (aConnections) {
+        aConnections.push(i);
+      } else {
+        adjacency.set(segment.aKey, [i]);
+      }
+
+      const bConnections = adjacency.get(segment.bKey);
+      if (bConnections) {
+        bConnections.push(i);
+      } else {
+        adjacency.set(segment.bKey, [i]);
+      }
+    }
+
+    const usedSegments = new Array<boolean>(segments.length).fill(false);
+    const paths: Phaser.Math.Vector2[][] = [];
+    const danglingNodeKeys = Array.from(adjacency.entries())
+      .filter(([, segmentIndices]) => segmentIndices.length === 1)
+      .map(([key]) => key);
+
+    for (const startKey of danglingNodeKeys) {
+      const tracedPath = this.tracePath(startKey, segments, usedSegments, adjacency, pointByKey);
+      if (tracedPath.length >= 2) {
+        paths.push(tracedPath);
+      }
+    }
+
+    for (let i = 0; i < segments.length; i += 1) {
+      if (usedSegments[i]) {
         continue;
       }
 
-      const leftCenterX = (col + 0.5) * influenceGrid.cellWidth;
-      const rightCenterX = (col + 1.5) * influenceGrid.cellWidth;
-      crossings.push(Phaser.Math.Linear(leftCenterX, rightCenterX, edgeT));
+      const tracedPath = this.tracePath(
+        segments[i].aKey,
+        segments,
+        usedSegments,
+        adjacency,
+        pointByKey,
+      );
+      if (tracedPath.length >= 2) {
+        paths.push(tracedPath);
+      }
     }
 
-    return crossings;
+    return paths;
   }
 
-  private smoothPoints(points: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
-    if (points.length < 3) {
-      return points;
+  private tracePath(
+    startKey: string,
+    segments: ContourSegment[],
+    usedSegments: boolean[],
+    adjacency: Map<string, number[]>,
+    pointByKey: Map<string, Phaser.Math.Vector2>,
+  ): Phaser.Math.Vector2[] {
+    const startPoint = pointByKey.get(startKey);
+    if (!startPoint) {
+      return [];
     }
 
-    const spline = new Phaser.Curves.Spline(points);
+    const path: Phaser.Math.Vector2[] = [startPoint.clone()];
+    let currentKey = startKey;
+
+    while (true) {
+      const connectedSegments = adjacency.get(currentKey);
+      if (!connectedSegments || connectedSegments.length === 0) {
+        break;
+      }
+
+      let nextSegmentIndex = -1;
+      for (const segmentIndex of connectedSegments) {
+        if (!usedSegments[segmentIndex]) {
+          nextSegmentIndex = segmentIndex;
+          break;
+        }
+      }
+      if (nextSegmentIndex < 0) {
+        break;
+      }
+
+      usedSegments[nextSegmentIndex] = true;
+      const nextSegment = segments[nextSegmentIndex];
+      const nextKey =
+        nextSegment.aKey === currentKey ? nextSegment.bKey : nextSegment.aKey;
+      const nextPoint = pointByKey.get(nextKey);
+      if (!nextPoint) {
+        break;
+      }
+
+      path.push(nextPoint.clone());
+      currentKey = nextKey;
+      if (currentKey === startKey) {
+        break;
+      }
+    }
+
+    return path;
+  }
+
+  private smoothPath(path: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
+    if (path.length < 3) {
+      return path;
+    }
+
+    const dedupedPath: Phaser.Math.Vector2[] = [path[0]];
+    for (let i = 1; i < path.length; i += 1) {
+      const previous = dedupedPath[dedupedPath.length - 1];
+      const next = path[i];
+      if (
+        Phaser.Math.Distance.Between(previous.x, previous.y, next.x, next.y) <
+        InfluenceRenderer.EPSILON
+      ) {
+        continue;
+      }
+      dedupedPath.push(next);
+    }
+    if (dedupedPath.length < 3) {
+      return dedupedPath;
+    }
+
+    const spline = new Phaser.Curves.Spline(dedupedPath);
     const interpolationPointCount = Math.max(
-      points.length * GAMEPLAY_CONFIG.influence.splineDensityMultiplier,
-      points.length,
+      dedupedPath.length * GAMEPLAY_CONFIG.influence.splineDensityMultiplier,
+      dedupedPath.length,
     );
     return spline.getPoints(interpolationPointCount);
   }
 
-  private getInfluenceValue(
-    influenceGrid: InfluenceGridSnapshot,
-    col: number,
-    row: number,
-  ): number {
-    return influenceGrid.cells[row * influenceGrid.width + col] ?? 0;
+  private getGridPoint(col: number, row: number): Phaser.Math.Vector2 {
+    if (!this.gridMeta) {
+      return new Phaser.Math.Vector2(0, 0);
+    }
+
+    return new Phaser.Math.Vector2(
+      (col + 0.5) * this.gridMeta.cellWidth,
+      (row + 0.5) * this.gridMeta.cellHeight,
+    );
   }
 
-  private getZeroCrossingT(leftValue: number, rightValue: number): number | null {
-    if (Math.abs(leftValue) < InfluenceRenderer.EPSILON) {
+  private interpolatePoint(
+    a: Phaser.Math.Vector2,
+    b: Phaser.Math.Vector2,
+    aValue: number,
+    bValue: number,
+  ): Phaser.Math.Vector2 {
+    const denominator = aValue - bValue;
+    const t =
+      Math.abs(denominator) < InfluenceRenderer.EPSILON
+        ? 0.5
+        : Phaser.Math.Clamp(aValue / denominator, 0, 1);
+
+    return new Phaser.Math.Vector2(
+      Phaser.Math.Linear(a.x, b.x, t),
+      Phaser.Math.Linear(a.y, b.y, t),
+    );
+  }
+
+  private getInfluenceValue(col: number, row: number): number {
+    if (!this.gridMeta || !this.displayCells) {
       return 0;
     }
-    if (Math.abs(rightValue) < InfluenceRenderer.EPSILON) {
-      return 1;
-    }
-    if ((leftValue < 0) === (rightValue < 0)) {
-      return null;
-    }
 
-    const denominator = leftValue - rightValue;
-    if (Math.abs(denominator) < InfluenceRenderer.EPSILON) {
-      return 0.5;
-    }
+    return this.displayCells[row * this.gridMeta.width + col] ?? 0;
+  }
 
-    return Phaser.Math.Clamp(leftValue / denominator, 0, 1);
+  private pointKey(point: Phaser.Math.Vector2): string {
+    return `${Math.round(point.x * InfluenceRenderer.KEY_PRECISION)}:${Math.round(
+      point.y * InfluenceRenderer.KEY_PRECISION,
+    )}`;
   }
 }
