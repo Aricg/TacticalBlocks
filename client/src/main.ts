@@ -909,11 +909,51 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private updateInfluenceDebugFocus(): void {
+    if (!this.influenceRenderer) {
+      return;
+    }
+
+    const focusUnit = this.getInfluenceDebugFocusUnit();
+    if (!focusUnit) {
+      this.influenceRenderer.setDebugFocusPoint(null);
+      return;
+    }
+
+    this.influenceRenderer.setDebugFocusPoint({
+      x: focusUnit.x,
+      y: focusUnit.y,
+    });
+  }
+
+  private getInfluenceDebugFocusUnit(): Unit | null {
+    if (this.selectedUnits.size === 1) {
+      const selectedUnit = this.selectedUnits.values().next().value as Unit | undefined;
+      if (
+        selectedUnit &&
+        selectedUnit.team === this.localPlayerTeam &&
+        selectedUnit.isAlive()
+      ) {
+        return selectedUnit;
+      }
+    }
+
+    const allyUnits = this.units.filter(
+      (unit) => unit.team === this.localPlayerTeam && unit.isAlive(),
+    );
+    if (allyUnits.length === 1) {
+      return allyUnits[0];
+    }
+
+    return null;
+  }
+
   update(time: number, delta: number): void {
     this.smoothRemoteUnitPositions(delta);
     this.advancePlannedPaths();
     this.refreshFogOfWar();
     this.renderMovementLines();
+    this.updateInfluenceDebugFocus();
     this.influenceRenderer?.render(delta);
   }
 }

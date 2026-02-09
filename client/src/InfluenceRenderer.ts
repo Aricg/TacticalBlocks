@@ -40,17 +40,27 @@ type StaticInfluenceSourceInput = {
 
 export class InfluenceRenderer {
   private readonly frontLineGraphics: Phaser.GameObjects.Graphics;
+  private readonly debugGraphics: Phaser.GameObjects.Graphics;
+  private readonly debugCellValueTexts: Phaser.GameObjects.Text[];
   private gridMeta: GridMeta | null = null;
   private previousServerCells: Float32Array | null = null;
   private targetServerCells: Float32Array | null = null;
   private displayCells: Float32Array | null = null;
   private renderCells: Float32Array | null = null;
   private staticInfluenceSources: StaticInfluenceSource[] = [];
+  private debugFocusPoint: Phaser.Math.Vector2 | null = null;
   private latestRevision = -1;
   private interpolationElapsedMs = 0;
 
   private static readonly EPSILON = 0.0001;
   private static readonly KEY_PRECISION = 1000;
+  private static readonly DEBUG_OVERLAY_ENABLED = true;
+  private static readonly DEBUG_POSITIVE_COLOR = 0x1e8bff;
+  private static readonly DEBUG_NEGATIVE_COLOR = 0xff3030;
+  private static readonly DEBUG_NEUTRAL_COLOR = 0xd9d9d9;
+  private static readonly DEBUG_DOT_RADIUS = 3;
+  private static readonly DEBUG_TEXT_OFFSET_X = 6;
+  private static readonly DEBUG_TEXT_OFFSET_Y = 6;
   private static readonly INTERPOLATION_DURATION_MS =
     GAMEPLAY_CONFIG.network.positionSyncIntervalMs *
     GAMEPLAY_CONFIG.influence.updateIntervalFrames;
@@ -58,6 +68,19 @@ export class InfluenceRenderer {
   constructor(scene: Phaser.Scene) {
     this.frontLineGraphics = scene.add.graphics();
     this.frontLineGraphics.setDepth(910);
+    this.debugGraphics = scene.add.graphics();
+    this.debugGraphics.setDepth(980);
+    this.debugCellValueTexts = Array.from({ length: 4 }, () => {
+      const text = scene.add.text(0, 0, '', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#ffffff',
+        backgroundColor: '#111111',
+      });
+      text.setDepth(981);
+      text.setVisible(false);
+      return text;
+    });
   }
 
   public setStaticInfluenceSources(
@@ -119,60 +142,217 @@ export class InfluenceRenderer {
     this.latestRevision = influenceGrid.revision;
   }
 
+  public setDebugFocusPoint(point: { x: number; y: number } | null): void {
+    if (
+      !point ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y)
+    ) {
+      this.debugFocusPoint = null;
+      return;
+    }
+
+    this.debugFocusPoint = new Phaser.Math.Vector2(point.x, point.y);
+  }
+
   public render(deltaMs: number): void {
     this.frontLineGraphics.clear();
+    this.debugGraphics.clear();
     if (
       !this.gridMeta ||
       !this.displayCells ||
       !this.previousServerCells ||
       !this.targetServerCells
     ) {
+      this.hideDebugTexts();
       return;
     }
 
     this.interpolateDisplayGrid(deltaMs);
     const contourCells = this.buildContourCells();
     if (!contourCells) {
+      this.hideDebugTexts();
       return;
     }
+
     const contourPaths = this.extractContourPaths(contourCells);
-    if (contourPaths.length === 0) {
-      return;
+    if (contourPaths.length > 0) {
+      this.frontLineGraphics.lineStyle(
+        GAMEPLAY_CONFIG.influence.lineThickness,
+        GAMEPLAY_CONFIG.influence.lineColor,
+        GAMEPLAY_CONFIG.influence.lineAlpha,
+      );
+
+      for (const path of contourPaths) {
+        if (path.length < 2) {
+          continue;
+        }
+
+        const smoothedPath = this.smoothPath(path);
+        if (smoothedPath.length < 2) {
+          continue;
+        }
+
+        this.frontLineGraphics.beginPath();
+        this.frontLineGraphics.moveTo(smoothedPath[0].x, smoothedPath[0].y);
+        for (let i = 1; i < smoothedPath.length; i += 1) {
+          this.frontLineGraphics.lineTo(smoothedPath[i].x, smoothedPath[i].y);
+        }
+        this.frontLineGraphics.strokePath();
+      }
     }
 
-    this.frontLineGraphics.lineStyle(
-      GAMEPLAY_CONFIG.influence.lineThickness,
-      GAMEPLAY_CONFIG.influence.lineColor,
-      GAMEPLAY_CONFIG.influence.lineAlpha,
-    );
-
-    for (const path of contourPaths) {
-      if (path.length < 2) {
-        continue;
-      }
-
-      const smoothedPath = this.smoothPath(path);
-      if (smoothedPath.length < 2) {
-        continue;
-      }
-
-      this.frontLineGraphics.beginPath();
-      this.frontLineGraphics.moveTo(smoothedPath[0].x, smoothedPath[0].y);
-      for (let i = 1; i < smoothedPath.length; i += 1) {
-        this.frontLineGraphics.lineTo(smoothedPath[i].x, smoothedPath[i].y);
-      }
-      this.frontLineGraphics.strokePath();
-    }
+    this.renderDebugOverlay(this.targetServerCells);
   }
 
   public destroy(): void {
     this.frontLineGraphics.destroy();
+    this.debugGraphics.destroy();
+    for (const text of this.debugCellValueTexts) {
+      text.destroy();
+    }
     this.gridMeta = null;
     this.previousServerCells = null;
     this.targetServerCells = null;
     this.displayCells = null;
     this.renderCells = null;
     this.staticInfluenceSources = [];
+    this.debugFocusPoint = null;
+  }
+
+  private renderDebugOverlay(rawServerCells: Float32Array): void {
+    if (!InfluenceRenderer.DEBUG_OVERLAY_ENABLED || !this.gridMeta) {
+      this.hideDebugTexts();
+      return;
+    }
+
+    const width = this.gridMeta.width;
+    const height = this.gridMeta.height;
+    const cellWidth = this.gridMeta.cellWidth;
+    const cellHeight = this.gridMeta.cellHeight;
+
+    for (let row = 0; row < height; row += 1) {
+      for (let col = 0; col < width; col += 1) {
+        const index = row * width + col;
+        const score = rawServerCells[index] ?? 0;
+        const color = this.getDebugColor(score);
+        const alpha = Phaser.Math.Clamp(Math.abs(score) / 8, 0.25, 0.95);
+        const centerX = (col + 0.5) * cellWidth;
+        const centerY = (row + 0.5) * cellHeight;
+
+        this.debugGraphics.fillStyle(color, alpha);
+        this.debugGraphics.fillCircle(
+          centerX,
+          centerY,
+          InfluenceRenderer.DEBUG_DOT_RADIUS,
+        );
+      }
+    }
+
+    this.renderFocusCellValues(rawServerCells);
+  }
+
+  private renderFocusCellValues(rawServerCells: Float32Array): void {
+    if (!this.gridMeta || !this.debugFocusPoint) {
+      this.hideDebugTexts();
+      return;
+    }
+
+    const focusCells = this.getFocusCellCoords(this.debugFocusPoint);
+    const cellWidth = this.gridMeta.cellWidth;
+    const cellHeight = this.gridMeta.cellHeight;
+
+    for (let i = 0; i < this.debugCellValueTexts.length; i += 1) {
+      const text = this.debugCellValueTexts[i];
+      const focusCell = focusCells[i];
+      if (!focusCell) {
+        text.setVisible(false);
+        continue;
+      }
+
+      const index = focusCell.row * this.gridMeta.width + focusCell.col;
+      const score = rawServerCells[index] ?? 0;
+      const centerX = (focusCell.col + 0.5) * cellWidth;
+      const centerY = (focusCell.row + 0.5) * cellHeight;
+      const color = this.getDebugColor(score);
+
+      this.debugGraphics.lineStyle(2, color, 1);
+      this.debugGraphics.strokeRect(
+        focusCell.col * cellWidth,
+        focusCell.row * cellHeight,
+        cellWidth,
+        cellHeight,
+      );
+
+      text.setText(`[${focusCell.col},${focusCell.row}] ${score.toFixed(2)}`);
+      text.setColor(this.toCssColor(color));
+      text.setPosition(
+        centerX + InfluenceRenderer.DEBUG_TEXT_OFFSET_X,
+        centerY + InfluenceRenderer.DEBUG_TEXT_OFFSET_Y,
+      );
+      text.setVisible(true);
+    }
+  }
+
+  private getFocusCellCoords(
+    focusPoint: Phaser.Math.Vector2,
+  ): Array<{ col: number; row: number }> {
+    if (!this.gridMeta) {
+      return [];
+    }
+
+    const colBasis = focusPoint.x / this.gridMeta.cellWidth - 0.5;
+    const rowBasis = focusPoint.y / this.gridMeta.cellHeight - 0.5;
+    const baseCol = Phaser.Math.Clamp(
+      Math.floor(colBasis),
+      0,
+      this.gridMeta.width - 1,
+    );
+    const baseRow = Phaser.Math.Clamp(
+      Math.floor(rowBasis),
+      0,
+      this.gridMeta.height - 1,
+    );
+    const nextCol = Phaser.Math.Clamp(baseCol + 1, 0, this.gridMeta.width - 1);
+    const nextRow = Phaser.Math.Clamp(baseRow + 1, 0, this.gridMeta.height - 1);
+
+    const unique = new Set<string>();
+    const result: Array<{ col: number; row: number }> = [];
+    const candidates = [
+      { col: baseCol, row: baseRow },
+      { col: nextCol, row: baseRow },
+      { col: baseCol, row: nextRow },
+      { col: nextCol, row: nextRow },
+    ];
+    for (const candidate of candidates) {
+      const key = `${candidate.col}:${candidate.row}`;
+      if (unique.has(key)) {
+        continue;
+      }
+      unique.add(key);
+      result.push(candidate);
+    }
+    return result;
+  }
+
+  private getDebugColor(score: number): number {
+    if (score > InfluenceRenderer.EPSILON) {
+      return InfluenceRenderer.DEBUG_POSITIVE_COLOR;
+    }
+    if (score < -InfluenceRenderer.EPSILON) {
+      return InfluenceRenderer.DEBUG_NEGATIVE_COLOR;
+    }
+    return InfluenceRenderer.DEBUG_NEUTRAL_COLOR;
+  }
+
+  private hideDebugTexts(): void {
+    for (const text of this.debugCellValueTexts) {
+      text.setVisible(false);
+    }
+  }
+
+  private toCssColor(color: number): string {
+    return `#${color.toString(16).padStart(6, '0')}`;
   }
 
   private interpolateDisplayGrid(deltaMs: number): void {
@@ -231,7 +411,7 @@ export class InfluenceRenderer {
         let score = 0;
         for (const source of this.staticInfluenceSources) {
           const distance = Math.hypot(worldX - source.x, worldY - source.y);
-          score += (source.power / (distance + 1)) * source.teamSign;
+          score += (source.power / (distance * distance + 1)) * source.teamSign;
         }
 
         this.renderCells[index] += score;

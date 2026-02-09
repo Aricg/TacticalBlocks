@@ -18,8 +18,8 @@ export const GAMEPLAY_CONFIG = {
     enemyVisibilityPadding: 24,
   },
   influence: {
-    gridWidth: 40,
-    gridHeight: 22,
+    gridWidth: 80,
+    gridHeight: 44,
     updateIntervalFrames: 6,
     lineColor: 0x111111,
     lineAlpha: 0.92,
