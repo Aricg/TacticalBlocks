@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import {
   NetworkManager,
   type NetworkUnitHealthUpdate,
+  type NetworkUnitPathCommand,
+  type NetworkUnitRotationUpdate,
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
 } from './NetworkManager';
@@ -12,13 +14,10 @@ import { Unit, UnitHitbox } from './Unit';
 class BattleScene extends Phaser.Scene {
   private readonly units: Unit[] = [];
   private readonly unitsById: Map<string, Unit> = new Map<string, Unit>();
-  private readonly lastPublishedUnitPositions: Map<string, Phaser.Math.Vector2> =
-    new Map<string, Phaser.Math.Vector2>();
   private readonly remoteUnitTargetPositions: Map<string, Phaser.Math.Vector2> =
     new Map<string, Phaser.Math.Vector2>();
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
   private networkManager: NetworkManager | null = null;
-  private nextUnitPositionSyncTime = 0;
   private localPlayerTeam: Team = Team.BLUE;
   private suppressCommandOnPointerUp = false;
   private dragStart: Phaser.Math.Vector2 | null = null;
@@ -61,15 +60,10 @@ class BattleScene extends Phaser.Scene {
     GAMEPLAY_CONFIG.combat.battleJiggleSpeed;
   private static readonly BATTLE_JIGGLE_FREQUENCY =
     GAMEPLAY_CONFIG.combat.battleJiggleFrequency;
-  private static readonly POSITION_SYNC_INTERVAL_MS =
-    GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
-  private static readonly POSITION_SYNC_EPSILON =
-    GAMEPLAY_CONFIG.network.positionSyncEpsilon;
   private static readonly REMOTE_POSITION_LERP_RATE =
     GAMEPLAY_CONFIG.network.remotePositionLerpRate;
   private static readonly REMOTE_POSITION_SNAP_DISTANCE =
     GAMEPLAY_CONFIG.network.remotePositionSnapDistance;
-  private static readonly LOCAL_RECONCILE_SNAP_DISTANCE = 32;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -313,6 +307,9 @@ class BattleScene extends Phaser.Scene {
       (healthUpdate) => {
         this.applyNetworkUnitHealth(healthUpdate);
       },
+      (rotationUpdate) => {
+        this.applyNetworkUnitRotation(rotationUpdate);
+      },
     );
     void this.networkManager.connect().catch((error: unknown) => {
       console.error('Failed to connect to battle room.', error);
@@ -331,6 +328,7 @@ class BattleScene extends Phaser.Scene {
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
     const existingUnit = this.unitsById.get(networkUnit.unitId);
     if (existingUnit) {
+      existingUnit.rotation = networkUnit.rotation;
       existingUnit.setHealth(networkUnit.health);
       this.applyNetworkUnitPositionSnapshot(
         existingUnit,
@@ -351,16 +349,15 @@ class BattleScene extends Phaser.Scene {
       networkUnit.x,
       networkUnit.y,
       team,
+      networkUnit.rotation,
       networkUnit.health,
     );
     this.units.push(spawnedUnit);
     this.unitsById.set(networkUnit.unitId, spawnedUnit);
-    if (spawnedUnit.team !== this.localPlayerTeam) {
-      this.remoteUnitTargetPositions.set(
-        networkUnit.unitId,
-        new Phaser.Math.Vector2(networkUnit.x, networkUnit.y),
-      );
-    }
+    this.remoteUnitTargetPositions.set(
+      networkUnit.unitId,
+      new Phaser.Math.Vector2(networkUnit.x, networkUnit.y),
+    );
   }
 
   private removeNetworkUnit(unitId: string): void {
@@ -370,7 +367,6 @@ class BattleScene extends Phaser.Scene {
     }
 
     this.unitsById.delete(unitId);
-    this.lastPublishedUnitPositions.delete(unitId);
     this.remoteUnitTargetPositions.delete(unitId);
     this.selectedUnits.delete(unit);
     const index = this.units.indexOf(unit);
@@ -403,6 +399,15 @@ class BattleScene extends Phaser.Scene {
     unit.setHealth(healthUpdate.health);
   }
 
+  private applyNetworkUnitRotation(rotationUpdate: NetworkUnitRotationUpdate): void {
+    const unit = this.unitsById.get(rotationUpdate.unitId);
+    if (!unit) {
+      return;
+    }
+
+    unit.rotation = rotationUpdate.rotation;
+  }
+
   private applyAssignedTeam(teamValue: string): void {
     const assignedTeam =
       teamValue.toUpperCase() === Team.RED ? Team.RED : Team.BLUE;
@@ -412,7 +417,6 @@ class BattleScene extends Phaser.Scene {
 
     this.clearSelection();
     this.localPlayerTeam = assignedTeam;
-    this.lastPublishedUnitPositions.clear();
     this.rebuildRemotePositionTargets();
     this.refreshFogOfWar();
   }
@@ -424,20 +428,6 @@ class BattleScene extends Phaser.Scene {
     y: number,
     snapImmediately = false,
   ): void {
-    if (unit.team === this.localPlayerTeam) {
-      this.remoteUnitTargetPositions.delete(unitId);
-      // Ignore echoed local-authoritative positions unless drift is extreme.
-      if (snapImmediately) {
-        unit.setPosition(x, y);
-        return;
-      }
-      const driftDistance = Phaser.Math.Distance.Between(unit.x, unit.y, x, y);
-      if (driftDistance >= BattleScene.LOCAL_RECONCILE_SNAP_DISTANCE) {
-        unit.setPosition(x, y);
-      }
-      return;
-    }
-
     const existingTarget = this.remoteUnitTargetPositions.get(unitId);
     if (existingTarget) {
       existingTarget.set(x, y);
@@ -459,9 +449,6 @@ class BattleScene extends Phaser.Scene {
   private rebuildRemotePositionTargets(): void {
     this.remoteUnitTargetPositions.clear();
     for (const [unitId, unit] of this.unitsById) {
-      if (unit.team === this.localPlayerTeam) {
-        continue;
-      }
       this.remoteUnitTargetPositions.set(
         unitId,
         new Phaser.Math.Vector2(unit.x, unit.y),
@@ -482,7 +469,7 @@ class BattleScene extends Phaser.Scene {
     const staleUnitIds: string[] = [];
     for (const [unitId, target] of this.remoteUnitTargetPositions) {
       const unit = this.unitsById.get(unitId);
-      if (!unit || !unit.isAlive() || unit.team === this.localPlayerTeam) {
+      if (!unit || !unit.isAlive()) {
         staleUnitIds.push(unitId);
         continue;
       }
@@ -495,48 +482,6 @@ class BattleScene extends Phaser.Scene {
 
     for (const unitId of staleUnitIds) {
       this.remoteUnitTargetPositions.delete(unitId);
-    }
-  }
-
-  private publishLocalUnitPositions(time: number): void {
-    if (!this.networkManager || time < this.nextUnitPositionSyncTime) {
-      return;
-    }
-
-    this.nextUnitPositionSyncTime = time + BattleScene.POSITION_SYNC_INTERVAL_MS;
-
-    for (const [unitId, unit] of this.unitsById) {
-      if (!unit.isAlive() || unit.team !== this.localPlayerTeam) {
-        continue;
-      }
-
-      const lastPublished = this.lastPublishedUnitPositions.get(unitId);
-      if (lastPublished) {
-        const distance = Phaser.Math.Distance.Between(
-          lastPublished.x,
-          lastPublished.y,
-          unit.x,
-          unit.y,
-        );
-        if (distance < BattleScene.POSITION_SYNC_EPSILON) {
-          continue;
-        }
-      }
-
-      this.networkManager.sendUnitPosition({
-        unitId,
-        x: unit.x,
-        y: unit.y,
-      });
-
-      if (lastPublished) {
-        lastPublished.set(unit.x, unit.y);
-      } else {
-        this.lastPublishedUnitPositions.set(
-          unitId,
-          new Phaser.Math.Vector2(unit.x, unit.y),
-        );
-      }
     }
   }
 
@@ -602,7 +547,7 @@ class BattleScene extends Phaser.Scene {
     targetY: number,
     shiftHeld = false,
   ): void {
-    if (this.selectedUnits.size === 0) {
+    if (this.selectedUnits.size === 0 || !this.networkManager) {
       return;
     }
 
@@ -615,18 +560,21 @@ class BattleScene extends Phaser.Scene {
     formationCenterX /= this.selectedUnits.size;
     formationCenterY /= this.selectedUnits.size;
 
-    const movementCommandMode = shiftHeld
+    const movementCommandMode: NetworkUnitPathCommand['movementCommandMode'] = shiftHeld
       ? { speedMultiplier: 0.5, rotateToFace: false }
       : undefined;
 
-    for (const unit of this.selectedUnits) {
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
-      unit.setDestination(
-        targetX + offsetX,
-        targetY + offsetY,
+      this.networkManager.sendUnitPathCommand({
+        unitId,
+        path: [{ x: targetX + offsetX, y: targetY + offsetY }],
         movementCommandMode,
-      );
+      });
     }
   }
 
@@ -634,7 +582,7 @@ class BattleScene extends Phaser.Scene {
     path: Phaser.Math.Vector2[],
     shiftHeld = false,
   ): void {
-    if (this.selectedUnits.size === 0 || path.length === 0) {
+    if (this.selectedUnits.size === 0 || path.length === 0 || !this.networkManager) {
       return;
     }
 
@@ -647,17 +595,25 @@ class BattleScene extends Phaser.Scene {
     formationCenterX /= this.selectedUnits.size;
     formationCenterY /= this.selectedUnits.size;
 
-    const movementCommandMode = shiftHeld
+    const movementCommandMode: NetworkUnitPathCommand['movementCommandMode'] = shiftHeld
       ? { speedMultiplier: 0.5, rotateToFace: false }
       : undefined;
 
-    for (const unit of this.selectedUnits) {
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
-      const unitPath = path.map(
-        (point) => new Phaser.Math.Vector2(point.x + offsetX, point.y + offsetY),
-      );
-      unit.setPath(unitPath, movementCommandMode);
+      const unitPath = path.map((point) => ({
+        x: point.x + offsetX,
+        y: point.y + offsetY,
+      }));
+      this.networkManager.sendUnitPathCommand({
+        unitId,
+        path: unitPath,
+        movementCommandMode,
+      });
     }
   }
 
@@ -670,8 +626,15 @@ class BattleScene extends Phaser.Scene {
   }
 
   private cancelSelectedUnitMovement(): void {
-    for (const unit of this.selectedUnits) {
-      unit.cancelMovement();
+    if (!this.networkManager) {
+      return;
+    }
+
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+      this.networkManager.sendUnitCancelMovement(unitId);
     }
   }
 
@@ -1030,19 +993,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
-    for (const unit of this.units) {
-      unit.resetCurrentDpsOutput();
-    }
-
     this.smoothRemoteUnitPositions(delta);
-    for (const unit of this.units) {
-      unit.updateMovement(delta);
-    }
-    this.updateUnitInteractions(delta / 1000);
-    for (const unit of this.units) {
-      unit.updateCombatRotation(delta);
-    }
-    this.publishLocalUnitPositions(time);
     this.refreshFogOfWar();
     this.renderMovementLines();
   }

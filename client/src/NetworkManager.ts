@@ -18,6 +18,7 @@ export type NetworkUnitSnapshot = {
   team: string;
   x: number;
   y: number;
+  rotation: number;
   health: number;
 };
 
@@ -32,11 +33,28 @@ export type NetworkUnitHealthUpdate = {
   health: number;
 };
 
+export type NetworkUnitRotationUpdate = {
+  unitId: string;
+  rotation: number;
+};
+
+export type NetworkUnitPathCommand = {
+  unitId: string;
+  path: Array<{ x: number; y: number }>;
+  movementCommandMode?: {
+    speedMultiplier: number;
+    rotateToFace: boolean;
+  };
+};
+
 type UnitAddedHandler = (unit: NetworkUnitSnapshot) => void;
 type UnitRemovedHandler = (unitId: string) => void;
 type TeamAssignedHandler = (team: string) => void;
 type UnitPositionChangedHandler = (position: NetworkUnitPositionUpdate) => void;
 type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
+type UnitRotationChangedHandler = (
+  rotationUpdate: NetworkUnitRotationUpdate,
+) => void;
 
 type TeamAssignedMessage = {
   team: string;
@@ -54,6 +72,7 @@ export class NetworkManager {
     private readonly onTeamAssigned: TeamAssignedHandler,
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
+    private readonly onUnitRotationChanged: UnitRotationChangedHandler,
     endpoint = 'ws://localhost:2567',
     roomName = 'battle',
   ) {
@@ -83,6 +102,7 @@ export class NetworkManager {
             team: serverUnit.team,
             x: serverUnit.x,
             y: serverUnit.y,
+            rotation: serverUnit.rotation,
             health: serverUnit.health,
           });
 
@@ -106,7 +126,21 @@ export class NetworkManager {
               health,
             });
           });
-          this.detachCallbacks.push(detachX, detachY, detachHealth);
+          const detachRotation = $(serverUnit).listen(
+            'rotation',
+            (rotation: number) => {
+              this.onUnitRotationChanged({
+                unitId,
+                rotation,
+              });
+            },
+          );
+          this.detachCallbacks.push(
+            detachX,
+            detachY,
+            detachHealth,
+            detachRotation,
+          );
         },
         true,
       );
@@ -130,6 +164,22 @@ export class NetworkManager {
     }
 
     this.room.send('unitPosition', position);
+  }
+
+  public sendUnitPathCommand(command: NetworkUnitPathCommand): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.room.send('unitPath', command);
+  }
+
+  public sendUnitCancelMovement(unitId: string): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.room.send('unitCancelMovement', { unitId });
   }
 
   public async disconnect(): Promise<void> {

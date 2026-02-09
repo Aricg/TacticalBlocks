@@ -69,6 +69,7 @@ export class Unit extends Phaser.GameObjects.Container {
     x: number,
     y: number,
     team: Team,
+    rotation = 0,
     health = Unit.HEALTH_MAX,
   ) {
     super(scene, x, y);
@@ -85,6 +86,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.targetRotation = null;
     this.health = Phaser.Math.Clamp(health, 0, Unit.HEALTH_MAX);
     this.currentDpsOutput = 0;
+    this.rotation = rotation;
 
     // Rectangle source-of-truth: centered at local (0,0).
     this.unitBody = new Phaser.GameObjects.Rectangle(
