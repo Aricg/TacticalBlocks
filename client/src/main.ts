@@ -69,6 +69,7 @@ class BattleScene extends Phaser.Scene {
     GAMEPLAY_CONFIG.network.remotePositionLerpRate;
   private static readonly REMOTE_POSITION_SNAP_DISTANCE =
     GAMEPLAY_CONFIG.network.remotePositionSnapDistance;
+  private static readonly LOCAL_RECONCILE_SNAP_DISTANCE = 32;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -425,7 +426,15 @@ class BattleScene extends Phaser.Scene {
   ): void {
     if (unit.team === this.localPlayerTeam) {
       this.remoteUnitTargetPositions.delete(unitId);
-      unit.setPosition(x, y);
+      // Ignore echoed local-authoritative positions unless drift is extreme.
+      if (snapImmediately) {
+        unit.setPosition(x, y);
+        return;
+      }
+      const driftDistance = Phaser.Math.Distance.Between(unit.x, unit.y, x, y);
+      if (driftDistance >= BattleScene.LOCAL_RECONCILE_SNAP_DISTANCE) {
+        unit.setPosition(x, y);
+      }
       return;
     }
 
