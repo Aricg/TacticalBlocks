@@ -1,4 +1,5 @@
 import { Client, Room, getStateCallbacks } from 'colyseus.js';
+import type { RuntimeTuning } from '../../shared/src/runtimeTuning.js';
 
 type ServerUnitState = {
   x: number;
@@ -77,6 +78,7 @@ type UnitRotationChangedHandler = (
 type InfluenceGridChangedHandler = (
   influenceGridUpdate: NetworkInfluenceGridUpdate,
 ) => void;
+type RuntimeTuningChangedHandler = (runtimeTuning: RuntimeTuning) => void;
 
 type TeamAssignedMessage = {
   team: string;
@@ -96,6 +98,7 @@ export class NetworkManager {
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
+    private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
     endpoint = 'ws://localhost:2567',
     roomName = 'battle',
   ) {
@@ -113,6 +116,9 @@ export class NetworkManager {
 
     room.onMessage('teamAssigned', (message: TeamAssignedMessage) => {
       this.onTeamAssigned(message.team);
+    });
+    room.onMessage('runtimeTuningSnapshot', (message: RuntimeTuning) => {
+      this.onRuntimeTuningChanged(message);
     });
 
     const $ = getStateCallbacks(room);
@@ -217,6 +223,14 @@ export class NetworkManager {
     }
 
     this.room.send('unitCancelMovement', { unitId });
+  }
+
+  public sendRuntimeTuningUpdate(update: Partial<RuntimeTuning>): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.room.send('runtimeTuningUpdate', update);
   }
 
   public async disconnect(): Promise<void> {

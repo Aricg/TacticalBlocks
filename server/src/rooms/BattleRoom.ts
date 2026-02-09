@@ -3,6 +3,11 @@ import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
+import {
+  applyRuntimeTuningUpdate,
+  DEFAULT_RUNTIME_TUNING,
+  RuntimeTuning,
+} from "../../../shared/src/runtimeTuning.js";
 
 type PlayerTeam = "BLUE" | "RED";
 type Vector2 = {
@@ -21,6 +26,7 @@ type UnitPathMessage = {
 type UnitCancelMovementMessage = {
   unitId: string;
 };
+type RuntimeTuningUpdateMessage = Partial<RuntimeTuning>;
 type UnitMovementState = {
   destination: Vector2 | null;
   queuedWaypoints: Vector2[];
@@ -46,6 +52,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private simulationTimeMs = 0;
   private simulationFrame = 0;
+  private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
 
   private static readonly CONTACT_DAMAGE_PER_SECOND =
     GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
@@ -53,11 +60,6 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.combat.battleJiggleSpeed;
   private static readonly BATTLE_JIGGLE_FREQUENCY =
     GAMEPLAY_CONFIG.combat.battleJiggleFrequency;
-  private static readonly ENGAGEMENT_MAGNET_DISTANCE =
-    GAMEPLAY_CONFIG.movement.engagementMagnetDistance;
-  private static readonly ENGAGEMENT_HOLD_DISTANCE =
-    GAMEPLAY_CONFIG.movement.engagementHoldDistance;
-  private static readonly MAGNETISM_SPEED = GAMEPLAY_CONFIG.movement.magnetismSpeed;
   private static readonly ALLY_COLLISION_PUSH_SPEED =
     GAMEPLAY_CONFIG.movement.allyCollisionPushSpeed;
   private static readonly ALLY_SOFT_SEPARATION_DISTANCE =
@@ -66,14 +68,16 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.movement.allySoftSeparationPushSpeed;
   private static readonly UNIT_HALF_WIDTH = GAMEPLAY_CONFIG.unit.bodyWidth * 0.5;
   private static readonly UNIT_HALF_HEIGHT = GAMEPLAY_CONFIG.unit.bodyHeight * 0.5;
-  private static readonly UNIT_MOVE_SPEED = 120;
-  private static readonly UNIT_TURN_SPEED = Math.PI;
-  private static readonly UNIT_FORWARD_OFFSET = -Math.PI / 2;
-  private static readonly REFACE_ANGLE_THRESHOLD = (Math.PI / 180) * 3;
-  private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE = 0.35;
-  private static readonly MIN_WAYPOINT_DISTANCE = 1;
-  private static readonly INFLUENCE_UPDATE_INTERVAL_FRAMES =
-    Math.max(1, GAMEPLAY_CONFIG.influence.updateIntervalFrames);
+  private static readonly UNIT_TURN_SPEED =
+    GAMEPLAY_CONFIG.movement.unitTurnSpeedRadians;
+  private static readonly UNIT_FORWARD_OFFSET =
+    GAMEPLAY_CONFIG.movement.unitForwardOffsetRadians;
+  private static readonly REFACE_ANGLE_THRESHOLD =
+    GAMEPLAY_CONFIG.movement.refaceAngleThresholdRadians;
+  private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE =
+    GAMEPLAY_CONFIG.movement.waypointMoveAngleToleranceRadians;
+  private static readonly MIN_WAYPOINT_DISTANCE =
+    GAMEPLAY_CONFIG.movement.minWaypointDistance;
   private static readonly UNIT_HEALTH_MAX = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly HEALTH_RED_THRESHOLD =
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
@@ -85,6 +89,7 @@ export class BattleRoom extends Room<BattleState> {
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
+    this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.spawnTestUnits();
     this.updateInfluenceGrid(true);
 
@@ -108,11 +113,18 @@ export class BattleRoom extends Room<BattleState> {
         this.handleUnitCancelMovementMessage(client, message);
       },
     );
+    this.onMessage(
+      "runtimeTuningUpdate",
+      (client, message: RuntimeTuningUpdateMessage) => {
+        this.handleRuntimeTuningUpdate(client, message);
+      },
+    );
   }
 
   onJoin(client: Client): void {
     const assignedTeam = this.assignTeam(client.sessionId);
     client.send("teamAssigned", { team: assignedTeam });
+    client.send("runtimeTuningSnapshot", this.runtimeTuning);
     console.log(`Client joined battle room: ${client.sessionId} (${assignedTeam})`);
   }
 
@@ -175,7 +187,7 @@ export class BattleRoom extends Room<BattleState> {
       typeof speedMultiplier === "number" &&
       Number.isFinite(speedMultiplier) &&
       speedMultiplier > 0
-        ? Math.min(speedMultiplier, 4)
+        ? Math.min(speedMultiplier, GAMEPLAY_CONFIG.movement.maxCommandSpeedMultiplier)
         : BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE.speedMultiplier;
 
     const rotateToFace = movementCommandMode?.rotateToFace;
@@ -237,9 +249,13 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateInfluenceGrid(force = false): void {
+    const influenceUpdateIntervalFrames = Math.max(
+      1,
+      Math.round(this.runtimeTuning.influenceUpdateIntervalFrames),
+    );
     if (
       !force &&
-      this.simulationFrame % BattleRoom.INFLUENCE_UPDATE_INTERVAL_FRAMES !== 0
+      this.simulationFrame % influenceUpdateIntervalFrames !== 0
     ) {
       return;
     }
@@ -248,6 +264,25 @@ export class BattleRoom extends Room<BattleState> {
       this.state.influenceGrid,
       this.state.units.values(),
     );
+  }
+
+  private handleRuntimeTuningUpdate(
+    client: Client,
+    message: RuntimeTuningUpdateMessage,
+  ): void {
+    if (!this.sessionTeamById.has(client.sessionId)) {
+      return;
+    }
+
+    const normalizedMessage =
+      typeof message === "object" && message !== null ? message : {};
+    this.runtimeTuning = applyRuntimeTuningUpdate(
+      this.runtimeTuning,
+      normalizedMessage,
+    );
+    this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
+    this.broadcast("runtimeTuningSnapshot", this.runtimeTuning);
+    this.updateInfluenceGrid(true);
   }
 
   private spawnTestUnits(): void {
@@ -399,7 +434,7 @@ export class BattleRoom extends Room<BattleState> {
       }
 
       const maxStep =
-        BattleRoom.UNIT_MOVE_SPEED *
+        this.runtimeTuning.unitMoveSpeed *
         movementState.movementCommandMode.speedMultiplier *
         deltaSeconds;
       if (maxStep <= 0) {
@@ -670,11 +705,13 @@ export class BattleRoom extends Room<BattleState> {
           !this.hasCurrentEngagement(engagements, b.unitId);
         const engagementAllowed = previouslyEngagedPair || canStartNewEngagement;
         const stickyEngagement =
-          previouslyEngagedPair && distance <= BattleRoom.ENGAGEMENT_HOLD_DISTANCE;
+          previouslyEngagedPair &&
+          distance <= this.runtimeTuning.engagementHoldDistance;
         const shouldMagnetize =
           engagementAllowed &&
           !hitboxesOverlap &&
-          (distance <= BattleRoom.ENGAGEMENT_MAGNET_DISTANCE || stickyEngagement);
+          (distance <= this.runtimeTuning.engagementMagnetDistance ||
+            stickyEngagement);
         const shouldBattleJiggle =
           engagementAllowed && (hitboxesOverlap || stickyEngagement);
         const safeDirection =
@@ -723,7 +760,7 @@ export class BattleRoom extends Room<BattleState> {
         if (shouldMagnetize) {
           const pull = BattleRoom.scaleVector(
             safeDirection,
-            BattleRoom.MAGNETISM_SPEED * deltaSeconds,
+            this.runtimeTuning.magnetismSpeed * deltaSeconds,
           );
           if (aCanBeDisplacedByEnemy) {
             const aStep = displacementNormalization;

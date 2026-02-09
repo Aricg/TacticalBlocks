@@ -38,6 +38,11 @@ type StaticInfluenceSourceInput = {
   team: 'BLUE' | 'RED';
 };
 
+type InfluenceLineStyle = {
+  lineThickness: number;
+  lineAlpha: number;
+};
+
 export class InfluenceRenderer {
   private readonly frontLineGraphics: Phaser.GameObjects.Graphics;
   private readonly debugGraphics: Phaser.GameObjects.Graphics;
@@ -51,6 +56,8 @@ export class InfluenceRenderer {
   private debugFocusPoint: Phaser.Math.Vector2 | null = null;
   private latestRevision = -1;
   private interpolationElapsedMs = 0;
+  private lineThickness: number = GAMEPLAY_CONFIG.influence.lineThickness;
+  private lineAlpha: number = GAMEPLAY_CONFIG.influence.lineAlpha;
 
   private static readonly EPSILON = 0.0001;
   private static readonly KEY_PRECISION = 1000;
@@ -155,6 +162,15 @@ export class InfluenceRenderer {
     this.debugFocusPoint = new Phaser.Math.Vector2(point.x, point.y);
   }
 
+  public setLineStyle(style: InfluenceLineStyle): void {
+    if (Number.isFinite(style.lineThickness) && style.lineThickness > 0) {
+      this.lineThickness = style.lineThickness;
+    }
+    if (Number.isFinite(style.lineAlpha)) {
+      this.lineAlpha = Phaser.Math.Clamp(style.lineAlpha, 0, 1);
+    }
+  }
+
   public render(deltaMs: number): void {
     this.frontLineGraphics.clear();
     this.debugGraphics.clear();
@@ -178,9 +194,9 @@ export class InfluenceRenderer {
     const contourPaths = this.extractContourPaths(contourCells);
     if (contourPaths.length > 0) {
       this.frontLineGraphics.lineStyle(
-        GAMEPLAY_CONFIG.influence.lineThickness,
+        this.lineThickness,
         GAMEPLAY_CONFIG.influence.lineColor,
-        GAMEPLAY_CONFIG.influence.lineAlpha,
+        this.lineAlpha,
       );
 
       for (const path of contourPaths) {

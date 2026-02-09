@@ -9,8 +9,14 @@ import {
   type NetworkUnitPositionUpdate,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
+import {
+  applyRuntimeTuningUpdate,
+  DEFAULT_RUNTIME_TUNING,
+  type RuntimeTuning,
+} from '../../shared/src/runtimeTuning.js';
 import { City } from './City';
 import { InfluenceRenderer } from './InfluenceRenderer';
+import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
 import { Unit } from './Unit';
 
@@ -39,20 +45,18 @@ class BattleScene extends Phaser.Scene {
   private fogOfWarLayer!: Phaser.GameObjects.RenderTexture;
   private visionBrush!: Phaser.GameObjects.Arc;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
+  private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
+  private tuningPanel: RuntimeTuningPanel | null = null;
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
   private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
-  private static readonly VISION_RADIUS = GAMEPLAY_CONFIG.visibility.visionRadius;
   private static readonly ENEMY_VISIBILITY_PADDING =
     GAMEPLAY_CONFIG.visibility.enemyVisibilityPadding;
   private static readonly FOG_DEPTH = GAMEPLAY_CONFIG.visibility.fogDepth;
   private static readonly CITY_BACKLINE_OFFSET =
     GAMEPLAY_CONFIG.cities.backlineOffset;
-  private static readonly CITY_INFLUENCE_POWER =
-    GAMEPLAY_CONFIG.unit.healthMax *
-    GAMEPLAY_CONFIG.cities.influenceUnitsEquivalent;
   private static readonly DRAG_THRESHOLD = GAMEPLAY_CONFIG.input.dragThreshold;
   private static readonly PREVIEW_PATH_POINT_SPACING =
     GAMEPLAY_CONFIG.input.previewPathPointSpacing;
@@ -84,7 +88,6 @@ class BattleScene extends Phaser.Scene {
     this.movementLines = this.add.graphics();
     this.movementLines.setDepth(900);
     this.influenceRenderer = new InfluenceRenderer(this);
-    this.configureCityInfluenceSources();
     this.fogOfWarLayer = this.add.renderTexture(
       0,
       0,
@@ -96,11 +99,24 @@ class BattleScene extends Phaser.Scene {
     this.visionBrush = this.add.circle(
       0,
       0,
-      BattleScene.VISION_RADIUS,
+      this.runtimeTuning.fogVisionRadius,
       0xffffff,
       1,
     );
     this.visionBrush.setVisible(false);
+    this.tuningPanel = new RuntimeTuningPanel(
+      this.runtimeTuning,
+      (update) => {
+        this.applyRuntimeTuning(
+          applyRuntimeTuningUpdate(this.runtimeTuning, update),
+        );
+        if (!this.networkManager) {
+          return;
+        }
+        this.networkManager.sendRuntimeTuningUpdate(update);
+      },
+    );
+    this.applyRuntimeTuning(this.runtimeTuning);
     this.refreshFogOfWar();
 
     this.input.on(
@@ -315,18 +331,20 @@ class BattleScene extends Phaser.Scene {
       (influenceGridUpdate) => {
         this.applyInfluenceGrid(influenceGridUpdate);
       },
+      (runtimeTuning) => {
+        this.applyRuntimeTuning(runtimeTuning);
+      },
     );
     void this.networkManager.connect().catch((error: unknown) => {
       console.error('Failed to connect to battle room.', error);
     });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (!this.networkManager) {
-        return;
-      }
-
-      void this.networkManager.disconnect();
+      const networkManager = this.networkManager;
       this.networkManager = null;
+      if (networkManager) {
+        void networkManager.disconnect();
+      }
       if (this.influenceRenderer) {
         this.influenceRenderer.destroy();
         this.influenceRenderer = null;
@@ -335,6 +353,8 @@ class BattleScene extends Phaser.Scene {
         city.destroy();
       }
       this.cities.length = 0;
+      this.tuningPanel?.destroy();
+      this.tuningPanel = null;
     });
   }
 
@@ -370,16 +390,33 @@ class BattleScene extends Phaser.Scene {
       {
         x: redSpawn.x - BattleScene.CITY_BACKLINE_OFFSET,
         y: redSpawn.y,
-        power: BattleScene.CITY_INFLUENCE_POWER,
+        power: this.getCityInfluencePower(),
         team: 'RED',
       },
       {
         x: blueSpawn.x + BattleScene.CITY_BACKLINE_OFFSET,
         y: blueSpawn.y,
-        power: BattleScene.CITY_INFLUENCE_POWER,
+        power: this.getCityInfluencePower(),
         team: 'BLUE',
       },
     ]);
+  }
+
+  private getCityInfluencePower(): number {
+    return (
+      GAMEPLAY_CONFIG.unit.healthMax * this.runtimeTuning.cityInfluenceUnitsEquivalent
+    );
+  }
+
+  private applyRuntimeTuning(runtimeTuning: RuntimeTuning): void {
+    this.runtimeTuning = runtimeTuning;
+    this.tuningPanel?.setValues(runtimeTuning);
+    this.visionBrush?.setRadius(this.runtimeTuning.fogVisionRadius);
+    this.influenceRenderer?.setLineStyle({
+      lineThickness: this.runtimeTuning.lineThickness,
+      lineAlpha: this.runtimeTuning.lineAlpha,
+    });
+    this.configureCityInfluenceSources();
   }
 
   private applyInfluenceGrid(
@@ -864,7 +901,7 @@ class BattleScene extends Phaser.Scene {
     }
 
     const revealRadiusSq =
-      (BattleScene.VISION_RADIUS + BattleScene.ENEMY_VISIBILITY_PADDING) **
+      (this.runtimeTuning.fogVisionRadius + BattleScene.ENEMY_VISIBILITY_PADDING) **
       2;
     for (const unit of this.units) {
       if (unit.team === this.localPlayerTeam) {

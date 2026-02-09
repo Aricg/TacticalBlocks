@@ -53,10 +53,14 @@ export class Unit extends Phaser.GameObjects.Container {
   ] as const;
 
   // Local forward is drawn upward in unit space.
-  private static readonly FORWARD_OFFSET = -Math.PI / 2;
-  private static readonly REFACE_ANGLE_THRESHOLD = Phaser.Math.DegToRad(3);
-  private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE = 0.35;
-  private static readonly MIN_WAYPOINT_DISTANCE = 1;
+  private static readonly FORWARD_OFFSET =
+    GAMEPLAY_CONFIG.movement.unitForwardOffsetRadians;
+  private static readonly REFACE_ANGLE_THRESHOLD =
+    GAMEPLAY_CONFIG.movement.refaceAngleThresholdRadians;
+  private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE =
+    GAMEPLAY_CONFIG.movement.waypointMoveAngleToleranceRadians;
+  private static readonly MIN_WAYPOINT_DISTANCE =
+    GAMEPLAY_CONFIG.movement.minWaypointDistance;
   private static readonly DEFAULT_MOVEMENT_COMMAND_MODE: MovementCommandMode = {
     speedMultiplier: 1,
     rotateToFace: true,
@@ -80,8 +84,8 @@ export class Unit extends Phaser.GameObjects.Container {
     this.engagedUnits = new Set();
     this.previouslyEngagedUnits = new Set();
     this.team = team;
-    this.speed = 120;
-    this.turnSpeed = Phaser.Math.DegToRad(180);
+    this.speed = GAMEPLAY_CONFIG.movement.unitMoveSpeed;
+    this.turnSpeed = GAMEPLAY_CONFIG.movement.unitTurnSpeedRadians;
     this.movementCommandMode = { ...Unit.DEFAULT_MOVEMENT_COMMAND_MODE };
     this.destination = null;
     this.queuedWaypoints = [];

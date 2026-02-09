@@ -1,4 +1,5 @@
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
+import { RuntimeTuning } from "../../../shared/src/runtimeTuning.js";
 import { InfluenceGridState } from "../schema/InfluenceGridState.js";
 import { Unit } from "../schema/Unit.js";
 
@@ -24,22 +25,19 @@ export class InfluenceGridSystem {
   private readonly cellHeight: number;
   private readonly cellDiagonal: number;
   private readonly coreRadius: number;
-  private readonly decayRate: number;
+  private decayRate: number;
+  private decayZeroEpsilon: number;
+  private staticVelocityEpsilon: number;
+  private dominancePowerMultiplier: number;
+  private dominanceMinFloor: number;
+  private coreMinInfluenceFactor: number;
+  private maxExtraDecayAtZero: number;
+  private maxAbsTacticalScore: number;
   private readonly previousUnitPositionById = new Map<
     string,
     { x: number; y: number }
   >();
-  private static readonly DECAY_ZERO_EPSILON = 0.05;
-  private static readonly STATIC_VELOCITY_EPSILON = 0.0001;
   private static readonly DOMINANCE_REFERENCE_POWER = GAMEPLAY_CONFIG.unit.healthMax;
-  private static readonly DOMINANCE_POWER_MULTIPLIER = 0.22;
-  private static readonly DOMINANCE_MIN_FLOOR = 1;
-  private static readonly CORE_MIN_INFLUENCE_FACTOR = 0.1;
-  private static readonly SMALL_MAGNITUDE_DECAY_REFERENCE =
-    InfluenceGridSystem.DOMINANCE_REFERENCE_POWER *
-    InfluenceGridSystem.DOMINANCE_POWER_MULTIPLIER;
-  private static readonly MAX_EXTRA_DECAY_AT_ZERO = 0.3;
-  private static readonly MAX_ABS_TACTICAL_SCORE = 500;
 
   constructor() {
     this.gridWidth = GAMEPLAY_CONFIG.influence.gridWidth;
@@ -59,6 +57,40 @@ export class InfluenceGridSystem {
       0,
       1,
     );
+    this.decayZeroEpsilon = Math.max(0, GAMEPLAY_CONFIG.influence.decayZeroEpsilon);
+    this.staticVelocityEpsilon = Math.max(
+      0,
+      GAMEPLAY_CONFIG.influence.staticVelocityEpsilon,
+    );
+    this.dominancePowerMultiplier = Math.max(
+      0,
+      GAMEPLAY_CONFIG.influence.dominancePowerMultiplier,
+    );
+    this.dominanceMinFloor = Math.max(0, GAMEPLAY_CONFIG.influence.dominanceMinFloor);
+    this.coreMinInfluenceFactor = Math.max(
+      0,
+      GAMEPLAY_CONFIG.influence.coreMinInfluenceFactor,
+    );
+    this.maxExtraDecayAtZero = PhaserMath.clamp(
+      GAMEPLAY_CONFIG.influence.maxExtraDecayAtZero,
+      0,
+      1,
+    );
+    this.maxAbsTacticalScore = Math.max(
+      1,
+      GAMEPLAY_CONFIG.influence.maxAbsTacticalScore,
+    );
+  }
+
+  public setRuntimeTuning(tuning: RuntimeTuning): void {
+    this.decayRate = PhaserMath.clamp(tuning.influenceDecayRate, 0, 1);
+    this.decayZeroEpsilon = Math.max(0, tuning.influenceDecayZeroEpsilon);
+    this.coreMinInfluenceFactor = Math.max(0, tuning.influenceCoreMinInfluenceFactor);
+    this.maxExtraDecayAtZero = PhaserMath.clamp(
+      tuning.influenceMaxExtraDecayAtZero,
+      0,
+      1,
+    );
   }
 
   public writeInfluenceScores(
@@ -75,7 +107,7 @@ export class InfluenceGridSystem {
       const decayedScore =
         previousScore * this.getDecayRateForMagnitude(previousScore);
       scores[index] =
-        Math.abs(decayedScore) < InfluenceGridSystem.DECAY_ZERO_EPSILON
+        Math.abs(decayedScore) < this.decayZeroEpsilon
           ? 0
           : decayedScore;
     }
@@ -125,8 +157,8 @@ export class InfluenceGridSystem {
     for (let index = 0; index < cellCount; index += 1) {
       stateGrid.cells[index] = PhaserMath.clamp(
         scores[index],
-        -InfluenceGridSystem.MAX_ABS_TACTICAL_SCORE,
-        InfluenceGridSystem.MAX_ABS_TACTICAL_SCORE,
+        -this.maxAbsTacticalScore,
+        this.maxAbsTacticalScore,
       );
     }
 
@@ -134,13 +166,16 @@ export class InfluenceGridSystem {
   }
 
   private getDecayRateForMagnitude(value: number): number {
+    const smallMagnitudeDecayReference = Math.max(
+      1,
+      InfluenceGridSystem.DOMINANCE_REFERENCE_POWER * this.dominancePowerMultiplier,
+    );
     const normalizedMagnitude = PhaserMath.clamp(
-      Math.abs(value) / InfluenceGridSystem.SMALL_MAGNITUDE_DECAY_REFERENCE,
+      Math.abs(value) / smallMagnitudeDecayReference,
       0,
       1,
     );
-    const extraDecay =
-      (1 - normalizedMagnitude) * InfluenceGridSystem.MAX_EXTRA_DECAY_AT_ZERO;
+    const extraDecay = (1 - normalizedMagnitude) * this.maxExtraDecayAtZero;
     return PhaserMath.clamp(this.decayRate - extraDecay, 0, 1);
   }
 
@@ -170,9 +205,8 @@ export class InfluenceGridSystem {
       this.gridHeight - 1,
     );
     const minimumInfluence = Math.max(
-      InfluenceGridSystem.DOMINANCE_MIN_FLOOR,
-      this.getAbsoluteDominance(unit.power) *
-        InfluenceGridSystem.CORE_MIN_INFLUENCE_FACTOR,
+      this.dominanceMinFloor,
+      this.getAbsoluteDominance(unit.power) * this.coreMinInfluenceFactor,
     );
 
     for (let row = minRow; row <= maxRow; row += 1) {
@@ -257,8 +291,8 @@ export class InfluenceGridSystem {
       InfluenceGridSystem.DOMINANCE_REFERENCE_POWER,
     );
     return Math.max(
-      InfluenceGridSystem.DOMINANCE_MIN_FLOOR,
-      dominancePower * InfluenceGridSystem.DOMINANCE_POWER_MULTIPLIER,
+      this.dominanceMinFloor,
+      dominancePower * this.dominancePowerMultiplier,
     );
   }
 
@@ -326,7 +360,7 @@ export class InfluenceGridSystem {
       const isStatic =
         previousPosition !== undefined &&
         Math.hypot(unit.x - previousPosition.x, unit.y - previousPosition.y) <=
-          InfluenceGridSystem.STATIC_VELOCITY_EPSILON;
+          this.staticVelocityEpsilon;
 
       activeUnits.push({
         unitId: unit.unitId,

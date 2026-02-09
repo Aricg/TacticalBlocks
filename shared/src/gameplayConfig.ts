@@ -18,10 +18,27 @@ export const GAMEPLAY_CONFIG = {
     enemyVisibilityPadding: 24,
   },
   influence: {
+    // Influence-grid resolution in cells (higher = smoother line, more CPU/network cost).
     gridWidth: 80,
     gridHeight: 44,
+    // Server recomputes influence every N simulation frames.
     updateIntervalFrames: 6,
+    // Base per-update decay multiplier applied to existing influence.
     decayRate: 0.95,
+    // After decay, snap tiny magnitudes to 0 to prevent crawling/drift.
+    decayZeroEpsilon: 0.05,
+    // Max position delta between influence updates to consider a unit "static".
+    staticVelocityEpsilon: 0.0001,
+    // Core dominance stamp strength relative to unit power.
+    dominancePowerMultiplier: 0.22,
+    // Never allow dominance/core floors below this absolute value.
+    dominanceMinFloor: 1,
+    // Guaranteed minimum core influence as a fraction of dominance strength.
+    coreMinInfluenceFactor: 0.1,
+    // Extra decay applied near zero magnitude (small residuals collapse faster).
+    maxExtraDecayAtZero: 0.3,
+    // Hard cap for signed tactical score in each cell.
+    maxAbsTacticalScore: 500,
     lineColor: 0x111111,
     lineAlpha: 0.92,
     lineThickness: 8,
@@ -37,6 +54,16 @@ export const GAMEPLAY_CONFIG = {
     commandPathPointSpacing: 50,
   },
   movement: {
+    // Baseline unit locomotion tuning.
+    unitMoveSpeed: 120,
+    unitTurnSpeedRadians: Math.PI,
+    unitForwardOffsetRadians: -Math.PI / 2,
+    refaceAngleThresholdRadians: (Math.PI / 180) * 3,
+    waypointMoveAngleToleranceRadians: 0.35,
+    minWaypointDistance: 1,
+    // Clamp for player-provided command speed multipliers.
+    maxCommandSpeedMultiplier: 4,
+    // Sticky engagement/magnetism tuning.
     engagementMagnetDistance: 80,
     engagementHoldDistance: 120,
     magnetismSpeed: 14,
