@@ -33,9 +33,7 @@ move every gameplay state mutation to server authority.
 
 
 
-Push/engagement rules
-main.ts (canBePushedByEnemy) depends on localPlayerTeam, so physics is literally perspective-dependent right now.
-This must be server-side to be consistent.
+
 
 Combat contact geometry
 Client uses oriented hitbox overlap in main.ts  but server damage uses simpler AABB contact in BattleRoom.ts (line 177).

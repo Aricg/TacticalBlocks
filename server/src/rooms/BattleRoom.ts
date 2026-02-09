@@ -69,6 +69,8 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly REFACE_ANGLE_THRESHOLD = (Math.PI / 180) * 3;
   private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE = 0.35;
   private static readonly MIN_WAYPOINT_DISTANCE = 1;
+  private static readonly UNIT_HEALTH_MAX = 100;
+  private static readonly HEALTH_RED_THRESHOLD = 0.35;
   private static readonly DEFAULT_MOVEMENT_COMMAND_MODE: MovementCommandMode = {
     speedMultiplier: 1,
     rotateToFace: true,
@@ -576,8 +578,10 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
-  private canBePushedByEnemy(_unit: Unit): boolean {
-    return true;
+  private canBePushedByEnemy(unit: Unit): boolean {
+    return (
+      unit.health / BattleRoom.UNIT_HEALTH_MAX <= BattleRoom.HEALTH_RED_THRESHOLD
+    );
   }
 
   private applyPendingDamage(
