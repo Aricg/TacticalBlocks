@@ -22,12 +22,30 @@ type ContourSegment = {
   bKey: string;
 };
 
+type TeamSign = 1 | -1;
+
+type StaticInfluenceSource = {
+  x: number;
+  y: number;
+  power: number;
+  teamSign: TeamSign;
+};
+
+type StaticInfluenceSourceInput = {
+  x: number;
+  y: number;
+  power: number;
+  team: 'BLUE' | 'RED';
+};
+
 export class InfluenceRenderer {
   private readonly frontLineGraphics: Phaser.GameObjects.Graphics;
   private gridMeta: GridMeta | null = null;
   private previousServerCells: Float32Array | null = null;
   private targetServerCells: Float32Array | null = null;
   private displayCells: Float32Array | null = null;
+  private renderCells: Float32Array | null = null;
+  private staticInfluenceSources: StaticInfluenceSource[] = [];
   private latestRevision = -1;
   private interpolationElapsedMs = 0;
 
@@ -40,6 +58,25 @@ export class InfluenceRenderer {
   constructor(scene: Phaser.Scene) {
     this.frontLineGraphics = scene.add.graphics();
     this.frontLineGraphics.setDepth(910);
+  }
+
+  public setStaticInfluenceSources(
+    sources: StaticInfluenceSourceInput[],
+  ): void {
+    this.staticInfluenceSources = sources
+      .filter(
+        (source) =>
+          Number.isFinite(source.x) &&
+          Number.isFinite(source.y) &&
+          Number.isFinite(source.power) &&
+          source.power > 0,
+      )
+      .map((source) => ({
+        x: source.x,
+        y: source.y,
+        power: source.power,
+        teamSign: source.team === 'BLUE' ? 1 : -1,
+      }));
   }
 
   public setInfluenceGrid(influenceGrid: InfluenceGridSnapshot): void {
@@ -68,6 +105,7 @@ export class InfluenceRenderer {
       this.previousServerCells = nextTargetCells.slice();
       this.targetServerCells = nextTargetCells;
       this.displayCells = nextTargetCells.slice();
+      this.renderCells = nextTargetCells.slice();
       this.interpolationElapsedMs = InfluenceRenderer.INTERPOLATION_DURATION_MS;
       this.latestRevision = influenceGrid.revision;
       return;
@@ -93,7 +131,11 @@ export class InfluenceRenderer {
     }
 
     this.interpolateDisplayGrid(deltaMs);
-    const contourPaths = this.extractContourPaths();
+    const contourCells = this.buildContourCells();
+    if (!contourCells) {
+      return;
+    }
+    const contourPaths = this.extractContourPaths(contourCells);
     if (contourPaths.length === 0) {
       return;
     }
@@ -129,6 +171,8 @@ export class InfluenceRenderer {
     this.previousServerCells = null;
     this.targetServerCells = null;
     this.displayCells = null;
+    this.renderCells = null;
+    this.staticInfluenceSources = [];
   }
 
   private interpolateDisplayGrid(deltaMs: number): void {
@@ -159,8 +203,46 @@ export class InfluenceRenderer {
     }
   }
 
-  private extractContourPaths(): Phaser.Math.Vector2[][] {
+  private buildContourCells(): Float32Array | null {
     if (!this.gridMeta || !this.displayCells) {
+      return null;
+    }
+
+    if (this.staticInfluenceSources.length === 0) {
+      return this.displayCells;
+    }
+
+    if (!this.renderCells || this.renderCells.length !== this.displayCells.length) {
+      this.renderCells = new Float32Array(this.displayCells.length);
+    }
+    this.renderCells.set(this.displayCells);
+
+    const width = this.gridMeta.width;
+    const height = this.gridMeta.height;
+    const cellWidth = this.gridMeta.cellWidth;
+    const cellHeight = this.gridMeta.cellHeight;
+
+    for (let row = 0; row < height; row += 1) {
+      for (let col = 0; col < width; col += 1) {
+        const index = row * width + col;
+        const worldX = (col + 0.5) * cellWidth;
+        const worldY = (row + 0.5) * cellHeight;
+
+        let score = 0;
+        for (const source of this.staticInfluenceSources) {
+          const distance = Math.hypot(worldX - source.x, worldY - source.y);
+          score += (source.power / (distance + 1)) * source.teamSign;
+        }
+
+        this.renderCells[index] += score;
+      }
+    }
+
+    return this.renderCells;
+  }
+
+  private extractContourPaths(cells: Float32Array): Phaser.Math.Vector2[][] {
+    if (!this.gridMeta) {
       return [];
     }
 
@@ -172,10 +254,10 @@ export class InfluenceRenderer {
 
     for (let row = 0; row < height - 1; row += 1) {
       for (let col = 0; col < width - 1; col += 1) {
-        const topLeftValue = this.getInfluenceValue(col, row);
-        const topRightValue = this.getInfluenceValue(col + 1, row);
-        const bottomRightValue = this.getInfluenceValue(col + 1, row + 1);
-        const bottomLeftValue = this.getInfluenceValue(col, row + 1);
+        const topLeftValue = this.getInfluenceValue(cells, col, row);
+        const topRightValue = this.getInfluenceValue(cells, col + 1, row);
+        const bottomRightValue = this.getInfluenceValue(cells, col + 1, row + 1);
+        const bottomLeftValue = this.getInfluenceValue(cells, col, row + 1);
 
         const caseIndex =
           Number(topLeftValue > 0) |
@@ -449,12 +531,16 @@ export class InfluenceRenderer {
     );
   }
 
-  private getInfluenceValue(col: number, row: number): number {
-    if (!this.gridMeta || !this.displayCells) {
+  private getInfluenceValue(
+    cells: Float32Array,
+    col: number,
+    row: number,
+  ): number {
+    if (!this.gridMeta) {
       return 0;
     }
 
-    return this.displayCells[row * this.gridMeta.width + col] ?? 0;
+    return cells[row * this.gridMeta.width + col] ?? 0;
   }
 
   private pointKey(point: Phaser.Math.Vector2): string {

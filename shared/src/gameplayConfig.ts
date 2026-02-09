@@ -26,6 +26,10 @@ export const GAMEPLAY_CONFIG = {
     lineThickness: 8,
     splineDensityMultiplier: 8,
   },
+  cities: {
+    backlineOffset: 140,
+    influenceUnitsEquivalent: 10,
+  },
   input: {
     dragThreshold: 10,
     previewPathPointSpacing: 4,
@@ -55,7 +59,7 @@ export const GAMEPLAY_CONFIG = {
     lineWidth: 10,
     spacingAcross: 28,
     spacingDepth: 32,
-    red: { x: 220, y: 300, rotation: Math.PI / 2 },
-    blue: { x: 580, y: 300, rotation: -Math.PI / 2 },
+    red: { x: 860, y: 540, rotation: Math.PI / 2 },
+    blue: { x: 1060, y: 540, rotation: -Math.PI / 2 },
   },
 } as const;

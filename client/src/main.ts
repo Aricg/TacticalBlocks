@@ -9,6 +9,7 @@ import {
   type NetworkUnitPositionUpdate,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
+import { City } from './City';
 import { InfluenceRenderer } from './InfluenceRenderer';
 import { Team } from './Team';
 import { Unit } from './Unit';
@@ -20,6 +21,7 @@ class BattleScene extends Phaser.Scene {
     new Map<string, Phaser.Math.Vector2[]>();
   private readonly remoteUnitTargetPositions: Map<string, Phaser.Math.Vector2> =
     new Map<string, Phaser.Math.Vector2>();
+  private readonly cities: City[] = [];
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
   private networkManager: NetworkManager | null = null;
   private localPlayerTeam: Team = Team.BLUE;
@@ -46,6 +48,11 @@ class BattleScene extends Phaser.Scene {
   private static readonly ENEMY_VISIBILITY_PADDING =
     GAMEPLAY_CONFIG.visibility.enemyVisibilityPadding;
   private static readonly FOG_DEPTH = GAMEPLAY_CONFIG.visibility.fogDepth;
+  private static readonly CITY_BACKLINE_OFFSET =
+    GAMEPLAY_CONFIG.cities.backlineOffset;
+  private static readonly CITY_INFLUENCE_POWER =
+    GAMEPLAY_CONFIG.unit.healthMax *
+    GAMEPLAY_CONFIG.cities.influenceUnitsEquivalent;
   private static readonly DRAG_THRESHOLD = GAMEPLAY_CONFIG.input.dragThreshold;
   private static readonly PREVIEW_PATH_POINT_SPACING =
     GAMEPLAY_CONFIG.input.previewPathPointSpacing;
@@ -68,6 +75,7 @@ class BattleScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     this.shiftKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
+    this.createCities();
 
     this.selectionBox = this.add.graphics();
     this.selectionBox.setDepth(1000);
@@ -76,6 +84,7 @@ class BattleScene extends Phaser.Scene {
     this.movementLines = this.add.graphics();
     this.movementLines.setDepth(900);
     this.influenceRenderer = new InfluenceRenderer(this);
+    this.configureCityInfluenceSources();
     this.fogOfWarLayer = this.add.renderTexture(
       0,
       0,
@@ -322,7 +331,55 @@ class BattleScene extends Phaser.Scene {
         this.influenceRenderer.destroy();
         this.influenceRenderer = null;
       }
+      for (const city of this.cities) {
+        city.destroy();
+      }
+      this.cities.length = 0;
     });
+  }
+
+  private createCities(): void {
+    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
+    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
+
+    this.cities.push(
+      new City(
+        this,
+        redSpawn.x - BattleScene.CITY_BACKLINE_OFFSET,
+        redSpawn.y,
+        'Red City',
+      ),
+      new City(
+        this,
+        blueSpawn.x + BattleScene.CITY_BACKLINE_OFFSET,
+        blueSpawn.y,
+        'Blue City',
+      ),
+    );
+  }
+
+  private configureCityInfluenceSources(): void {
+    if (!this.influenceRenderer) {
+      return;
+    }
+
+    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
+    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
+
+    this.influenceRenderer.setStaticInfluenceSources([
+      {
+        x: redSpawn.x - BattleScene.CITY_BACKLINE_OFFSET,
+        y: redSpawn.y,
+        power: BattleScene.CITY_INFLUENCE_POWER,
+        team: 'RED',
+      },
+      {
+        x: blueSpawn.x + BattleScene.CITY_BACKLINE_OFFSET,
+        y: blueSpawn.y,
+        power: BattleScene.CITY_INFLUENCE_POWER,
+        team: 'BLUE',
+      },
+    ]);
   }
 
   private applyInfluenceGrid(
