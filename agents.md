@@ -28,14 +28,6 @@
    * Left Drag (from map with no selection): Box Select.
    * Right Click (on map): Move Command.
 
-FIXES TODO:
-move every gameplay state mutation to server authority.
-
-
-
-
-
-
 
 
 TODO:

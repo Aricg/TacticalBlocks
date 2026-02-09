@@ -41,7 +41,11 @@ export const GAMEPLAY_CONFIG = {
     healthRedThreshold: 0.35,
   },
   spawn: {
-    red: { x: 220, y: 300, rotation: 0 },
-    blue: { x: 580, y: 300, rotation: Math.PI },
+    unitsPerSide: 10,
+    lineWidth: 10,
+    spacingAcross: 28,
+    spacingDepth: 32,
+    red: { x: 220, y: 300, rotation: Math.PI / 2 },
+    blue: { x: 580, y: 300, rotation: -Math.PI / 2 },
   },
 } as const;

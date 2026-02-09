@@ -230,29 +230,30 @@ export class BattleRoom extends Room<BattleState> {
   private spawnTestUnits(): void {
     const redSpawn = GAMEPLAY_CONFIG.spawn.red;
     const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
-    const unitsPerSide = 10;
-    const columns = 5;
-    const spacingX = 32;
-    const spacingY = 28;
-    const centerOffsetX = ((columns - 1) * spacingX) / 2;
+    const unitsPerSide = GAMEPLAY_CONFIG.spawn.unitsPerSide;
+    const lineWidth = Math.max(1, GAMEPLAY_CONFIG.spawn.lineWidth);
+    const spacingAcross = GAMEPLAY_CONFIG.spawn.spacingAcross;
+    const spacingDepth = GAMEPLAY_CONFIG.spawn.spacingDepth;
+    const centeredAcrossOffset = ((lineWidth - 1) * spacingAcross) / 2;
 
     for (let i = 0; i < unitsPerSide; i += 1) {
-      const column = i % columns;
-      const row = Math.floor(i / columns);
-      const offsetX = column * spacingX - centerOffsetX;
-      const offsetY = row * spacingY;
+      const file = i % lineWidth;
+      const rank = Math.floor(i / lineWidth);
+      const offsetY = file * spacingAcross - centeredAcrossOffset;
+      const redDepthOffsetX = -rank * spacingDepth;
+      const blueDepthOffsetX = rank * spacingDepth;
 
       const redUnit = new Unit(
         `red-${i + 1}`,
         "red",
-        redSpawn.x + offsetX,
+        redSpawn.x + redDepthOffsetX,
         redSpawn.y + offsetY,
         redSpawn.rotation,
       );
       const blueUnit = new Unit(
         `blue-${i + 1}`,
         "blue",
-        blueSpawn.x + offsetX,
+        blueSpawn.x + blueDepthOffsetX,
         blueSpawn.y + offsetY,
         blueSpawn.rotation,
       );
