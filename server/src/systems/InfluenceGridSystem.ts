@@ -4,10 +4,12 @@ import { Unit } from "../schema/Unit.js";
 
 type TeamSign = 1 | -1;
 type UnitContributionSource = {
+  unitId: string;
   x: number;
   y: number;
   teamSign: TeamSign;
   power: number;
+  isStatic: boolean;
 };
 
 type DominanceTarget = {
@@ -21,7 +23,14 @@ export class InfluenceGridSystem {
   private readonly cellWidth: number;
   private readonly cellHeight: number;
   private readonly cellDiagonal: number;
+  private readonly coreRadius: number;
   private readonly decayRate: number;
+  private readonly previousUnitPositionById = new Map<
+    string,
+    { x: number; y: number }
+  >();
+  private static readonly DECAY_ZERO_EPSILON = 0.05;
+  private static readonly STATIC_VELOCITY_EPSILON = 0.0001;
   private static readonly DOMINANCE_REFERENCE_POWER = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly DOMINANCE_POWER_MULTIPLIER = 0.22;
   private static readonly DOMINANCE_MIN_FLOOR = 1;
@@ -33,6 +42,13 @@ export class InfluenceGridSystem {
     this.cellWidth = GAMEPLAY_CONFIG.map.width / this.gridWidth;
     this.cellHeight = GAMEPLAY_CONFIG.map.height / this.gridHeight;
     this.cellDiagonal = Math.hypot(this.cellWidth, this.cellHeight);
+    this.coreRadius = Math.max(
+      Math.hypot(
+        GAMEPLAY_CONFIG.unit.bodyWidth * 0.5,
+        GAMEPLAY_CONFIG.unit.bodyHeight * 0.5,
+      ),
+      Math.min(this.cellWidth, this.cellHeight) * 0.5,
+    );
     this.decayRate = PhaserMath.clamp(
       GAMEPLAY_CONFIG.influence.decayRate,
       0,
@@ -51,8 +67,20 @@ export class InfluenceGridSystem {
     // Persistent field: start from previous frame and decay toward neutral.
     for (let index = 0; index < cellCount; index += 1) {
       const previousScore = stateGrid.cells[index] ?? 0;
-      scores[index] = previousScore * this.decayRate;
+      const decayedScore = previousScore * this.decayRate;
+      scores[index] =
+        Math.abs(decayedScore) < InfluenceGridSystem.DECAY_ZERO_EPSILON
+          ? 0
+          : decayedScore;
     }
+
+    const contributingUnits = activeUnits.filter((unit) => {
+      if (!unit.isStatic) {
+        return true;
+      }
+
+      return !this.hasStaticUnitReachedCoreCap(scores, unit);
+    });
 
     for (let index = 0; index < cellCount; index += 1) {
       const cellX = index % this.gridWidth;
@@ -60,14 +88,14 @@ export class InfluenceGridSystem {
       const worldX = (cellX + 0.5) * this.cellWidth;
       const worldY = (cellY + 0.5) * this.cellHeight;
 
-      for (const unit of activeUnits) {
+      for (const unit of contributingUnits) {
         const distance = Math.hypot(worldX - unit.x, worldY - unit.y);
         const localInfluence = unit.power / (distance * distance + 1);
         scores[index] += localInfluence * unit.teamSign;
       }
     }
 
-    for (const unit of activeUnits) {
+    for (const unit of contributingUnits) {
       const targets = this.getDominanceTargets(unit.x, unit.y);
       if (targets.length === 0) {
         continue;
@@ -93,6 +121,61 @@ export class InfluenceGridSystem {
     }
 
     stateGrid.revision += 1;
+  }
+
+  private hasStaticUnitReachedCoreCap(
+    scores: Float32Array,
+    unit: UnitContributionSource,
+  ): boolean {
+    const coreRadiusSquared = this.coreRadius * this.coreRadius;
+    const minCol = PhaserMath.floorClamp(
+      (unit.x - this.coreRadius) / this.cellWidth - 0.5,
+      0,
+      this.gridWidth - 1,
+    );
+    const maxCol = PhaserMath.floorClamp(
+      (unit.x + this.coreRadius) / this.cellWidth - 0.5,
+      0,
+      this.gridWidth - 1,
+    );
+    const minRow = PhaserMath.floorClamp(
+      (unit.y - this.coreRadius) / this.cellHeight - 0.5,
+      0,
+      this.gridHeight - 1,
+    );
+    const maxRow = PhaserMath.floorClamp(
+      (unit.y + this.coreRadius) / this.cellHeight - 0.5,
+      0,
+      this.gridHeight - 1,
+    );
+
+    const maxInfluence = Math.max(1, unit.power);
+    let hasCoreCell = false;
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let col = minCol; col <= maxCol; col += 1) {
+        const cellCenterX = (col + 0.5) * this.cellWidth;
+        const cellCenterY = (row + 0.5) * this.cellHeight;
+        const deltaX = cellCenterX - unit.x;
+        const deltaY = cellCenterY - unit.y;
+        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (distanceSquared > coreRadiusSquared) {
+          continue;
+        }
+
+        hasCoreCell = true;
+        const score = scores[row * this.gridWidth + col];
+        if (unit.teamSign > 0) {
+          if (score < maxInfluence) {
+            return false;
+          }
+        } else if (score > -maxInfluence) {
+          return false;
+        }
+      }
+    }
+
+    return hasCoreCell;
   }
 
   private getAbsoluteDominance(power: number): number {
@@ -155,21 +238,41 @@ export class InfluenceGridSystem {
 
   private collectActiveUnits(units: Iterable<Unit>): UnitContributionSource[] {
     const activeUnits: UnitContributionSource[] = [];
+    const activeUnitIds = new Set<string>();
 
     for (const unit of units) {
       if (unit.health <= 0) {
         continue;
       }
 
+      activeUnitIds.add(unit.unitId);
       const normalizedTeam = unit.team.toUpperCase();
       const teamSign: TeamSign = normalizedTeam === "BLUE" ? 1 : -1;
       const power = Math.max(0, unit.health);
+      const previousPosition = this.previousUnitPositionById.get(unit.unitId);
+      const isStatic =
+        previousPosition !== undefined &&
+        Math.hypot(unit.x - previousPosition.x, unit.y - previousPosition.y) <=
+          InfluenceGridSystem.STATIC_VELOCITY_EPSILON;
+
       activeUnits.push({
+        unitId: unit.unitId,
         x: unit.x,
         y: unit.y,
         teamSign,
         power,
+        isStatic,
       });
+    }
+
+    for (const unitId of this.previousUnitPositionById.keys()) {
+      if (!activeUnitIds.has(unitId)) {
+        this.previousUnitPositionById.delete(unitId);
+      }
+    }
+
+    for (const unit of activeUnits) {
+      this.previousUnitPositionById.set(unit.unitId, { x: unit.x, y: unit.y });
     }
 
     return activeUnits;
