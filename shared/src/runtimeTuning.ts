@@ -2,9 +2,6 @@ import { GAMEPLAY_CONFIG } from "./gameplayConfig.js";
 
 export type RuntimeTuning = {
   unitMoveSpeed: number;
-  engagementMagnetDistance: number;
-  engagementHoldDistance: number;
-  magnetismSpeed: number;
   influenceUpdateIntervalFrames: number;
   influenceDecayRate: number;
   influenceDecayZeroEpsilon: number;
@@ -32,9 +29,6 @@ type RuntimeTuningBound = {
 
 export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
   unitMoveSpeed: GAMEPLAY_CONFIG.movement.unitMoveSpeed,
-  engagementMagnetDistance: GAMEPLAY_CONFIG.movement.engagementMagnetDistance,
-  engagementHoldDistance: GAMEPLAY_CONFIG.movement.engagementHoldDistance,
-  magnetismSpeed: GAMEPLAY_CONFIG.movement.magnetismSpeed,
   influenceUpdateIntervalFrames: GAMEPLAY_CONFIG.influence.updateIntervalFrames,
   influenceDecayRate: GAMEPLAY_CONFIG.influence.decayRate,
   influenceDecayZeroEpsilon: GAMEPLAY_CONFIG.influence.decayZeroEpsilon,
@@ -54,9 +48,6 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
 
 export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound> = {
   unitMoveSpeed: { min: 20, max: 300, step: 1 },
-  engagementMagnetDistance: { min: 20, max: 260, step: 1 },
-  engagementHoldDistance: { min: 20, max: 320, step: 1 },
-  magnetismSpeed: { min: 0, max: 120, step: 1 },
   influenceUpdateIntervalFrames: { min: 1, max: 20, step: 1 },
   influenceDecayRate: { min: 0.7, max: 0.999, step: 0.001 },
   influenceDecayZeroEpsilon: { min: 0, max: 2, step: 0.01 },

@@ -74,10 +74,6 @@ export const GAMEPLAY_CONFIG = {
     minWaypointDistance: 1,
     // Clamp for player-provided command speed multipliers.
     maxCommandSpeedMultiplier: 4,
-    // Sticky engagement/magnetism tuning.
-    engagementMagnetDistance: 80,
-    engagementHoldDistance: 320,
-    magnetismSpeed: 0,
     allyCollisionPushSpeed: 180,
     allySoftSeparationDistance: 28,
     allySoftSeparationPushSpeed: 90,

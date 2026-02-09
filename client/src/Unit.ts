@@ -7,14 +7,6 @@ type MovementCommandMode = {
   rotateToFace: boolean;
 };
 
-export type UnitHitbox = {
-  center: Phaser.Math.Vector2;
-  axisX: Phaser.Math.Vector2;
-  axisY: Phaser.Math.Vector2;
-  halfWidth: number;
-  halfHeight: number;
-};
-
 export class Unit extends Phaser.GameObjects.Container {
   public selected: boolean;
   public readonly engagedUnits: Set<Unit>;
@@ -449,19 +441,6 @@ export class Unit extends Phaser.GameObjects.Container {
       waypoints.push(point.clone());
     }
     return waypoints;
-  }
-
-  public getHitbox(): UnitHitbox {
-    const cos = Math.cos(this.rotation);
-    const sin = Math.sin(this.rotation);
-
-    return {
-      center: new Phaser.Math.Vector2(this.x, this.y),
-      axisX: new Phaser.Math.Vector2(cos, sin),
-      axisY: new Phaser.Math.Vector2(-sin, cos),
-      halfWidth: Unit.BODY_WIDTH * 0.5,
-      halfHeight: Unit.BODY_HEIGHT * 0.5,
-    };
   }
 
   private refreshHealthVisuals(): void {

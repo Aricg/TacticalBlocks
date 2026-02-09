@@ -63,6 +63,12 @@ class BattleScene extends Phaser.Scene {
     GAMEPLAY_CONFIG.input.previewPathPointSpacing;
   private static readonly COMMAND_PATH_POINT_SPACING =
     GAMEPLAY_CONFIG.input.commandPathPointSpacing;
+  private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
+  private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
+  private static readonly GRID_CELL_WIDTH =
+    BattleScene.MAP_WIDTH / BattleScene.GRID_WIDTH;
+  private static readonly GRID_CELL_HEIGHT =
+    BattleScene.MAP_HEIGHT / BattleScene.GRID_HEIGHT;
   private static readonly REMOTE_POSITION_LERP_RATE =
     GAMEPLAY_CONFIG.network.remotePositionLerpRate;
   private static readonly REMOTE_POSITION_SNAP_DISTANCE =
@@ -651,7 +657,11 @@ class BattleScene extends Phaser.Scene {
       }
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
-      const unitPath = [new Phaser.Math.Vector2(targetX + offsetX, targetY + offsetY)];
+      const snappedTarget = this.snapPointToGrid(
+        targetX + offsetX,
+        targetY + offsetY,
+      );
+      const unitPath = [snappedTarget];
       this.networkManager.sendUnitPathCommand({
         unitId,
         path: [{ x: unitPath[0].x, y: unitPath[0].y }],
@@ -688,18 +698,22 @@ class BattleScene extends Phaser.Scene {
       }
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
-      const unitPath = path.map((point) => ({
-        x: point.x + offsetX,
-        y: point.y + offsetY,
-      }));
+      const unitPath = this.snapAndCompactPath(
+        path.map((point) =>
+          new Phaser.Math.Vector2(point.x + offsetX, point.y + offsetY),
+        ),
+      );
+      if (unitPath.length === 0) {
+        continue;
+      }
       this.networkManager.sendUnitPathCommand({
         unitId,
-        path: unitPath,
+        path: unitPath.map((point) => ({ x: point.x, y: point.y })),
         movementCommandMode,
       });
       this.setPlannedPath(
         unitId,
-        unitPath.map((point) => new Phaser.Math.Vector2(point.x, point.y)),
+        unitPath.map((point) => point.clone()),
       );
     }
   }
@@ -838,20 +852,62 @@ class BattleScene extends Phaser.Scene {
       commandPath.push(finalPoint.clone());
     }
 
-    return commandPath;
+    return this.snapAndCompactPath(commandPath);
+  }
+
+  private snapPointToGrid(x: number, y: number): Phaser.Math.Vector2 {
+    const colBasis = x / BattleScene.GRID_CELL_WIDTH - 0.5;
+    const rowBasis = y / BattleScene.GRID_CELL_HEIGHT - 0.5;
+    const col = Phaser.Math.Clamp(
+      Math.round(colBasis),
+      0,
+      BattleScene.GRID_WIDTH - 1,
+    );
+    const row = Phaser.Math.Clamp(
+      Math.round(rowBasis),
+      0,
+      BattleScene.GRID_HEIGHT - 1,
+    );
+
+    return new Phaser.Math.Vector2(
+      (col + 0.5) * BattleScene.GRID_CELL_WIDTH,
+      (row + 0.5) * BattleScene.GRID_CELL_HEIGHT,
+    );
+  }
+
+  private snapAndCompactPath(
+    path: Phaser.Math.Vector2[],
+  ): Phaser.Math.Vector2[] {
+    if (path.length === 0) {
+      return [];
+    }
+
+    const snappedPath = path.map((point) => this.snapPointToGrid(point.x, point.y));
+    const compactedPath: Phaser.Math.Vector2[] = [snappedPath[0]];
+    for (let i = 1; i < snappedPath.length; i += 1) {
+      const next = snappedPath[i];
+      const previous = compactedPath[compactedPath.length - 1];
+      if (next.x === previous.x && next.y === previous.y) {
+        continue;
+      }
+      compactedPath.push(next);
+    }
+
+    return compactedPath;
   }
 
   private drawPathPreview(): void {
     this.pathPreview.clear();
-    if (this.draggedPath.length < 2) {
+    const previewPath = this.buildCommandPath(this.draggedPath);
+    if (previewPath.length < 2) {
       return;
     }
 
     this.pathPreview.lineStyle(2, 0xbad7f7, 0.9);
     this.pathPreview.beginPath();
-    this.pathPreview.moveTo(this.draggedPath[0].x, this.draggedPath[0].y);
-    for (let i = 1; i < this.draggedPath.length; i += 1) {
-      this.pathPreview.lineTo(this.draggedPath[i].x, this.draggedPath[i].y);
+    this.pathPreview.moveTo(previewPath[0].x, previewPath[0].y);
+    for (let i = 1; i < previewPath.length; i += 1) {
+      this.pathPreview.lineTo(previewPath[i].x, previewPath[i].y);
     }
     this.pathPreview.strokePath();
   }

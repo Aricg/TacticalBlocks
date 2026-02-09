@@ -12,9 +12,6 @@ type SliderDescriptor = {
 
 const SLIDERS: SliderDescriptor[] = [
   { key: 'unitMoveSpeed', label: 'Unit Speed', group: 'Movement' },
-  { key: 'engagementMagnetDistance', label: 'Magnet Distance', group: 'Movement' },
-  { key: 'engagementHoldDistance', label: 'Hold Distance', group: 'Movement' },
-  { key: 'magnetismSpeed', label: 'Magnet Speed', group: 'Movement' },
   {
     key: 'influenceUpdateIntervalFrames',
     label: 'Update Interval (frames)',

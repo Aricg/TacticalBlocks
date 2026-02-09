@@ -14,6 +14,10 @@ type Vector2 = {
   x: number;
   y: number;
 };
+type GridCoordinate = {
+  col: number;
+  row: number;
+};
 type MovementCommandMode = {
   speedMultiplier: number;
   rotateToFace: boolean;
@@ -28,46 +32,22 @@ type UnitCancelMovementMessage = {
 };
 type RuntimeTuningUpdateMessage = Partial<RuntimeTuning>;
 type UnitMovementState = {
-  destination: Vector2 | null;
-  queuedWaypoints: Vector2[];
+  destinationCell: GridCoordinate | null;
+  queuedCells: GridCoordinate[];
   targetRotation: number | null;
   movementCommandMode: MovementCommandMode;
-};
-type UnitHitbox = {
-  center: Vector2;
-  axisX: Vector2;
-  axisY: Vector2;
-  halfWidth: number;
-  halfHeight: number;
-};
-type Overlap = {
-  normal: Vector2;
-  depth: number;
+  movementBudget: number;
 };
 
 export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
-  private previousEngagementByUnitId = new Map<string, Set<string>>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
-  private simulationTimeMs = 0;
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
 
   private static readonly CONTACT_DAMAGE_PER_SECOND =
     GAMEPLAY_CONFIG.combat.contactDamagePerSecond;
-  private static readonly BATTLE_JIGGLE_SPEED =
-    GAMEPLAY_CONFIG.combat.battleJiggleSpeed;
-  private static readonly BATTLE_JIGGLE_FREQUENCY =
-    GAMEPLAY_CONFIG.combat.battleJiggleFrequency;
-  private static readonly ALLY_COLLISION_PUSH_SPEED =
-    GAMEPLAY_CONFIG.movement.allyCollisionPushSpeed;
-  private static readonly ALLY_SOFT_SEPARATION_DISTANCE =
-    GAMEPLAY_CONFIG.movement.allySoftSeparationDistance;
-  private static readonly ALLY_SOFT_SEPARATION_PUSH_SPEED =
-    GAMEPLAY_CONFIG.movement.allySoftSeparationPushSpeed;
-  private static readonly UNIT_HALF_WIDTH = GAMEPLAY_CONFIG.unit.bodyWidth * 0.5;
-  private static readonly UNIT_HALF_HEIGHT = GAMEPLAY_CONFIG.unit.bodyHeight * 0.5;
   private static readonly UNIT_TURN_SPEED =
     GAMEPLAY_CONFIG.movement.unitTurnSpeedRadians;
   private static readonly UNIT_FORWARD_OFFSET =
@@ -76,15 +56,18 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.movement.refaceAngleThresholdRadians;
   private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE =
     GAMEPLAY_CONFIG.movement.waypointMoveAngleToleranceRadians;
-  private static readonly MIN_WAYPOINT_DISTANCE =
-    GAMEPLAY_CONFIG.movement.minWaypointDistance;
-  private static readonly UNIT_HEALTH_MAX = GAMEPLAY_CONFIG.unit.healthMax;
-  private static readonly HEALTH_RED_THRESHOLD =
-    GAMEPLAY_CONFIG.unit.healthRedThreshold;
   private static readonly DEFAULT_MOVEMENT_COMMAND_MODE: MovementCommandMode = {
     speedMultiplier: 1,
     rotateToFace: true,
   };
+  private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
+  private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
+  private static readonly CELL_WIDTH =
+    GAMEPLAY_CONFIG.map.width / BattleRoom.GRID_WIDTH;
+  private static readonly CELL_HEIGHT =
+    GAMEPLAY_CONFIG.map.height / BattleRoom.GRID_HEIGHT;
+  private static readonly GRID_CONTACT_DISTANCE =
+    Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
@@ -96,12 +79,10 @@ export class BattleRoom extends Room<BattleState> {
 
     this.setSimulationInterval((deltaMs) => {
       const deltaSeconds = deltaMs / 1000;
-      this.simulationTimeMs += deltaMs;
       this.simulationFrame += 1;
       this.updateMovement(deltaSeconds);
       const engagements = this.updateUnitInteractions(deltaSeconds);
       this.updateCombatRotation(deltaSeconds, engagements);
-      this.previousEngagementByUnitId = this.cloneEngagementMap(engagements);
       this.updateInfluenceGrid();
     }, GAMEPLAY_CONFIG.network.positionSyncIntervalMs);
 
@@ -141,17 +122,17 @@ export class BattleRoom extends Room<BattleState> {
 
   onDispose(): void {
     this.movementStateByUnitId.clear();
-    this.previousEngagementByUnitId.clear();
     this.sessionTeamById.clear();
     this.simulationFrame = 0;
   }
 
   private createMovementState(): UnitMovementState {
     return {
-      destination: null,
-      queuedWaypoints: [],
+      destinationCell: null,
+      queuedCells: [],
       targetRotation: null,
       movementCommandMode: { ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE },
+      movementBudget: 0,
     };
   }
 
@@ -172,12 +153,13 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    movementState.destination = null;
-    movementState.queuedWaypoints = [];
+    movementState.destinationCell = null;
+    movementState.queuedCells = [];
     movementState.targetRotation = null;
     movementState.movementCommandMode = {
       ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE,
     };
+    movementState.movementBudget = 0;
   }
 
   private normalizeMovementCommandMode(
@@ -204,7 +186,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private faceCurrentDestination(unit: Unit, movementState: UnitMovementState): void {
-    if (!movementState.destination) {
+    if (!movementState.destinationCell) {
       movementState.targetRotation = null;
       return;
     }
@@ -214,27 +196,13 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const angleToTarget = Math.atan2(
-      movementState.destination.y - unit.y,
-      movementState.destination.x - unit.x,
-    );
+    const destination = this.gridToWorldCenter(movementState.destinationCell);
+    const angleToTarget = Math.atan2(destination.y - unit.y, destination.x - unit.x);
     movementState.targetRotation = angleToTarget - BattleRoom.UNIT_FORWARD_OFFSET;
   }
 
   private static wrapAngle(angle: number): number {
     return Math.atan2(Math.sin(angle), Math.cos(angle));
-  }
-
-  private static distance(a: Vector2, b: Vector2): number {
-    return Math.hypot(b.x - a.x, b.y - a.y);
-  }
-
-  private static scaleVector(v: Vector2, scalar: number): Vector2 {
-    return { x: v.x * scalar, y: v.y * scalar };
-  }
-
-  private static cloneVector(v: Vector2): Vector2 {
-    return { x: v.x, y: v.y };
   }
 
   private ensureFiniteUnitState(unit: Unit): void {
@@ -249,15 +217,158 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
+  private clamp(value: number, min: number, max: number): number {
+    if (value < min) {
+      return min;
+    }
+    if (value > max) {
+      return max;
+    }
+    return value;
+  }
+
+  private worldToGridCoordinate(x: number, y: number): GridCoordinate {
+    const colBasis = x / BattleRoom.CELL_WIDTH - 0.5;
+    const rowBasis = y / BattleRoom.CELL_HEIGHT - 0.5;
+
+    return {
+      col: this.clamp(
+        Math.round(colBasis),
+        0,
+        BattleRoom.GRID_WIDTH - 1,
+      ),
+      row: this.clamp(
+        Math.round(rowBasis),
+        0,
+        BattleRoom.GRID_HEIGHT - 1,
+      ),
+    };
+  }
+
+  private gridToWorldCenter(cell: GridCoordinate): Vector2 {
+    return {
+      x: (cell.col + 0.5) * BattleRoom.CELL_WIDTH,
+      y: (cell.row + 0.5) * BattleRoom.CELL_HEIGHT,
+    };
+  }
+
+  private snapUnitToGrid(unit: Unit): GridCoordinate {
+    const cell = this.worldToGridCoordinate(unit.x, unit.y);
+    const snapped = this.gridToWorldCenter(cell);
+    unit.x = snapped.x;
+    unit.y = snapped.y;
+    return cell;
+  }
+
+  private gridKey(cell: GridCoordinate): string {
+    return `${cell.col}:${cell.row}`;
+  }
+
+  private addOccupancy(
+    occupiedByCellKey: Map<string, Set<string>>,
+    cell: GridCoordinate,
+    unitId: string,
+  ): void {
+    const key = this.gridKey(cell);
+    const set = occupiedByCellKey.get(key);
+    if (set) {
+      set.add(unitId);
+      return;
+    }
+
+    occupiedByCellKey.set(key, new Set([unitId]));
+  }
+
+  private removeOccupancy(
+    occupiedByCellKey: Map<string, Set<string>>,
+    cell: GridCoordinate,
+    unitId: string,
+  ): void {
+    const key = this.gridKey(cell);
+    const set = occupiedByCellKey.get(key);
+    if (!set) {
+      return;
+    }
+
+    set.delete(unitId);
+    if (set.size === 0) {
+      occupiedByCellKey.delete(key);
+    }
+  }
+
+  private isDestinationBlocked(
+    occupiedByCellKey: Map<string, Set<string>>,
+    destinationCell: GridCoordinate,
+    unitId: string,
+  ): boolean {
+    const destinationSet = occupiedByCellKey.get(this.gridKey(destinationCell));
+    if (!destinationSet) {
+      return false;
+    }
+
+    return !(destinationSet.size === 1 && destinationSet.has(unitId));
+  }
+
+  private traceGridLine(
+    start: GridCoordinate,
+    end: GridCoordinate,
+  ): GridCoordinate[] {
+    const points: GridCoordinate[] = [];
+    let x0 = start.col;
+    let y0 = start.row;
+    const x1 = end.col;
+    const y1 = end.row;
+
+    const dx = Math.abs(x1 - x0);
+    const sx = x0 < x1 ? 1 : -1;
+    const dy = -Math.abs(y1 - y0);
+    const sy = y0 < y1 ? 1 : -1;
+    let error = dx + dy;
+
+    while (true) {
+      points.push({ col: x0, row: y0 });
+      if (x0 === x1 && y0 === y1) {
+        break;
+      }
+
+      const e2 = 2 * error;
+      if (e2 >= dy) {
+        error += dy;
+        x0 += sx;
+      }
+      if (e2 <= dx) {
+        error += dx;
+        y0 += sy;
+      }
+    }
+
+    return points;
+  }
+
+  private compactGridCoordinates(path: GridCoordinate[]): GridCoordinate[] {
+    if (path.length <= 1) {
+      return path;
+    }
+
+    const compacted: GridCoordinate[] = [path[0]];
+    for (let i = 1; i < path.length; i += 1) {
+      const next = path[i];
+      const previous = compacted[compacted.length - 1];
+      if (next.col === previous.col && next.row === previous.row) {
+        continue;
+      }
+      compacted.push(next);
+    }
+
+    return compacted;
+  }
+
   private updateInfluenceGrid(force = false): void {
     const influenceUpdateIntervalFrames = Math.max(
       1,
       Math.round(this.runtimeTuning.influenceUpdateIntervalFrames),
     );
-    if (
-      !force &&
-      this.simulationFrame % influenceUpdateIntervalFrames !== 0
-    ) {
+    if (!force && this.simulationFrame % influenceUpdateIntervalFrames !== 0) {
       return;
     }
 
@@ -340,6 +451,9 @@ export class BattleRoom extends Room<BattleState> {
         blueSpawn.rotation,
       );
 
+      this.snapUnitToGrid(redUnit);
+      this.snapUnitToGrid(blueUnit);
+
       this.state.units.set(redUnit.unitId, redUnit);
       this.state.units.set(blueUnit.unitId, blueUnit);
       this.movementStateByUnitId.set(redUnit.unitId, this.createMovementState());
@@ -390,29 +504,39 @@ export class BattleRoom extends Room<BattleState> {
     movementState.movementCommandMode = this.normalizeMovementCommandMode(
       message.movementCommandMode,
     );
+    movementState.targetRotation = null;
+    movementState.movementBudget = 0;
 
-    let firstUsableWaypointIndex = 0;
-    while (firstUsableWaypointIndex < normalizedPath.length) {
-      const waypoint = normalizedPath[firstUsableWaypointIndex];
-      const distance = Math.hypot(waypoint.x - unit.x, waypoint.y - unit.y);
-      if (distance >= BattleRoom.MIN_WAYPOINT_DISTANCE) {
-        break;
-      }
-      firstUsableWaypointIndex += 1;
-    }
-
-    const usablePath = normalizedPath.slice(firstUsableWaypointIndex);
-    if (usablePath.length === 0) {
+    if (normalizedPath.length === 0) {
       this.clearMovementForUnit(unit.unitId);
       return;
     }
 
-    const [first, ...rest] = usablePath;
-    movementState.destination = { x: first.x, y: first.y };
-    movementState.queuedWaypoints = rest.map((point) => ({
-      x: point.x,
-      y: point.y,
-    }));
+    const snappedTargetCells = this.compactGridCoordinates(
+      normalizedPath.map((waypoint) =>
+        this.worldToGridCoordinate(waypoint.x, waypoint.y),
+      ),
+    );
+
+    const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+    let pathCursor = { col: unitCell.col, row: unitCell.row };
+    const route: GridCoordinate[] = [];
+
+    for (const targetCell of snappedTargetCells) {
+      const segment = this.traceGridLine(pathCursor, targetCell);
+      for (let i = 1; i < segment.length; i += 1) {
+        route.push(segment[i]);
+      }
+      pathCursor = targetCell;
+    }
+
+    if (route.length === 0) {
+      this.clearMovementForUnit(unit.unitId);
+      return;
+    }
+
+    movementState.destinationCell = route[0];
+    movementState.queuedCells = route.slice(1);
     this.faceCurrentDestination(unit, movementState);
   }
 
@@ -446,31 +570,50 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
+    const aliveUnits: Unit[] = [];
+    const cellByUnitId = new Map<string, GridCoordinate>();
+    const occupiedByCellKey = new Map<string, Set<string>>();
+
     for (const unit of this.state.units.values()) {
       if (unit.health <= 0) {
         continue;
       }
       this.ensureFiniteUnitState(unit);
+      const snappedCell = this.snapUnitToGrid(unit);
+      aliveUnits.push(unit);
+      cellByUnitId.set(unit.unitId, snappedCell);
+      this.addOccupancy(occupiedByCellKey, snappedCell, unit.unitId);
+    }
 
+    for (const unit of aliveUnits) {
       const movementState = this.movementStateByUnitId.get(unit.unitId);
-      if (!movementState || !movementState.destination) {
+      if (!movementState) {
         continue;
       }
 
-      const maxStep =
-        this.runtimeTuning.unitMoveSpeed *
-        movementState.movementCommandMode.speedMultiplier *
-        deltaSeconds;
-      if (maxStep <= 0) {
+      if (!movementState.destinationCell && movementState.queuedCells.length > 0) {
+        movementState.destinationCell = movementState.queuedCells.shift() ?? null;
+        this.faceCurrentDestination(unit, movementState);
+      }
+
+      if (!movementState.destinationCell) {
         continue;
       }
+
+      const perSecondSpeed =
+        this.runtimeTuning.unitMoveSpeed *
+        movementState.movementCommandMode.speedMultiplier;
+      if (perSecondSpeed <= 0 || !Number.isFinite(perSecondSpeed)) {
+        continue;
+      }
+
+      movementState.movementBudget += perSecondSpeed * deltaSeconds;
 
       if (movementState.movementCommandMode.rotateToFace) {
+        const destination = this.gridToWorldCenter(movementState.destinationCell);
         const desiredRotation =
-          Math.atan2(
-            movementState.destination.y - unit.y,
-            movementState.destination.x - unit.x,
-          ) - BattleRoom.UNIT_FORWARD_OFFSET;
+          Math.atan2(destination.y - unit.y, destination.x - unit.x) -
+          BattleRoom.UNIT_FORWARD_OFFSET;
 
         if (movementState.targetRotation === null) {
           const headingError = BattleRoom.wrapAngle(desiredRotation - unit.rotation);
@@ -504,122 +647,61 @@ export class BattleRoom extends Room<BattleState> {
         }
       }
 
-      let remainingStep = maxStep;
-      while (movementState.destination && remainingStep > 0) {
-        const toTargetX = movementState.destination.x - unit.x;
-        const toTargetY = movementState.destination.y - unit.y;
+      while (movementState.destinationCell && movementState.movementBudget > 0) {
+        const destinationCell = movementState.destinationCell;
+        const destination = this.gridToWorldCenter(destinationCell);
+        const toTargetX = destination.x - unit.x;
+        const toTargetY = destination.y - unit.y;
         const distance = Math.hypot(toTargetX, toTargetY);
 
-        if (distance <= remainingStep) {
-          unit.x = movementState.destination.x;
-          unit.y = movementState.destination.y;
-          remainingStep -= distance;
-
-          const nextDestination = movementState.queuedWaypoints.shift() ?? null;
-          movementState.destination = nextDestination
-            ? { x: nextDestination.x, y: nextDestination.y }
-            : null;
+        if (distance <= 0.0001) {
+          movementState.destinationCell = movementState.queuedCells.shift() ?? null;
           this.faceCurrentDestination(unit, movementState);
-
-          if (!movementState.destination) {
-            break;
-          }
-
-          if (
-            movementState.movementCommandMode.rotateToFace &&
-            movementState.targetRotation !== null
-          ) {
-            const headingError = Math.abs(
-              BattleRoom.wrapAngle(movementState.targetRotation - unit.rotation),
-            );
-            if (headingError > BattleRoom.WAYPOINT_MOVE_ANGLE_TOLERANCE) {
-              break;
-            }
-          }
           continue;
         }
 
-        const stepScale = remainingStep / distance;
-        unit.x += toTargetX * stepScale;
-        unit.y += toTargetY * stepScale;
-        break;
+        if (movementState.movementBudget + 0.0001 < distance) {
+          break;
+        }
+
+        if (
+          this.isDestinationBlocked(
+            occupiedByCellKey,
+            destinationCell,
+            unit.unitId,
+          )
+        ) {
+          break;
+        }
+
+        const currentCell =
+          cellByUnitId.get(unit.unitId) ?? this.worldToGridCoordinate(unit.x, unit.y);
+        this.removeOccupancy(occupiedByCellKey, currentCell, unit.unitId);
+
+        unit.x = destination.x;
+        unit.y = destination.y;
+        movementState.movementBudget -= distance;
+
+        const reachedCell = { col: destinationCell.col, row: destinationCell.row };
+        cellByUnitId.set(unit.unitId, reachedCell);
+        this.addOccupancy(occupiedByCellKey, reachedCell, unit.unitId);
+
+        movementState.destinationCell = movementState.queuedCells.shift() ?? null;
+        this.faceCurrentDestination(unit, movementState);
+
+        if (
+          movementState.movementCommandMode.rotateToFace &&
+          movementState.targetRotation !== null
+        ) {
+          const headingError = Math.abs(
+            BattleRoom.wrapAngle(movementState.targetRotation - unit.rotation),
+          );
+          if (headingError > BattleRoom.WAYPOINT_MOVE_ANGLE_TOLERANCE) {
+            break;
+          }
+        }
       }
     }
-  }
-
-  private getHitbox(unit: Unit): UnitHitbox {
-    const cos = Math.cos(unit.rotation);
-    const sin = Math.sin(unit.rotation);
-
-    return {
-      center: { x: unit.x, y: unit.y },
-      axisX: { x: cos, y: sin },
-      axisY: { x: -sin, y: cos },
-      halfWidth: BattleRoom.UNIT_HALF_WIDTH,
-      halfHeight: BattleRoom.UNIT_HALF_HEIGHT,
-    };
-  }
-
-  private projectHitboxRadius(hitbox: UnitHitbox, axis: Vector2): number {
-    const dotXX = axis.x * hitbox.axisX.x + axis.y * hitbox.axisX.y;
-    const dotXY = axis.x * hitbox.axisY.x + axis.y * hitbox.axisY.y;
-    return (
-      hitbox.halfWidth * Math.abs(dotXX) + hitbox.halfHeight * Math.abs(dotXY)
-    );
-  }
-
-  private getHitboxOverlap(a: Unit, b: Unit): Overlap | null {
-    const hitboxA = this.getHitbox(a);
-    const hitboxB = this.getHitbox(b);
-    const centerDelta = {
-      x: hitboxB.center.x - hitboxA.center.x,
-      y: hitboxB.center.y - hitboxA.center.y,
-    };
-    const axes = [hitboxA.axisX, hitboxA.axisY, hitboxB.axisX, hitboxB.axisY];
-
-    let minimumOverlap = Number.POSITIVE_INFINITY;
-    let minimumAxis: Vector2 | null = null;
-
-    for (const axis of axes) {
-      const centerDistance = Math.abs(centerDelta.x * axis.x + centerDelta.y * axis.y);
-      const projectedRadiusA = this.projectHitboxRadius(hitboxA, axis);
-      const projectedRadiusB = this.projectHitboxRadius(hitboxB, axis);
-      const overlap = projectedRadiusA + projectedRadiusB - centerDistance;
-
-      if (overlap <= 0) {
-        return null;
-      }
-
-      if (overlap < minimumOverlap) {
-        minimumOverlap = overlap;
-        minimumAxis = BattleRoom.cloneVector(axis);
-      }
-    }
-
-    if (!minimumAxis) {
-      return null;
-    }
-
-    if (centerDelta.x * minimumAxis.x + centerDelta.y * minimumAxis.y < 0) {
-      minimumAxis.x *= -1;
-      minimumAxis.y *= -1;
-    }
-
-    return {
-      normal: minimumAxis,
-      depth: minimumOverlap,
-    };
-  }
-
-  private hasCurrentEngagement(
-    engagements: Map<string, Set<string>>,
-    unitId: string,
-  ): boolean {
-    return (engagements.get(unitId)?.size ?? 0) > 0;
-  }
-
-  private wasEngagedPreviously(aId: string, bId: string): boolean {
-    return this.previousEngagementByUnitId.get(aId)?.has(bId) ?? false;
   }
 
   private addEngagement(
@@ -642,16 +724,6 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
-  private cloneEngagementMap(
-    source: Map<string, Set<string>>,
-  ): Map<string, Set<string>> {
-    const cloned = new Map<string, Set<string>>();
-    for (const [unitId, peers] of source) {
-      cloned.set(unitId, new Set(peers));
-    }
-    return cloned;
-  }
-
   private removeUnitFromEngagementMap(
     engagements: Map<string, Set<string>>,
     unitId: string,
@@ -660,12 +732,6 @@ export class BattleRoom extends Room<BattleState> {
     for (const peers of engagements.values()) {
       peers.delete(unitId);
     }
-  }
-
-  private canBePushedByEnemy(unit: Unit): boolean {
-    return (
-      unit.health / BattleRoom.UNIT_HEALTH_MAX <= BattleRoom.HEALTH_RED_THRESHOLD
-    );
   }
 
   private applyPendingDamage(
@@ -693,7 +759,6 @@ export class BattleRoom extends Room<BattleState> {
       this.state.units.delete(unitId);
       this.movementStateByUnitId.delete(unitId);
       this.removeUnitFromEngagementMap(engagements, unitId);
-      this.removeUnitFromEngagementMap(this.previousEngagementByUnitId, unitId);
     }
   }
 
@@ -714,145 +779,28 @@ export class BattleRoom extends Room<BattleState> {
         const b = units[j];
         this.ensureFiniteUnitState(b);
 
-        const delta = { x: b.x - a.x, y: b.y - a.y };
-        const distance = Math.max(Math.hypot(delta.x, delta.y), 0.0001);
-        const overlap = this.getHitboxOverlap(a, b);
-        const hitboxesOverlap = overlap !== null;
-        const opposingTeams = a.team !== b.team;
-        const previouslyEngagedPair =
-          opposingTeams &&
-          (this.wasEngagedPreviously(a.unitId, b.unitId) ||
-            this.wasEngagedPreviously(b.unitId, a.unitId));
-        const canStartNewEngagement =
-          opposingTeams &&
-          !this.hasCurrentEngagement(engagements, a.unitId) &&
-          !this.hasCurrentEngagement(engagements, b.unitId);
-        const engagementAllowed = previouslyEngagedPair || canStartNewEngagement;
-        const stickyEngagement =
-          previouslyEngagedPair &&
-          distance <= this.runtimeTuning.engagementHoldDistance;
-        const shouldMagnetize =
-          engagementAllowed &&
-          !hitboxesOverlap &&
-          (distance <= this.runtimeTuning.engagementMagnetDistance ||
-            stickyEngagement);
-        const shouldBattleJiggle =
-          engagementAllowed && (hitboxesOverlap || stickyEngagement);
-        const safeDirection =
-          distance > 0.0001
-            ? BattleRoom.scaleVector(delta, 1 / distance)
-            : { x: 1, y: 0 };
-        const aCanBePushedByEnemy = this.canBePushedByEnemy(a);
-        const bCanBePushedByEnemy = this.canBePushedByEnemy(b);
-        const pushableUnitCount =
-          Number(aCanBePushedByEnemy) + Number(bCanBePushedByEnemy);
-        // If both opposing units are currently "immovable", fall back to symmetric
-        // displacement for contact resolution so pairs can still close and separate.
-        const useSymmetricEnemyDisplacementFallback =
-          opposingTeams && pushableUnitCount === 0;
-        const aCanBeDisplacedByEnemy =
-          aCanBePushedByEnemy || useSymmetricEnemyDisplacementFallback;
-        const bCanBeDisplacedByEnemy =
-          bCanBePushedByEnemy || useSymmetricEnemyDisplacementFallback;
-        const displacementUnitCount =
-          Number(aCanBeDisplacedByEnemy) + Number(bCanBeDisplacedByEnemy);
-        const displacementNormalization =
-          displacementUnitCount > 0 ? 2 / displacementUnitCount : 0;
-
-        if (!opposingTeams && distance < BattleRoom.ALLY_SOFT_SEPARATION_DISTANCE) {
-          const spacingRatio =
-            1 - distance / BattleRoom.ALLY_SOFT_SEPARATION_DISTANCE;
-          const pushDistance =
-            BattleRoom.ALLY_SOFT_SEPARATION_PUSH_SPEED * spacingRatio * deltaSeconds;
-          const separation = BattleRoom.scaleVector(safeDirection, pushDistance * 0.5);
-          a.x -= separation.x;
-          a.y -= separation.y;
-          b.x += separation.x;
-          b.y += separation.y;
+        if (a.team === b.team) {
+          continue;
         }
 
-        if (!opposingTeams && overlap) {
-          const maxPushDistance = BattleRoom.ALLY_COLLISION_PUSH_SPEED * deltaSeconds;
-          const pushDistance = Math.min(overlap.depth * 0.5, maxPushDistance);
-          const separation = BattleRoom.scaleVector(overlap.normal, pushDistance);
-          a.x -= separation.x;
-          a.y -= separation.y;
-          b.x += separation.x;
-          b.y += separation.y;
+        const distance = Math.hypot(b.x - a.x, b.y - a.y);
+        if (distance > BattleRoom.GRID_CONTACT_DISTANCE) {
+          continue;
         }
 
-        if (shouldMagnetize) {
-          const pull = BattleRoom.scaleVector(
-            safeDirection,
-            this.runtimeTuning.magnetismSpeed * deltaSeconds,
-          );
-          if (aCanBeDisplacedByEnemy) {
-            const aStep = displacementNormalization;
-            a.x += pull.x * aStep;
-            a.y += pull.y * aStep;
-          }
-          if (bCanBeDisplacedByEnemy) {
-            const bStep = displacementNormalization;
-            b.x -= pull.x * bStep;
-            b.y -= pull.y * bStep;
-          }
-          this.addEngagement(engagements, a.unitId, b.unitId);
-        }
+        this.clearMovementForUnit(a.unitId);
+        this.clearMovementForUnit(b.unitId);
 
-        if (shouldBattleJiggle) {
-          const phase =
-            this.simulationTimeMs * BattleRoom.BATTLE_JIGGLE_FREQUENCY + i * 1.7 + j * 2.3;
-          const jiggleStep =
-            Math.sin(phase) * BattleRoom.BATTLE_JIGGLE_SPEED * deltaSeconds;
-          if (aCanBePushedByEnemy) {
-            const aStep = jiggleStep * displacementNormalization;
-            a.x += safeDirection.x * aStep;
-            a.y += safeDirection.y * aStep;
-          }
-          if (bCanBePushedByEnemy) {
-            const bStep = jiggleStep * displacementNormalization;
-            b.x -= safeDirection.x * bStep;
-            b.y -= safeDirection.y * bStep;
-          }
-          this.addEngagement(engagements, a.unitId, b.unitId);
-        }
-
-        if (opposingTeams && overlap) {
-          if (engagementAllowed) {
-            this.clearMovementForUnit(a.unitId);
-            this.clearMovementForUnit(b.unitId);
-            const damage = BattleRoom.CONTACT_DAMAGE_PER_SECOND * deltaSeconds;
-            pendingDamageByUnitId.set(
-              a.unitId,
-              (pendingDamageByUnitId.get(a.unitId) ?? 0) + damage,
-            );
-            pendingDamageByUnitId.set(
-              b.unitId,
-              (pendingDamageByUnitId.get(b.unitId) ?? 0) + damage,
-            );
-            this.addEngagement(engagements, a.unitId, b.unitId);
-          }
-
-          if (displacementUnitCount > 0) {
-            const separationPerShare = overlap.depth / displacementUnitCount;
-            if (aCanBeDisplacedByEnemy) {
-              const separationA = BattleRoom.scaleVector(
-                overlap.normal,
-                separationPerShare,
-              );
-              a.x -= separationA.x;
-              a.y -= separationA.y;
-            }
-            if (bCanBeDisplacedByEnemy) {
-              const separationB = BattleRoom.scaleVector(
-                overlap.normal,
-                separationPerShare,
-              );
-              b.x += separationB.x;
-              b.y += separationB.y;
-            }
-          }
-        }
+        const damage = BattleRoom.CONTACT_DAMAGE_PER_SECOND * deltaSeconds;
+        pendingDamageByUnitId.set(
+          a.unitId,
+          (pendingDamageByUnitId.get(a.unitId) ?? 0) + damage,
+        );
+        pendingDamageByUnitId.set(
+          b.unitId,
+          (pendingDamageByUnitId.get(b.unitId) ?? 0) + damage,
+        );
+        this.addEngagement(engagements, a.unitId, b.unitId);
       }
     }
 
