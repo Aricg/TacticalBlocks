@@ -33,51 +33,78 @@ type RuntimeTuningBound = {
 };
 
 export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
-  baseUnitHealth: GAMEPLAY_CONFIG.unit.healthMax,
-  healthInfluenceMultiplier: 0,
-  unitMoveSpeed: GAMEPLAY_CONFIG.movement.unitMoveSpeed,
-  baseContactDps: GAMEPLAY_CONFIG.combat.contactDamagePerSecond,
-  dpsInfluenceMultiplier: 0,
-  influenceUpdateIntervalFrames: GAMEPLAY_CONFIG.influence.updateIntervalFrames,
-  influenceDecayRate: GAMEPLAY_CONFIG.influence.decayRate,
-  influenceDecayZeroEpsilon: GAMEPLAY_CONFIG.influence.decayZeroEpsilon,
-  citySourceCoreRadius: GAMEPLAY_CONFIG.influence.citySourceCoreRadius,
-  staticUnitCapGate: GAMEPLAY_CONFIG.influence.staticUnitCapGate,
-  staticCityCapGate: GAMEPLAY_CONFIG.influence.staticCityCapGate,
-  unitCapThreshold: GAMEPLAY_CONFIG.influence.unitCapThreshold,
-  unitInfluenceMultiplier: GAMEPLAY_CONFIG.influence.unitInfluenceMultiplier,
-  influenceEnemyPressureDebuffFloor: 0.05,
-  influenceCoreMinInfluenceFactor: GAMEPLAY_CONFIG.influence.coreMinInfluenceFactor,
-  influenceMaxExtraDecayAtZero: GAMEPLAY_CONFIG.influence.maxExtraDecayAtZero,
-  fogVisionRadius: GAMEPLAY_CONFIG.visibility.visionRadius,
-  cityVisionRadius: GAMEPLAY_CONFIG.visibility.cityVisionRadius,
-  lineThickness: GAMEPLAY_CONFIG.influence.lineThickness,
-  lineAlpha: GAMEPLAY_CONFIG.influence.lineAlpha,
-  cityInfluenceUnitsEquivalent: GAMEPLAY_CONFIG.cities.influenceUnitsEquivalent,
+  baseUnitHealth: GAMEPLAY_CONFIG.runtimeTuning.defaults.baseUnitHealth,
+  healthInfluenceMultiplier:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.healthInfluenceMultiplier,
+  unitMoveSpeed: GAMEPLAY_CONFIG.runtimeTuning.defaults.unitMoveSpeed,
+  baseContactDps: GAMEPLAY_CONFIG.runtimeTuning.defaults.baseContactDps,
+  dpsInfluenceMultiplier:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.dpsInfluenceMultiplier,
+  influenceUpdateIntervalFrames:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceUpdateIntervalFrames,
+  influenceDecayRate: GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceDecayRate,
+  influenceDecayZeroEpsilon:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceDecayZeroEpsilon,
+  citySourceCoreRadius: GAMEPLAY_CONFIG.runtimeTuning.defaults.citySourceCoreRadius,
+  staticUnitCapGate: GAMEPLAY_CONFIG.runtimeTuning.defaults.staticUnitCapGate,
+  staticCityCapGate: GAMEPLAY_CONFIG.runtimeTuning.defaults.staticCityCapGate,
+  unitCapThreshold: GAMEPLAY_CONFIG.runtimeTuning.defaults.unitCapThreshold,
+  unitInfluenceMultiplier:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.unitInfluenceMultiplier,
+  influenceEnemyPressureDebuffFloor:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceEnemyPressureDebuffFloor,
+  influenceCoreMinInfluenceFactor:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceCoreMinInfluenceFactor,
+  influenceMaxExtraDecayAtZero:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceMaxExtraDecayAtZero,
+  fogVisionRadius: GAMEPLAY_CONFIG.runtimeTuning.defaults.fogVisionRadius,
+  cityVisionRadius: GAMEPLAY_CONFIG.runtimeTuning.defaults.cityVisionRadius,
+  lineThickness: GAMEPLAY_CONFIG.runtimeTuning.defaults.lineThickness,
+  lineAlpha: GAMEPLAY_CONFIG.runtimeTuning.defaults.lineAlpha,
+  cityInfluenceUnitsEquivalent:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.cityInfluenceUnitsEquivalent,
 };
 
 export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound> = {
-  baseUnitHealth: { min: 20, max: 200, step: 1 },
-  healthInfluenceMultiplier: { min: 0, max: 1, step: 0.01 },
-  unitMoveSpeed: { min: 20, max: 300, step: 1 },
-  baseContactDps: { min: 1, max: 24, step: 0.1 },
-  dpsInfluenceMultiplier: { min: 0, max: 1, step: 0.01 },
-  influenceUpdateIntervalFrames: { min: 1, max: 20, step: 1 },
-  influenceDecayRate: { min: 0.7, max: 0.999, step: 0.001 },
-  influenceDecayZeroEpsilon: { min: 0, max: 2, step: 0.01 },
-  citySourceCoreRadius: { min: 0, max: 50, step: 1 },
-  staticUnitCapGate: { min: 0, max: 1, step: 1 },
-  staticCityCapGate: { min: 0, max: 1, step: 1 },
-  unitCapThreshold: { min: 0.1, max: 2, step: 0.05 },
-  unitInfluenceMultiplier: { min: 0, max: 0.1, step: 0.0025 },
-  influenceEnemyPressureDebuffFloor: { min: 0, max: 1, step: 0.01 },
-  influenceCoreMinInfluenceFactor: { min: 0, max: 1, step: 0.01 },
-  influenceMaxExtraDecayAtZero: { min: 0, max: 0.9, step: 0.01 },
-  fogVisionRadius: { min: 40, max: 600, step: 1 },
-  cityVisionRadius: { min: 40, max: 600, step: 1 },
-  lineThickness: { min: 1, max: 24, step: 1 },
-  lineAlpha: { min: 0.05, max: 1, step: 0.01 },
-  cityInfluenceUnitsEquivalent: { min: 0, max: 40, step: 0.5 },
+  baseUnitHealth: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.baseUnitHealth },
+  healthInfluenceMultiplier: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.healthInfluenceMultiplier,
+  },
+  unitMoveSpeed: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.unitMoveSpeed },
+  baseContactDps: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.baseContactDps },
+  dpsInfluenceMultiplier: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.dpsInfluenceMultiplier,
+  },
+  influenceUpdateIntervalFrames: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceUpdateIntervalFrames,
+  },
+  influenceDecayRate: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceDecayRate },
+  influenceDecayZeroEpsilon: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceDecayZeroEpsilon,
+  },
+  citySourceCoreRadius: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.citySourceCoreRadius },
+  staticUnitCapGate: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.staticUnitCapGate },
+  staticCityCapGate: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.staticCityCapGate },
+  unitCapThreshold: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.unitCapThreshold },
+  unitInfluenceMultiplier: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.unitInfluenceMultiplier,
+  },
+  influenceEnemyPressureDebuffFloor: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceEnemyPressureDebuffFloor,
+  },
+  influenceCoreMinInfluenceFactor: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceCoreMinInfluenceFactor,
+  },
+  influenceMaxExtraDecayAtZero: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceMaxExtraDecayAtZero,
+  },
+  fogVisionRadius: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.fogVisionRadius },
+  cityVisionRadius: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.cityVisionRadius },
+  lineThickness: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.lineThickness },
+  lineAlpha: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.lineAlpha },
+  cityInfluenceUnitsEquivalent: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.cityInfluenceUnitsEquivalent,
+  },
 };
 
 export const RUNTIME_TUNING_KEYS = Object.keys(

@@ -8,6 +8,7 @@ type ServerUnitState = {
   team: string;
   unitId: string;
   health: number;
+  combatInfluenceScore: number;
 };
 
 type ServerInfluenceGridState = {
@@ -31,6 +32,7 @@ export type NetworkUnitSnapshot = {
   y: number;
   rotation: number;
   health: number;
+  combatInfluenceScore: number;
 };
 
 export type NetworkUnitPositionUpdate = {
@@ -47,6 +49,11 @@ export type NetworkUnitHealthUpdate = {
 export type NetworkUnitRotationUpdate = {
   unitId: string;
   rotation: number;
+};
+
+export type NetworkUnitCombatInfluenceUpdate = {
+  unitId: string;
+  combatInfluenceScore: number;
 };
 
 export type NetworkInfluenceGridUpdate = {
@@ -75,6 +82,9 @@ type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
 type UnitRotationChangedHandler = (
   rotationUpdate: NetworkUnitRotationUpdate,
 ) => void;
+type UnitCombatInfluenceChangedHandler = (
+  combatInfluenceUpdate: NetworkUnitCombatInfluenceUpdate,
+) => void;
 type InfluenceGridChangedHandler = (
   influenceGridUpdate: NetworkInfluenceGridUpdate,
 ) => void;
@@ -97,6 +107,7 @@ export class NetworkManager {
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
+    private readonly onUnitCombatInfluenceChanged: UnitCombatInfluenceChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
     endpoint = 'ws://localhost:2567',
@@ -155,6 +166,9 @@ export class NetworkManager {
             y: serverUnit.y,
             rotation: serverUnit.rotation,
             health: serverUnit.health,
+            combatInfluenceScore: Number.isFinite(serverUnit.combatInfluenceScore)
+              ? serverUnit.combatInfluenceScore
+              : 0,
           });
 
           const detachX = $(serverUnit).listen('x', (x: number) => {
@@ -186,11 +200,23 @@ export class NetworkManager {
               });
             },
           );
+          const detachCombatInfluenceScore = $(serverUnit).listen(
+            'combatInfluenceScore',
+            (combatInfluenceScore: number) => {
+              this.onUnitCombatInfluenceChanged({
+                unitId,
+                combatInfluenceScore: Number.isFinite(combatInfluenceScore)
+                  ? combatInfluenceScore
+                  : 0,
+              });
+            },
+          );
           this.detachCallbacks.push(
             detachX,
             detachY,
             detachHealth,
             detachRotation,
+            detachCombatInfluenceScore,
           );
         },
         true,

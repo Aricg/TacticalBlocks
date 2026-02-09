@@ -5,6 +5,7 @@ export class Unit extends Schema {
   @type("number") y = 0;
   @type("number") rotation = 0;
   @type("number") health = 100;
+  @type("number") combatInfluenceScore = 0;
   @type("string") team = "";
   @type("string") unitId = "";
 

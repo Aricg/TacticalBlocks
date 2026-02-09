@@ -42,6 +42,7 @@ type UnitMovementState = {
 export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
+  private readonly combatInfluenceAdvantageByUnitId = new Map<string, number>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
@@ -68,6 +69,9 @@ export class BattleRoom extends Room<BattleState> {
     Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MAX_ABS_TACTICAL_SCORE =
     GAMEPLAY_CONFIG.influence.maxAbsTacticalScore;
+  private static readonly COMBAT_INFLUENCE_SHAPE_EXPONENT = 1.6;
+  private static readonly COMBAT_INFLUENCE_RISE_RATE_PER_SECOND = 2.25;
+  private static readonly COMBAT_INFLUENCE_FALL_RATE_PER_SECOND = 0.35;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
@@ -122,6 +126,7 @@ export class BattleRoom extends Room<BattleState> {
 
   onDispose(): void {
     this.movementStateByUnitId.clear();
+    this.combatInfluenceAdvantageByUnitId.clear();
     this.sessionTeamById.clear();
     this.simulationFrame = 0;
   }
@@ -271,28 +276,91 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getInfluenceBuffMultiplier(
-    unit: Unit,
+    influenceAdvantage: number,
     influenceMultiplier: number,
   ): number {
-    return 1 + this.getInfluenceAdvantageNormalized(unit) * influenceMultiplier;
+    return 1 + influenceAdvantage * influenceMultiplier;
   }
 
-  private getUnitContactDps(unit: Unit): number {
+  private getUnitContactDps(influenceAdvantage: number): number {
     const baseDps = Math.max(0, this.runtimeTuning.baseContactDps);
     return (
       baseDps *
       this.getInfluenceBuffMultiplier(
-        unit,
+        influenceAdvantage,
         this.runtimeTuning.dpsInfluenceMultiplier,
       )
     );
   }
 
-  private getUnitHealthMitigationMultiplier(unit: Unit): number {
+  private getUnitHealthMitigationMultiplier(influenceAdvantage: number): number {
     return this.getInfluenceBuffMultiplier(
-      unit,
+      influenceAdvantage,
       this.runtimeTuning.healthInfluenceMultiplier,
     );
+  }
+
+  private stepTowardInfluenceAdvantage(
+    current: number,
+    target: number,
+    deltaSeconds: number,
+  ): number {
+    const delta = target - current;
+    if (Math.abs(delta) <= 0.000001) {
+      return target;
+    }
+
+    const safeDeltaSeconds = Math.max(0, deltaSeconds);
+    const stepRate =
+      delta > 0
+        ? BattleRoom.COMBAT_INFLUENCE_RISE_RATE_PER_SECOND
+        : BattleRoom.COMBAT_INFLUENCE_FALL_RATE_PER_SECOND;
+    const maxStep = stepRate * safeDeltaSeconds;
+    if (Math.abs(delta) <= maxStep) {
+      return target;
+    }
+
+    return current + Math.sign(delta) * maxStep;
+  }
+
+  private buildCombatInfluenceAdvantageByUnitId(
+    units: Unit[],
+    deltaSeconds: number,
+  ): Map<string, number> {
+    const smoothedByUnitId = new Map<string, number>();
+    const aliveUnitIds = new Set<string>();
+
+    for (const unit of units) {
+      aliveUnitIds.add(unit.unitId);
+      const rawAdvantage = this.getInfluenceAdvantageNormalized(unit);
+      const shapedAdvantage = Math.pow(
+        rawAdvantage,
+        BattleRoom.COMBAT_INFLUENCE_SHAPE_EXPONENT,
+      );
+      const previousAdvantage = this.combatInfluenceAdvantageByUnitId.get(unit.unitId);
+      const smoothedAdvantage =
+        previousAdvantage === undefined
+          ? shapedAdvantage
+          : this.stepTowardInfluenceAdvantage(
+              previousAdvantage,
+              shapedAdvantage,
+              deltaSeconds,
+            );
+      unit.combatInfluenceScore =
+        smoothedAdvantage *
+        BattleRoom.MAX_ABS_TACTICAL_SCORE *
+        this.getTeamSign(unit.team);
+      this.combatInfluenceAdvantageByUnitId.set(unit.unitId, smoothedAdvantage);
+      smoothedByUnitId.set(unit.unitId, smoothedAdvantage);
+    }
+
+    for (const unitId of this.combatInfluenceAdvantageByUnitId.keys()) {
+      if (!aliveUnitIds.has(unitId)) {
+        this.combatInfluenceAdvantageByUnitId.delete(unitId);
+      }
+    }
+
+    return smoothedByUnitId;
   }
 
   private gridToWorldCenter(cell: GridCoordinate): Vector2 {
@@ -848,12 +916,20 @@ export class BattleRoom extends Room<BattleState> {
     const pendingDamageByUnitId = new Map<string, number>();
     const unitContactDpsById = new Map<string, number>();
     const unitHealthMitigationById = new Map<string, number>();
+    const combatInfluenceAdvantageByUnitId =
+      this.buildCombatInfluenceAdvantageByUnitId(units, deltaSeconds);
 
     for (const unit of units) {
-      unitContactDpsById.set(unit.unitId, this.getUnitContactDps(unit));
+      const combatInfluenceAdvantage =
+        combatInfluenceAdvantageByUnitId.get(unit.unitId) ??
+        this.getInfluenceAdvantageNormalized(unit);
+      unitContactDpsById.set(
+        unit.unitId,
+        this.getUnitContactDps(combatInfluenceAdvantage),
+      );
       unitHealthMitigationById.set(
         unit.unitId,
-        this.getUnitHealthMitigationMultiplier(unit),
+        this.getUnitHealthMitigationMultiplier(combatInfluenceAdvantage),
       );
     }
 

@@ -54,6 +54,7 @@ export class InfluenceRenderer {
   private renderCells: Float32Array | null = null;
   private staticInfluenceSources: StaticInfluenceSource[] = [];
   private debugFocusPoint: Phaser.Math.Vector2 | null = null;
+  private debugFocusScoreOverride: number | null = null;
   private latestRevision = -1;
   private interpolationElapsedMs = 0;
   private lineThickness: number = GAMEPLAY_CONFIG.influence.lineThickness;
@@ -149,17 +150,24 @@ export class InfluenceRenderer {
     this.latestRevision = influenceGrid.revision;
   }
 
-  public setDebugFocusPoint(point: { x: number; y: number } | null): void {
+  public setDebugFocusPoint(
+    point: { x: number; y: number } | null,
+    scoreOverride: number | null = null,
+  ): void {
     if (
       !point ||
       !Number.isFinite(point.x) ||
       !Number.isFinite(point.y)
     ) {
       this.debugFocusPoint = null;
+      this.debugFocusScoreOverride = null;
       return;
     }
 
     this.debugFocusPoint = new Phaser.Math.Vector2(point.x, point.y);
+    this.debugFocusScoreOverride = Number.isFinite(scoreOverride)
+      ? scoreOverride
+      : null;
   }
 
   public setLineStyle(style: InfluenceLineStyle): void {
@@ -234,6 +242,7 @@ export class InfluenceRenderer {
     this.renderCells = null;
     this.staticInfluenceSources = [];
     this.debugFocusPoint = null;
+    this.debugFocusScoreOverride = null;
   }
 
   private renderDebugOverlay(rawServerCells: Float32Array): void {
@@ -274,10 +283,9 @@ export class InfluenceRenderer {
       return;
     }
 
-    const sampledScore = this.sampleInfluenceAtPoint(
-      rawServerCells,
-      this.debugFocusPoint,
-    );
+    const sampledScore =
+      this.debugFocusScoreOverride ??
+      this.sampleInfluenceAtCell(rawServerCells, this.debugFocusPoint);
     const color = this.getDebugColor(sampledScore);
     const primaryText = this.debugCellValueTexts[0];
     primaryText.setText(sampledScore.toFixed(2));
@@ -293,7 +301,7 @@ export class InfluenceRenderer {
     }
   }
 
-  private sampleInfluenceAtPoint(
+  private sampleInfluenceAtCell(
     cells: Float32Array,
     point: Phaser.Math.Vector2,
   ): number {
@@ -301,71 +309,17 @@ export class InfluenceRenderer {
       return 0;
     }
 
-    const colBasis = point.x / this.gridMeta.cellWidth - 0.5;
-    const rowBasis = point.y / this.gridMeta.cellHeight - 0.5;
-    const baseCol = Phaser.Math.Clamp(
-      Math.floor(colBasis),
+    const col = Phaser.Math.Clamp(
+      Math.round(point.x / this.gridMeta.cellWidth - 0.5),
       0,
       this.gridMeta.width - 1,
     );
-    const baseRow = Phaser.Math.Clamp(
-      Math.floor(rowBasis),
+    const row = Phaser.Math.Clamp(
+      Math.round(point.y / this.gridMeta.cellHeight - 0.5),
       0,
       this.gridMeta.height - 1,
     );
-    const nextCol = Phaser.Math.Clamp(baseCol + 1, 0, this.gridMeta.width - 1);
-    const nextRow = Phaser.Math.Clamp(baseRow + 1, 0, this.gridMeta.height - 1);
-    const tCol = Phaser.Math.Clamp(colBasis - baseCol, 0, 1);
-    const tRow = Phaser.Math.Clamp(rowBasis - baseRow, 0, 1);
-
-    const topLeft = this.getInfluenceValue(cells, baseCol, baseRow);
-    const topRight = this.getInfluenceValue(cells, nextCol, baseRow);
-    const bottomLeft = this.getInfluenceValue(cells, baseCol, nextRow);
-    const bottomRight = this.getInfluenceValue(cells, nextCol, nextRow);
-    const top = Phaser.Math.Linear(topLeft, topRight, tCol);
-    const bottom = Phaser.Math.Linear(bottomLeft, bottomRight, tCol);
-    return Phaser.Math.Linear(top, bottom, tRow);
-  }
-
-  private getFocusCellCoords(
-    focusPoint: Phaser.Math.Vector2,
-  ): Array<{ col: number; row: number }> {
-    if (!this.gridMeta) {
-      return [];
-    }
-
-    const colBasis = focusPoint.x / this.gridMeta.cellWidth - 0.5;
-    const rowBasis = focusPoint.y / this.gridMeta.cellHeight - 0.5;
-    const baseCol = Phaser.Math.Clamp(
-      Math.floor(colBasis),
-      0,
-      this.gridMeta.width - 1,
-    );
-    const baseRow = Phaser.Math.Clamp(
-      Math.floor(rowBasis),
-      0,
-      this.gridMeta.height - 1,
-    );
-    const nextCol = Phaser.Math.Clamp(baseCol + 1, 0, this.gridMeta.width - 1);
-    const nextRow = Phaser.Math.Clamp(baseRow + 1, 0, this.gridMeta.height - 1);
-
-    const unique = new Set<string>();
-    const result: Array<{ col: number; row: number }> = [];
-    const candidates = [
-      { col: baseCol, row: baseRow },
-      { col: nextCol, row: baseRow },
-      { col: baseCol, row: nextRow },
-      { col: nextCol, row: nextRow },
-    ];
-    for (const candidate of candidates) {
-      const key = `${candidate.col}:${candidate.row}`;
-      if (unique.has(key)) {
-        continue;
-      }
-      unique.add(key);
-      result.push(candidate);
-    }
-    return result;
+    return this.getInfluenceValue(cells, col, row);
   }
 
   private getDebugColor(score: number): number {

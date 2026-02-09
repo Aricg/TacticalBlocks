@@ -7,6 +7,7 @@ import {
   type NetworkUnitRotationUpdate,
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
+  type NetworkUnitCombatInfluenceUpdate,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
@@ -30,6 +31,8 @@ class BattleScene extends Phaser.Scene {
   private readonly lastKnownHealthByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly combatVisualUntilByUnitId: Map<string, number> =
+    new Map<string, number>();
+  private readonly combatInfluenceScoreByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly cities: City[] = [];
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
@@ -350,6 +353,9 @@ class BattleScene extends Phaser.Scene {
       (rotationUpdate) => {
         this.applyNetworkUnitRotation(rotationUpdate);
       },
+      (combatInfluenceUpdate) => {
+        this.applyNetworkUnitCombatInfluence(combatInfluenceUpdate);
+      },
       (influenceGridUpdate) => {
         this.applyInfluenceGrid(influenceGridUpdate);
       },
@@ -377,6 +383,7 @@ class BattleScene extends Phaser.Scene {
       this.cities.length = 0;
       this.lastKnownHealthByUnitId.clear();
       this.combatVisualUntilByUnitId.clear();
+      this.combatInfluenceScoreByUnitId.clear();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
     });
@@ -429,6 +436,10 @@ class BattleScene extends Phaser.Scene {
       existingUnit.rotation = networkUnit.rotation;
       existingUnit.setHealth(networkUnit.health);
       this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
+      this.combatInfluenceScoreByUnitId.set(
+        networkUnit.unitId,
+        networkUnit.combatInfluenceScore,
+      );
       this.applyNetworkUnitPositionSnapshot(
         existingUnit,
         networkUnit.unitId,
@@ -455,6 +466,10 @@ class BattleScene extends Phaser.Scene {
     this.units.push(spawnedUnit);
     this.unitsById.set(networkUnit.unitId, spawnedUnit);
     this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
+    this.combatInfluenceScoreByUnitId.set(
+      networkUnit.unitId,
+      networkUnit.combatInfluenceScore,
+    );
     this.combatVisualUntilByUnitId.delete(networkUnit.unitId);
     this.remoteUnitTargetPositions.set(
       networkUnit.unitId,
@@ -473,6 +488,7 @@ class BattleScene extends Phaser.Scene {
     this.remoteUnitTargetPositions.delete(unitId);
     this.lastKnownHealthByUnitId.delete(unitId);
     this.combatVisualUntilByUnitId.delete(unitId);
+    this.combatInfluenceScoreByUnitId.delete(unitId);
     this.selectedUnits.delete(unit);
     const index = this.units.indexOf(unit);
     if (index >= 0) {
@@ -517,6 +533,19 @@ class BattleScene extends Phaser.Scene {
     }
 
     unit.rotation = rotationUpdate.rotation;
+  }
+
+  private applyNetworkUnitCombatInfluence(
+    influenceUpdate: NetworkUnitCombatInfluenceUpdate,
+  ): void {
+    if (!this.unitsById.has(influenceUpdate.unitId)) {
+      return;
+    }
+
+    this.combatInfluenceScoreByUnitId.set(
+      influenceUpdate.unitId,
+      influenceUpdate.combatInfluenceScore,
+    );
   }
 
   private applyAssignedTeam(teamValue: string): void {
@@ -1084,14 +1113,17 @@ class BattleScene extends Phaser.Scene {
 
     const focusUnit = this.getInfluenceDebugFocusUnit();
     if (!focusUnit) {
-      this.influenceRenderer.setDebugFocusPoint(null);
+      this.influenceRenderer.setDebugFocusPoint(null, null);
       return;
     }
 
-    this.influenceRenderer.setDebugFocusPoint({
-      x: focusUnit.x,
-      y: focusUnit.y,
-    });
+    const focusPosition = this.getAuthoritativeUnitPosition(focusUnit);
+    const focusUnitId = this.getUnitId(focusUnit);
+    const combatInfluenceScore =
+      focusUnitId !== null
+        ? (this.combatInfluenceScoreByUnitId.get(focusUnitId) ?? null)
+        : null;
+    this.influenceRenderer.setDebugFocusPoint(focusPosition, combatInfluenceScore);
   }
 
   private getInfluenceDebugFocusUnit(): Unit | null {
@@ -1111,6 +1143,32 @@ class BattleScene extends Phaser.Scene {
     );
     if (allyUnits.length === 1) {
       return allyUnits[0];
+    }
+
+    return null;
+  }
+
+  private getAuthoritativeUnitPosition(unit: Unit): { x: number; y: number } {
+    for (const [unitId, candidate] of this.unitsById) {
+      if (candidate !== unit) {
+        continue;
+      }
+
+      const target = this.remoteUnitTargetPositions.get(unitId);
+      if (target) {
+        return { x: target.x, y: target.y };
+      }
+      break;
+    }
+
+    return { x: unit.x, y: unit.y };
+  }
+
+  private getUnitId(unit: Unit): string | null {
+    for (const [unitId, candidate] of this.unitsById) {
+      if (candidate === unit) {
+        return unitId;
+      }
     }
 
     return null;
