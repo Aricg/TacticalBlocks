@@ -29,6 +29,34 @@ const MOUNTAIN_SWATCHES = new Set([
   '556362',
 ]);
 
+const NON_MOUNTAIN_TERRAIN_SWATCHES = [
+  { color: 0x0f2232, type: 'water' },
+  { color: 0x102236, type: 'water' },
+  { color: 0x71844b, type: 'grass' },
+  { color: 0x70834e, type: 'grass' },
+  { color: 0x748764, type: 'grass' },
+  { color: 0x364d31, type: 'forest' },
+  { color: 0x122115, type: 'forest' },
+  { color: 0xc4a771, type: 'hills' },
+  { color: 0x9e8c5d, type: 'hills' },
+  { color: 0xa79168, type: 'hills' },
+  { color: 0xefb72f, type: 'hills' },
+  { color: 0xddb650, type: 'hills' },
+];
+
+const NON_MOUNTAIN_TERRAIN_BY_COLOR = new Map(
+  NON_MOUNTAIN_TERRAIN_SWATCHES.map((swatch) => [swatch.color, swatch.type]),
+);
+
+const TERRAIN_CODE_BY_TYPE = {
+  water: 'w',
+  grass: 'g',
+  forest: 'f',
+  hills: 'h',
+  mountains: 'm',
+  unknown: 'u',
+};
+
 const CITY_HUE_MIN = 38;
 const CITY_HUE_MAX = 55;
 const CITY_SATURATION_MIN = 0.58;
@@ -147,6 +175,48 @@ function getMountainIndexes(pixels, gridWidth) {
   return mountainIndexes;
 }
 
+function classifyTerrainType(red, green, blue) {
+  const color = (red << 16) | (green << 8) | blue;
+  const hex = color.toString(16).padStart(6, '0');
+  if (MOUNTAIN_SWATCHES.has(hex)) {
+    return 'mountains';
+  }
+
+  const directMatch = NON_MOUNTAIN_TERRAIN_BY_COLOR.get(color);
+  if (directMatch) {
+    return directMatch;
+  }
+
+  let closestDistanceSq = Number.POSITIVE_INFINITY;
+  let closestTerrain = 'unknown';
+  for (const swatch of NON_MOUNTAIN_TERRAIN_SWATCHES) {
+    const swatchR = (swatch.color >> 16) & 0xff;
+    const swatchG = (swatch.color >> 8) & 0xff;
+    const swatchB = swatch.color & 0xff;
+    const dr = red - swatchR;
+    const dg = green - swatchG;
+    const db = blue - swatchB;
+    const distanceSq = dr * dr + dg * dg + db * db;
+    if (distanceSq < closestDistanceSq) {
+      closestDistanceSq = distanceSq;
+      closestTerrain = swatch.type;
+    }
+  }
+
+  return closestTerrain;
+}
+
+function getTerrainCodeGrid(pixels, gridWidth, gridHeight) {
+  const cellCount = gridWidth * gridHeight;
+  const codes = new Array(cellCount).fill(TERRAIN_CODE_BY_TYPE.unknown);
+  for (const pixel of pixels) {
+    const index = pixel.row * gridWidth + pixel.col;
+    const terrainType = classifyTerrainType(pixel.red, pixel.green, pixel.blue);
+    codes[index] = TERRAIN_CODE_BY_TYPE[terrainType] ?? TERRAIN_CODE_BY_TYPE.unknown;
+  }
+  return codes.join('');
+}
+
 function formatIndexArray(indexes, indent = '    ') {
   if (indexes.length === 0) {
     return `${indent}`;
@@ -156,6 +226,24 @@ function formatIndexArray(indexes, indent = '    ') {
   for (let i = 0; i < indexes.length; i += 16) {
     lines.push(`${indent}${indexes.slice(i, i + 16).join(', ')},`);
   }
+  return lines.join('\n');
+}
+
+function formatTerrainCodeGrid(codeGrid, gridWidth, indent = '    ') {
+  if (codeGrid.length === 0 || gridWidth <= 0) {
+    return `${indent}''`;
+  }
+
+  const lines = [];
+  const rowCount = Math.ceil(codeGrid.length / gridWidth);
+  for (let row = 0; row < rowCount; row += 1) {
+    const start = row * gridWidth;
+    const end = start + gridWidth;
+    const rowCode = codeGrid.slice(start, end);
+    const suffix = row < rowCount - 1 ? ' +' : '';
+    lines.push(`${indent}'${rowCode}'${suffix}`);
+  }
+
   return lines.join('\n');
 }
 
@@ -331,6 +419,7 @@ if (mapFiles.length === 0) {
 }
 
 const mountainIndexesByMapId = new Map();
+const terrainCodeGridByMapId = new Map();
 const cityIndexesByMapId = new Map();
 const cityAnchorsByMapId = new Map();
 
@@ -339,6 +428,10 @@ for (const mapFile of mapFiles) {
   const quantizedPath = path.join(inputDir, mapFile);
   const quantizedPixels = parsePixelDump(
     runMagickPixelDump(quantizedPath, gridWidth, gridHeight),
+  );
+  terrainCodeGridByMapId.set(
+    mapId,
+    getTerrainCodeGrid(quantizedPixels, gridWidth, gridHeight),
   );
   const mountainIndexes = getMountainIndexes(quantizedPixels, gridWidth);
   mountainIndexesByMapId.set(mapId, mountainIndexes);
@@ -361,6 +454,7 @@ for (const mapFile of mapFiles) {
 }
 
 const mountainEntries = [];
+const terrainCodeEntries = [];
 const cityMaskEntries = [];
 const cityAnchorEntries = [];
 let totalMountainCells = 0;
@@ -369,6 +463,11 @@ for (const [mapId, indexes] of mountainIndexesByMapId) {
   totalMountainCells += indexes.length;
   mountainEntries.push(
     `  '${mapId}': [\n${formatIndexArray(indexes)}\n  ],`,
+  );
+
+  const terrainCodeGrid = terrainCodeGridByMapId.get(mapId) ?? '';
+  terrainCodeEntries.push(
+    `  '${mapId}':\n${formatTerrainCodeGrid(terrainCodeGrid, gridWidth)},`,
   );
 
   const cityMasks = cityIndexesByMapId.get(mapId) ?? { RED: [], BLUE: [] };
@@ -394,6 +493,26 @@ export const TERRAIN_GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
 
 type Team = 'RED' | 'BLUE';
 type GridCoordinate = { col: number; row: number };
+export type TerrainType =
+  | 'water'
+  | 'grass'
+  | 'forest'
+  | 'hills'
+  | 'mountains'
+  | 'unknown';
+
+const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
+${terrainCodeEntries.join('\n')}
+};
+
+const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
+  w: 'water',
+  g: 'grass',
+  f: 'forest',
+  h: 'hills',
+  m: 'mountains',
+  u: 'unknown',
+};
 
 const MOUNTAIN_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
 ${mountainEntries.join('\n')}
@@ -464,6 +583,15 @@ function getActiveMountainCellIndexSet(): Set<number> {
   return MOUNTAIN_CELL_INDEX_SET_BY_MAP_ID.get(getFallbackMapId()) ?? new Set<number>();
 }
 
+function getActiveTerrainCodeGrid(): string {
+  const activeGrid = TERRAIN_CODE_GRID_BY_MAP_ID[getActiveMapId()];
+  if (activeGrid) {
+    return activeGrid;
+  }
+
+  return TERRAIN_CODE_GRID_BY_MAP_ID[getFallbackMapId()] ?? '';
+}
+
 function getActiveCityIndexSetByTeam(): Record<Team, Set<number>> {
   const activeSet = CITY_CELL_INDEX_SET_BY_MAP_ID.get(getActiveMapId());
   if (activeSet) {
@@ -479,6 +607,25 @@ function getActiveCityIndexSetByTeam(): Record<Team, Set<number>> {
 
 export function getGridCellIndex(col: number, row: number): number {
   return row * TERRAIN_GRID_WIDTH + col;
+}
+
+export function getGridCellTerrainType(col: number, row: number): TerrainType {
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= TERRAIN_GRID_WIDTH ||
+    row >= TERRAIN_GRID_HEIGHT
+  ) {
+    return 'unknown';
+  }
+
+  const terrainCode = getActiveTerrainCodeGrid().charAt(getGridCellIndex(col, row));
+  return TERRAIN_TYPE_BY_CODE[terrainCode] ?? 'unknown';
+}
+
+export function getWorldTerrainType(x: number, y: number): TerrainType {
+  const cell = getGridCellFromWorld(x, y);
+  return getGridCellTerrainType(cell.col, cell.row);
 }
 
 export function isGridCellMountain(col: number, row: number): boolean {

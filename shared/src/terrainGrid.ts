@@ -5,6 +5,340 @@ export const TERRAIN_GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
 
 type Team = 'RED' | 'BLUE';
 type GridCoordinate = { col: number; row: number };
+export type TerrainType =
+  | 'water'
+  | 'grass'
+  | 'forest'
+  | 'hills'
+  | 'mountains'
+  | 'unknown';
+
+const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
+  '280acd50-3c01-4784-8dc1-bb7beafdfb87':
+    'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
+    'gwwwwwwwwwwwhhgghhhfhhhhhhhfhhhhhggggggggggggggggggggggggggggffffgffggffgfggfffg' +
+    'gwwwwwwwwwwwwhfgghhfhhhhhhhhhhhhfgggggggggggggggggggggggggggffffffffffffffgfgfgg' +
+    'gwwwwwwwwwwwwwhgghhhhhhhhhhhhhhggggggggggggggggggggggggggggfffffffffffffgffgfgfg' +
+    'gwwwwwwwwwwwwwhgghfhhhhhhgggggggggggggggggggggggggggggggggffffffgfffffffgffgffgg' +
+    'ghwwwwwwwwwwwwhghhhhhhggggggggggggggggggggggggggggggggggggfgffffgfffffggggfffffg' +
+    'gghhgwwwwwwwwwhghhhhhggggggggggggggggggggggggggggggggggggggggggfgggfgggggffffffg' +
+    'ggggfhhhwwwwwwhfhhhhhfgggggggggggggggghffhgggggggggggggggggggggggggfgggggfgffffg' +
+    'ggggggghhwwwwwhghhhggggggggggggggggggghhhhgggggggggggggggggggggggggggggggffffgfg' +
+    'ggggggggghwwwwwgfhfggggggggggggggggggghffhgggggggggggggggggggggggggggggggffgfffg' +
+    'ggggggggghwwwwwwhhggggggggggggggggggggggggggggggggggggggghhhhgggggggggggggfggfgg' +
+    'gggggggggghwwwwwwwwhhggggggggggggggggggggggggggggggggggghhhhhgggggggggggggffgfhg' +
+    'gggggggggghwwwwwwwwwfhgggggggggggggggggggggggggggggggggghhhhhhfggggggggggfffgghg' +
+    'gggggggggghwwwwwwwwwwhgggggggggggggggggggggggggggggggfhhhhhhhhhggggggggggfffgghg' +
+    'ggggggggggghwwwwwwwwwwhgggggggggggggggggggggggggggggfhhhhhhhhhhgggggggggfffffhhg' +
+    'ggggggggggghhwwwwwwwwwhggggggggggggggggggggggfggggggghhhhhhhhhfhgggggggggffgghhg' +
+    'gggggggggggghwwwwwwwwwhgggggggggggggggggggfhhwfhhhhhghhgggghhhhhhfgggggggffgghhg' +
+    'gggggggggggghwwwwwwwwwhgggggggggggggggghhhwwwwwwwwwwhggfgffghhhhhfgggggggggghhhg' +
+    'gggggggggggfwwwwwwwwwwhgggggggggggggghhfwwwwwwwwwwwwwhggfffffhhhhggggggggggghfhg' +
+    'gggggggggggghwwwwwwwwwwhggggggggggggfhwwwwwwwwwwwwwwwhfffffffffhhggggggggggghhhg' +
+    'ghgggggggggghwwwwwwwwwwwhggggggggggfhwwwwwwwwwwwwwwwwhgffffffggggggggggggggghhhg' +
+    'ghhgggggggggghfwwwwwwwwwwhhgggggghhwwwwwwwwwwwwwwwwwwhgffgggfhhfgggggggggggghhhg' +
+    'ghhhggggggggggfhfghfwwwwwwwhhhhhfwwwwwwwwwwwwwwwwwwwwhgfgghhhgfhhhfgggggggggghhg' +
+    'ghhhgggggggggggggggfffhwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwhggfhwwwwwwwwhhgggggggggghg' +
+    'ghhhggggggggggghhffffffgwwwwwwwwwwwwwwwwhhhhhhfwwwwwwwhhhwwwwwwwwwwfhggggggggggg' +
+    'ghfhggggggggggghhhhfffffgwwwwwwwwwwwwwwhhggggghhwwwwwwwwwwwwwwwwwwwwhggggggggggg' +
+    'ghhhggggggggggfhhhhhgffgffhwwwwwwwwwwwhhggggggghwwwwwwwwwwwwwwwwwwwwffgggggggggg' +
+    'ghhggffgggggggfhhhhhhgggghfhwwwwwwwfhhgggggggggfwwwwwwwwwwwwwwwwwwwwwhgggggggggg' +
+    'ghhggffggggggggghfhhhhhhhhhghhwwwhhfgggggggggggghwwwwwwwwwwwwwwwwwwwwhgggggggggg' +
+    'ghhhffffggggggggghhhhhhhhhhfgggfhfgggggggggggggghhwwwwwwwwwwwwwwwwwwwhgggggggggg' +
+    'ghggfffgggggggggghhhfhhhhhggggggggggggggggggggggghfwwwwwwwwfhwwwwwwwwfgggggggggg' +
+    'ghggfffggggggggggfhhhfhhgggggggggggggggggggggggggghwwwwwfhhhhhhhwwwwwfgggggggggg' +
+    'ghfgffggggggggggggfhhhhgggggggggggggggggggggggggggghhhfhhggggggfwwwwwhgggggggggg' +
+    'ggffgfggggggggggggghhhhgggggggggggggggggggggggggggggfhgggggggggghwwwwhgggggggggg' +
+    'gfffgffggggggggggggggggggggggggggggggghhhhggggggggggggggggggghgghhwwwhgggggggggg' +
+    'gffffffggggggggggggggggggggggggggggggghhhhggggggggggggggggggghhfghwwwwgggggggggg' +
+    'gffffgfggggggfgggggggggggggggggggggggghhhhgggggggggggggggggghhhhghwwwwhggggggggg' +
+    'gfffffffgggfffggggfgfgggggggggggggggggffffggggggggggggggggghhhhhghwwwwhfgggggggg' +
+    'gfffffffffgfgffgfffggffffggggggggggggggggggggggggggggggggghhhhhhghwwwwwhhggggggg' +
+    'gffffffffffffgfffffffffgggggggggggggggggggggggggggggggghhhhhhfhgghwwwwwwwhgggggg' +
+    'gfffgfgffffffffffffffgfggggggggggggggggggggggggggghhhhhhhhhhhhhgghwwwwwwwwhggggg' +
+    'gffffffffffffffgfffffgfgggggggggggggggggggggggggghhhhhhhhhhhhhhggghwwwwwwwfhgggg' +
+    'gffgfgffffffffffffgffffggggggggggggggggggggggggghhhhhfhhhhhhhhhfggfhwwwwwwwfhggg' +
+    'ggggghgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
+  '30cae103-cb06-4791-a21d-241f488189d3':
+    'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
+    'gwwwwwwwwwwwwgfffffffffffffffffffggggwwwwwwwwwgfgffgggwwwwwggffffgffggffgfggfffg' +
+    'gwwwwwwwwwwwwwgggfffffffffffffffggggfwwwwwwwwffggffgwwwwwwwgffffffffffffffgfgfgg' +
+    'gwwwwwwwwwwwwwwggffffffffffggffggggffwwwwwwwfgffffgwwwwwwwgfffffffffffffgffgfgfg' +
+    'gwwwwwwwwwwwwwwggffffffgfggggggggggfffggwwwwgfgffggwwwwwfgffffffgffffffffffgffgg' +
+    'gwwwwwwwfggwwwwgffffffgggggggggggggfggggwwwfgffgggwwwwwwggfgffffgfffffggggfffffg' +
+    'gwwwwwggggggwwwgfffffgggggggggggggggfffggggfgfffgwwwwwwggggggggfgggfgggggffffffg' +
+    'gwwwwwgghhggwwggffffgggggggggggggggfffffgfgfffggwwwwwwwggggggggggggfgggggfgffffg' +
+    'gwwwwwgghhggwwggfffgghgggggghhhggghggfffffffffggwwwwwwwggggggggggggggggggffffgfg' +
+    'gwwwwwghhhhgwwwfgggghgwwwggggggggggggffffffgffgwwwwwwwwggggggggggggggggggffgfffg' +
+    'gwwwwwwgggghggwwggghgwwwwwgggggggggggggfffgggggwwwwwwfggggfgggggggggggggggfggfgg' +
+    'gwwwwwwwwggghhgffghggwwwwwwwgggggggghggffgggggwwwwwwwggggfgffgggggggggggggffgfgg' +
+    'gwwwwwwwwwwwggghhhggwwwwwwwwwwwfggggggggggwwwwwggggggggfffffgfgggggggggggfffggfg' +
+    'ggwggwwwwwwwwgggggwwwwwwwwwwwwwwgggggghggwwgggggggggggfffffffffggggggggggfffgffg' +
+    'ggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgghfwgggggggggggffffgfffffgggggggggffffgffg' +
+    'ggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwghggggggggggggffffgffffffgggggggggffgfffg' +
+    'gfgggggfwwwwwwwwwwwwwwwwwwwgwwwwwwwwwwwggggggggggggggfggggggfffffggggggggffgfffg' +
+    'gfggggggggwwwwwwwwwwwwwwwgggggwwwwwwwwggghggggggggggffgfgffggffffggggggggggggffg' +
+    'gffggggggggwwwwwwwwwwwwwwggggggfwwwwwggggghgggggggfffffgffffggfffggggggggggffffg' +
+    'gfgggggggggggwwwwwwwwwwwggfffgggggwwwgggggghgggggfffffgfffffffgffggggggggggggffg' +
+    'gffggggggggggwwwwwwwwwwfggffffffggggwfggggghggggfffffggffffffgggggggggggggggfffg' +
+    'gfffggggggggggwwwwwwwwggfgffffffffgggwggggghgggfgfffffgffgggggggggggggggggggfffg' +
+    'gfffgggggggggggggggggggffgffffffffgggwwgggghgggfffffffgfggwwwwwwwwgggggggggffffg' +
+    'gfffgggggggggggggggffffffggfffffgggggwwwwfgggggfgffffgggwwwwwwwwwwwggggggggggffg' +
+    'gffgggggggggggggfgfffffffgffffffggggwwwwwghgwwggggffffggwwwwwwwwwwwgggggggggggfg' +
+    'gfffgggggggggggfffggffffggffffggggwwwwwwwghgwwwwgggggggwwwwwwwwwwwwwwggggggggffg' +
+    'gffggggggggggggffffggffgfgffggggwwwwwwwwwggfwwwwwfgggggwwwwwwwwwwwwwwwgggggggffg' +
+    'gffggffggggggggfffffggggggfggggwwwwwwwwwghgwwwwwwwwfgwwwwwwwwwwwwwwwwwwwfgggggfg' +
+    'ggffgffgggggggggffgffgggfffggggwwwffggggghgggwwwwwwwwwwwwwwwwffffwwwwwwwwwwggggg' +
+    'gfffffffgggggggggffffffffgfgggwwwgggggghghggggwwwwwwwwwwwwwggggggggwwwwwwwwggggg' +
+    'gfggfffggggggggggfffgfffffggggwwggghgggggghggggggwwwwwwwwgghhhggghgggwwwwwwfgfgg' +
+    'gfggfffgggggggggggffffffgggffwwwgggggggfgggghggggggwwwwggghgffwwfgghggwwwwwwwwwg' +
+    'ggfgffggggggggggggfffffggwwwwwwgggggfffffggggghhggggwwgghggwwwwwwwwghggggwwwwwwg' +
+    'ggffgfggggggggggggggfgfgfwwwwfghhgggffffffffgggghhgggghhggwwwgggwwwgghggggwwwwwg' +
+    'gfffgffgggggggggggggggggggghhhgggggffffffffffggggggggggfwwwfggggwwwwgghffgwwwwwg' +
+    'gffffffgggggggggggghhhhhhgggfgggfgfffffffgffgfgggggggggwwggggffgfwwwwghhhgwwwwwg' +
+    'gffffgfggggggfgggggggggggwwwwggfffffffggggfffgggggggggggggggffffgwwwwghffgfwwwwg' +
+    'gfgfffffgggfffggggfgfgggggwwwggfffffggfwwwfffgggggggggggggggfffggwwwwgggggwwwwwg' +
+    'gfffffffffgfgffgfffggffffgwwwwgfffgggfwwwwggggggggggggggggfffffggwwwwwwfwwwwwwwg' +
+    'gffffffffffffgfffffffffggwwwwwgffffwwwwwwfggggggggggggggggfffffggwwwwwwwwwwwwwwg' +
+    'gfffgfgffffffffffffffgfggwwwwgfffgwwwwwwwwggggggggffffgffffffffggwwwwwwwwwwwwwwg' +
+    'gffffffffffffffgfffffgfgwwwwwgfffwwwwwwwwwwggggggfffffgfffffffgfggwwwwwwwwwwwwwg' +
+    'gffgfgffffffffffffgffffgwwwwwgffgwwwwwwwwwfgggggffffffffffffffffffgwwwwwwwwwwwwg' +
+    'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
+  '7391c2fe-3bbb-4805-b2e8-56b10dc042cf':
+    'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmg' +
+    'mffgfffffffgfhgghhhfhhhhhhhfhhhhhgggfmmmmmmmmmmmgmmfhhhhgggggffffgffggffgfggfffg' +
+    'mffffgfffffffgggghhfhhhhhhhhhhhhfgggfmmmmmmmfmmffmmhhhhhggfgffffffffffffffgfgffg' +
+    'gfffggggfffffghgghhhhghhhhhhhhhgggggggmmmmmmmmwmfhhhhhhggfgfffffffffffffgffgfgfh' +
+    'mwffghhhgggggghgghfhhhhhhggggggggggggmmmmmmmmmmmmhhhhhggfgffffffgffffffffffgffgh' +
+    'gffgghhhgggggghghhhhhhggggggggggggggmmgfmmmgmmmmhhhhgggfggfgffffgfffffggggfffffh' +
+    'gffggffhggggghhghhhhhfgggghhggggghhhgmmmhhhhhfmhhhhggggmgggggggfgggfgggggffffffh' +
+    'gfffggggggfghhgfhhhhhfgghhhhhhhhhhhhmmhhffmhfhhhhhgggggggggggggggggfgggggfgffffg' +
+    'gfffgfgggggghhgghhhgggghhhhhhhhhhhhhhhhhffhmmmhhgggggggggggggggggggggggggffffgfh' +
+    'gffffgfgfggghhggfhfggghhhhhhhhhhhhhhhhhhhhhhhhhgggggggfggggggggggggggggggffgfffh' +
+    'gffgggfgggggghhgggghhhhhhhhhhhhhhhhhhhhhgggghggggggggfggggggggggggggggggggfgmfgh' +
+    'gwwwwwgfgggggghhhhhhhhhggggggggghhhhhhhgggggggggffggggggggggggggggggggggggffgffg' +
+    'gwwwwwwgggggggggghhhhggggggffffggghhhggggggfffmggggggggggggggggggggggggggffmggmh' +
+    'ggfggwwfggggggggggggggggffffffgfggggggggggfggggggggghhhhgggggggggggggggggfffggfm' +
+    'mggggfwwfggggggggggggggfffgfwwgfffgggggggwgghhhghhhhhhhhggggggggggggggggfffffmgm' +
+    'ggggggwwwwfggffggggggggfgfwwwwwffgffggggggghhfhhhhhhhhhfgggggggggggggggggffgmmmm' +
+    'gggggggwwwwwfgfggggggfffmwwwfwwwwgggggfgghhhhhhhhhhhhhgfgggggggggggggggggffgmmmm' +
+    'gmgggggggfwwwffffggfffggwwwgggwwwwwfgggghhhhhhhhhhhhhggfgffgggggggggggggggggmmgg' +
+    'gmgggggggggwwwgffffffgfwwwgghhgfwwwwwgghhhfhhhhhhhhhhffgffffggggggggggggggggmmmg' +
+    'gmggggggggggwwwgfggffwwwwgghhhhgggwwwgghhhhhhhhhhhhhgfgfffffffggggggggggggggmmmm' +
+    'gfmggggggggggwwwffffwwwfgghhhhhhgggwwwghhhhhhhhfhhhhhffffffffgggggggggggggggfmmm' +
+    'gmmmgggggggggmwwwwwwwwggfghhhhhfhhgfwwgghhhggghhfhhhhfffffgggffwffggggggggggfmgm' +
+    'gmmfgggggggggggffwwwfggffghhhhhhhhggwwwgggffgfghhhhhhggfggffwwwwwwwgggggggggmmmg' +
+    'mgmfgggggggggggggggffffffghhhhhhhhggfwwgggfffffghhhhhgfggwwwwwfffwwwgggggggggmfg' +
+    'mmmmggggggggggggggfffffffghhhhhhhggggwwwwfmgfgffgghhhgfgfwwffggggfwwggggggggggmm' +
+    'gmmmggggggggggggggggffffgghfhhhhggfgggwwwwwwwwggfffggffgwwfgggggggwwfgggggggggmm' +
+    'mmmmgggggggggggggggggffgfghhhhgmmgffffgwwwwwwwwfggffffgfwwggggggggwwwgggggggggmg' +
+    'gmmmgffggggggggggggggggghhhhhhggffgfffffggggmwwwwwfgggfwwfgggggggfgwwwgggggggggg' +
+    'gmmmgffggggggggggggghhhhhfhhhhggffffffgffffffffwwwwwwwwwwgggggggggggwwwwgggggggg' +
+    'mmmfffffggggggggggghhfhhhhhhhgfgffffffffffffffgggfwwwwwfgwwwwggggggggwwwwggggggg' +
+    'mfggfffggggggggggghhhhhhhhhhgggffffffffffgfffggwwfggfggmwwgwwgfggggggggwwwgggggg' +
+    'gmggfffgggggggggghhhhhhhhhgffggfffffgfffggggggmwwwwwwwwwgwwwwgggggggggggwwwfffwg' +
+    'gmfgffgggggggggghhhhhhhhgfgggfggfggffgggggggggwwwwwwwwwwwwwwwfgggggggggggwwwwwwg' +
+    'ggffgfggfffggggghhhffhhgfggggfgggggggggggggggwwwmwwwwwwwwwgwggggggggggggggffwwfg' +
+    'gffffffgfhfggggghhhhhhhgfggggggggggggggggggggwwwwwwwwwwwwwwgmgggggggggggffggggfg' +
+    'gffffffgfhfggggghhhgggggfggggggggggggggggggggwmwwwfwwwfwwwgmggggggggfhfgffgfgffg' +
+    'gffffgfghhhggfgggggggggggfggggggggggggggggggwfwmwwwwmwwwmwmfggggggggfhfgffffgffm' +
+    'gfffffffgggfffggggfgfggggggggggggggggggggggmwwwgwwmwwwwwwwffgggggggghgfgfffffffg' +
+    'gffffffffwgfgffgfffggmfffgggggggggggggggggfwwwwwwwwwwwwwwwwggggggggggggffgffffgg' +
+    'gffffwfffffffgfffffffffggfgggggggggggggmwwwwwwwwwwwgwwwwwwwgfggggfgffffffgffffgm' +
+    'gfffgfgffffffffffffffgfgggggggggggggggwwwwmwwmwwwmwwwwwwwggfggggffffgfgffffffgfm' +
+    'gffffffffffffffgfffffgfgfggggggggggggmwwwwwwwwwwwwwwwwwwgfgggggffggffffffffffffg' +
+    'mffgfgfffffffffffffffffggggggggggggggwwwmwwwwwwwgwwwwwwmgggggggffffffgfgffgffggg' +
+    'gggmgmmmmmgmmmmmmgggghgggggggggggggggmgmgmggmmmmmgmggggmgggggggggggggggggggggggg',
+  '8183775d-55ac-4f6b-a2e1-1407cdbc9935':
+    'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
+    'gwwwwwwwwwwwwggghhhfhhhhhhhfhhhhhgggfmmmmmmmmmmmmmmfggwwwwwggffffgffggffgfggfffg' +
+    'gwwwwwwwwwwwwwggghhfhhhhhhhhhhhhfgggfmmmmmmmfmmffmmgwwwwwwwgffffffffffffffgfgfgg' +
+    'gwwwwwwwwwwwwwwgghhhhghhhhhhhhhgggggggmmmfmmmfwmmggwwwwwwwgfffffffffffffgffgfgfg' +
+    'gwwwwwwwwwwwwwwgghfhhhhhhgggggggggggggfmmmmmmmmmmggwwwwwfgffffffgffffffffffgffgg' +
+    'gwwwwwwwfggwwwwghhhhhhggggggggggggggmmmfmmmmmmmmggwwwwwwggfgffffgfffffggggfffffg' +
+    'gwwwwwggggggwwwghhhhhfggggggggggggggmmmmgggggfmggwwwwwwggggggggfgggfgggggffffffg' +
+    'gwwwwwgfhhggwwgfhhhhhfggggggggggggggmmggffmgfgggwwwwwwwggggggggggggfgggggfgffffg' +
+    'gwwwwwgfhhggwwgghhhgghgggggghhhgghhgggggffggmmggwwwwwwwggggggggggggggggggffffgfg' +
+    'gwwwwwghhhhgwwwffhgghgwwwggggggggghggggggggggggwwwwwwwwggggggggggggggggggffgfffg' +
+    'gwwwwwwgggghggwwggghgwwwwwgggggggggggggggggggggwwwwwwfggghhhhgggggggggggggfggfgg' +
+    'gwwwwwwwwggghhgffghggwwwwwwwgggggggghgggggggggwwwwwwwggghhhhhgggggggggggggffgfmg' +
+    'gwwwwwwwwwwwgghhhhggwwwwwwwwwwwfggggghggggwwwwwggggggggghhhhhhfggggggggggfffggmg' +
+    'ggwggwwwwwwwwgggggwwwwwwwwwwwwwwgggggghggwwggggggggggfhhhhhhhhhggggggggggfffggfg' +
+    'ggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgghfwggggggggggfhhhhhhhhhhgggggggggffffwmmg' +
+    'ggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwghgggggggggggghhhhhhhhhfhgggggggggffgmmmg' +
+    'gggggggfwwwwwwwwwwwwwwwwwwwgwwwwwwwwwwwgggggggggggggghhgggghhhhhhfgggggggffgmmmg' +
+    'gmmgggggggwwwwwwwwwwwwwwwgggggwwwwwwwwggghggggggggghhhgfgffghhhhhfggggggggggmmmg' +
+    'gmgggggggggwwwwwwwwwwwwwwggggggfwwwwwggggghggggggghhhhfgfffffhhhhgggggggggggmmmg' +
+    'gmgggggggggggwwwwwwwwwwwggghfgggggwwwgggggghgggghhhhhhgffffffffhhgggggggggggmmmg' +
+    'gfmggggggggggwwwwwwwwwwfggghhfhhhfggwfggggghggghhhhhhhgffffffgggggggggggggggfmmg' +
+    'gmmmggggggggggwwwwwwwwggfghhhhghhhgggwggggghgghhhhhhhhgffgggggggggggggggggggfmmg' +
+    'gmmfgggggggggggggggggggffghhhhhhhhgggwwgggghgghhhghhhhgfggwwwwwwwwggggggggggmmmg' +
+    'gmmfgggggggggggggggffffffghhhhhhhggggwwwwwggggfhhhfhhfggwwwwwwwwwwwggggggggggmfg' +
+    'gmmmggggggggggghhffffffffghhhhhhggggwwwwwghgwwgggggfhmggwwwwwwwwwwwgggggggggggmg' +
+    'gmmmggggggggggghhhhfffffgfhhhhggggwwwwwwwghgwwwwgggggggwwwwwwwwwwwwwwgggggggggmg' +
+    'gmmmggggggggggfhhhhhgffgfghhhgggwwwwwwwwwggfwwwwwfgggggwwwwwwwwwwwwwwwgggggggmmg' +
+    'gmmmgffgggggggfhhhhhhgggghhggggwwwwwwwwwghgwwwwwwwwfgwwwwwwwwwwwwwwwwwwwfggggggg' +
+    'gmmmgffggggggggghfhhhhhhhhhggggwwwfmggggghgggwwwwwwwwwwwwwwwwwfwfwwwwwwwwwwggggg' +
+    'gmmfffffggggggggghhhhhhhhhhfggwwwgggggghghggggwwwwwwwwwwwwwggggggggwwwwwwwwggggg' +
+    'gfggfffgggggggggghhhfhhhhhfgggwwggghgggggghggggggwwwwwwwwgghhhggghgggwwwwwwfgfgg' +
+    'gmggfffggggggggggfhhhhhhgggffwwwghgggggggggghhgggggwwwwggghgfwwwwgghggwwwwwwwwwg' +
+    'gmfgffggggggggggggfhhhhggwwwwwwgghgggggggggggghhggggwwgghggwwwwwwwwghggggwwwwwwg' +
+    'ggffgfggggggggggggghhhhgfwwwwfghhggggggggggggggghhgggghhggwwwggfwwwgghggggwwwwwg' +
+    'gfffgffggggggggggggggggggghhhhhggggggmmggggggggggggggggwwwwfghggwwwwgghffgwwwwwg' +
+    'gffffffggggggggggghhhhhhhgggfgggmhwggfmmmggggggggggggggwwgggghhffwwwwghhhgwwwwwg' +
+    'gffffgfggggggfgggggggggggwwwwggmmmmgggmmmfgggggggggggggggggghhhhgwwwwghffgfwwwwg' +
+    'gfffffffgggfffggggfgfgggggwwwmmmmmmgggmmmmfgggggggggggggggghhhhhgwwwwgggggwwwwwg' +
+    'gfffffffffgfgffgfffggffffgwwwwgmmmmfmmmmmmfggggggggggggggghhhhhhmwwwwwwfwwwwwwwg' +
+    'gffffffffffffgfffffffffggwwwwwggmmmmmmmfmmmgggggggggggghhhhhhfhggwwwwwwwwwwwwwwg' +
+    'gfffgfgffffffffffffffgfggwwwwgggmmmmmmmmfmmfgggggghhhhhhhhhhhhhggwwwwwwwwwwwwwwg' +
+    'gffffffffffffffgfffffgfgwwwwwgggmmmmmmmmmmmmggggghhhhhhhghhhhhhgggwwwwwwwwwwwwwg' +
+    'gffgfgfffffffffffffffffgwwwwwgmmmmmmmmmfmmmggggghhhhhfhhhhhhhhhfgggwwwwwwwwwwwwg' +
+    'ggggghghghgggghggggggggggggggggggggggggggggggggggggggggghggggggggggggggggggggggg',
+  '8b3c0e4a-7a4a-41db-b036-cdee835944b1':
+    'ggmggggggmggmmgmgggggggggggggggggggggggggggggggmmgggmmgggggggmgggggggggggggggggg' +
+    'ghhhhhhhhhhhhhgffffffffffffffffffgggmfggggggggmmgggmmmmmfggggffffgffggffgfggfffg' +
+    'ghhhhhhhhhhhhhgggffffmffffffffffgggmmmfffgfmmfmmmmmmmmmmmmggffffffffffffffgfgfgg' +
+    'ghhhhhhhhhhhhhhggffffffffffggffggggmmmmmmmwmmmmmmmmmmmmmmggfffffffffffffgffgfgfg' +
+    'ghhhhhhhhhhhhhhggffffffgfgggggggggggggmmmmmmmmmmmmmmggfgggffffffgfffffffmffgffgg' +
+    'ghhhhhhhhhhhhhhgffffffgggggggfmmmmmfgggggmmmmmwmmmmwmmggggfgffffgfffffggggfffffg' +
+    'ghhhhhhhhhhhhgggfffffgggggggmmmmmmmmmmggwmmmwmmwmmfmfmfggggggggfgggfgggggffffffg' +
+    'ghhhhhhmhhhhggggffffgggggggggggggggmmmmmmmwmmmmmmggggggggggggggggggfgggggfgffffg' +
+    'ghhhhhhghhhhggggfffgghgggggghhhggghggmmmmmmmmwmfmmmggmmggggggggggggggggggffffgfg' +
+    'ghhhhhhhhhhhgggggggghggggggggggmfgggggmmggmggmmmwmmmmmmmgggggggggggggggggffgfffg' +
+    'ghhhhhhhhhhhggggggghggggggggggmmmmggggggmmmfmmmmmmmmmgggggfgggggggggggggggfggfgg' +
+    'gwfhhhhhhhhghhgggghgggggggggggmmfmgghggmmfmmmmwmmmmmmfgggfmffgggggggggggggffgfmg' +
+    'gwwwhhhgggggggghhhgggggggggggggggffmghgggfmmmmmmwffggggfffffgfgggggggggggffmggmg' +
+    'gwwwfhggggggggggggggggggggggggggmmmmwghgfmwmmmmmmfggggfffffffffggggggggggfffggfg' +
+    'gwwwwggggggggggggggggggggggfwfggggmfmmghgggmmmmmmmmggffffgfmfffgggggggggffffwmmg' +
+    'ggwwwwggggggggggggggggggwwwwwwwwggggmmgghgmmmmgggmgggffffgffffffgggggggggffgmmmg' +
+    'gggfwwwwgggggggggggggggwwwwwwwwwwwggggggggggfmmfmmmmgfggggggfffffggggggggffgmmmg' +
+    'gmmgwwwwwwggggggggggggwwwwwwwwwwwwwwggfmghgmmmmwggggffgfgffggffffgggggggggggmmmg' +
+    'gmgggwwwwwwwggggggggfwwwwggggggfwwwwggmmmghggmmmggfffffgffffgggffgggggggggggmmmg' +
+    'gmggggggwwwwwwwwwwwwwwwwggfffggggwwwwggmmgghgggggfffffgfffffffgffgggggggggggmmmg' +
+    'gfmggggggwwwwwwwwwwwwwwgggffffffggwwwgggggghggggfffffggffffffgggggggggggggggfmmg' +
+    'gmmmgggggggfwwwwwwwwwgggfgffffffffgwwwggggghgggfgfffffgffmgggmmgggggggggggggfmmg' +
+    'gmmfggggggggggggfffggggffgffffffffgwwwwwggghgggfffffffgfgggwwwwwwfggggggggggmmmg' +
+    'gmmfgggggggggggggggfffmffggfffffgggwwwwwwwgggggfhffffggggwwwwwwwwwwwmggggggggmfg' +
+    'gmmmggggggggggggfgfffffffgffffffggwwwwwwwwhwwwggggffffggwwwwwwwwwwwwwwwwwwggggmg' +
+    'gmmmgggggggggggfffggffffggffffgggwwwwwwwwfhwwwwggggggggwwwwwwwwwwwwwwwwwwwwgggmg' +
+    'gmmmgggggggggggffffggffgfgffgggwwwwwwwwwwggwwwwwwwgggfwwwwwwwfgfwwwwwwwwwwwwgmmg' +
+    'gmmmgffggggggggfffffggggggfggggwwwwwwmggghfwwwwwwwwwwwwwwwfgggggggggmwwwwwwwwggg' +
+    'gmmmgffgggggggggffmffmggfffgggwwwwwgggggghgggwwwwwwwwwwwwggggggggggggggggwwwwwgg' +
+    'gmmfffffgggggggggffffffffgfggwwwwgggggghghggggwwwwwwwwwfggggggggggggggggghwwwwwg' +
+    'gfggfffggggggggggfffgfffffggwwwwggghgggggghgggggfwwwwwggggghhhggghgghhhhhhhfwwwg' +
+    'gmggfffgggggggggggffffffgggwwwwwgggggggggggghhgggggggggggghgggggggghhhhhhhhhwwwm' +
+    'gmfgffggggggggggggfffffggwwwwwwgghgggggggggggghhgggggggghgggggggggghhhhhhhhhhwwg' +
+    'ggffgfggggggggggggggfffgfwwwwmghhggggggggggggggghhgggghhggggggggghhhhhhhhhhhhhhg' +
+    'gfffgffgggggggggghggggggfgghhhhggggggmmgggggggggggggggggggggggggghhhhhhffhhhhhhg' +
+    'gffffffgggggggggggghhhhhhggfwgggmhfggmmmmggggggggggggggggggggmfgghhhhhhhhhhhhhhg' +
+    'gffffgfggggggfgggggggggggwwwwggmmmmgggmmmfggggggggggggggggggffffghhhhhhffhhhhhhg' +
+    'gfmfffffgggfffggggfgfgggggwwwgmmmmmgggmmmmfgggggggggggggggggfffgghhhhhhhhhhhhhhg' +
+    'gfffffffffgfgffgfffggffffgwwwwgmmmmfmmmmmmfgggggggggggggggfffffghhhhhhhhhhhhhhhg' +
+    'gffffffffffffgfffffffffggwwwwwggmmmmmmmfmmmgggggggggggggggfffffghhhhhhhhhhhhhhhg' +
+    'gfffgfgffffffffffffffgfggwwwwgggmmmmmmmmfmmfggggggffffgffffffffghhhhhhhhhhhhhhhg' +
+    'gffffffffffffffgfffffgfgwwwwwgggmmmmmmmmmmmmgggggfffffgmffffffgfgghhhhhhhhhhhhhg' +
+    'gffgfgffffffffffffgffffgwwwwwgmmmmmmmmmfmmmgggggffffffffffffffffffghhhhhhhhhhhhg' +
+    'ghgghghhhghggghggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
+  'b94a7e47-8778-43d3-a3fa-d26f831233f6':
+    'mmmmmmmmmmmmmmmgmgggggggmgmmmmmmgmmmmmmmgmmmmmmmmmmmmmmmmmmmmmgmmmmmmmmmmmmmmmmg' +
+    'mwwwwwwwwwwwwggghhhfhhhhhhhfhhhhhgggfmmmmmmmmmmmmmmwggwwwwwgmfffmgffggffgfggfffm' +
+    'gwwwwwwwwwwwwwggghhfhhhhhhhhhhhhfgggfmmmmmmmfmmffmmgwwwwwwwgffffffffffffffgfgfmg' +
+    'gwwwwwwwwwwwwwwgghhhhghhhhhhhhhgggggggmmmmmmmmmmmggwwwwwwwgfffffffffffffgffgfmfg' +
+    'gwwwwwwwwwwwwwwgghmhhhhhhggggggggggggmmmmmmmmmmmmggwwwwwfgffffffgfffffffmffmffgg' +
+    'gwwwwwwwwwwwwwwghhhhhhggggggggggggggmmmfmmmmmmmmggwwwwwwggfgffffgfffffggggfffffg' +
+    'gwwwwwwwwwwwwwwghhhhhmggggggggggggggmmmmgggggfmgmwwwwwwggggggggfgggfgggggffffmfg' +
+    'mwwwwwwwwwwwwwgfhhhhhfggggggggggggggmmggmfmgfmggwwwwwwwggggggggggggfgggggfgffffm' +
+    'gwwwwwwwmmmmmmhhhhhhhhhhhhhhhhhhhhhhhhhhffhhmmhhmmmmmmmhhhhhhhhhhhhhhhhhgffffmfg' +
+    'gwwwwwwwwwwwwwwffhmgggwwwgggggggggggggggggggghgwwwwwwwwggggggggggggggggggffmmffg' +
+    'gwwwwwwwwwwwwwwwgggwwwwwwwggggggmggggggggggggggmwwwwwwggghhhhgggggggggggggfmmfgg' +
+    'mwwwwwwwwwwwwwwwwwwwwwwwwwwwmghgggggggggggggggwwwmwwwggghhhhhgggggggggggggffgfmm' +
+    'gwwwwwwwwwwwwwwwwwwwwwwwwwwwmwwfggggggggggwwwwwggggggggghhhhhhfggggggggggffmggmm' +
+    'ggwggwwwwwwwwwwwwwwwwwwwwwwwwwwwgggggggggwwggggggggggfhhhhhhhhhggggggggggfffggfm' +
+    'ggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwggwwwggggggggggfhhhhhhhhhhgggggggggffffwmmm' +
+    'ggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgggggggggggggghhhhhhhhhfhgggggggggmfmmmmm' +
+    'gggggggfwwwwwwwwwwwwwwwwwwwgwwwwwwwwwwwgggggggggggggghhgggghhhhhhfgggggggffgmmmm' +
+    'gmmgggggggwwwwwwwwwwwwwwwgggggwwwwwwwwggggggggggggghhhgfgffghhhhhfggggggggggmmmm' +
+    'gmgggggggggwwwwwwwwwwwwwwggggggmwwwwwggggggggggggghhhhmgffffmhhhhgggggggggggmmmm' +
+    'gmgggggggggggwwwwwwwwwwwmgmhfgggggwwwggggggggggghhhhhhgffffffffhhghgggggggggmmmm' +
+    'gfmgggghhhgggwwwwwwwwwwwggmhhfhhhfggwfggggggggghhhhhhhgffffffggggggghghhhgggfmmm' +
+    'gmmmggghhgggggwwwwwwwwggfghhhhmhhhgggwgggggggghhhhhhhhgffggggggggggggghhhgggfmmm' +
+    'gmmfggghhggggggggggggggffghhhhhhhhgggwwggggggghhhmhhhhgfggwwwwwwwwgggghhhgggmmmg' +
+    'gmmfggghhhghgggggggffffffmhhhhhhhggggwwwwfggggfhhhfhhmggwwwwwwwwwwwggghhhggggmwg' +
+    'gmmmggggggggghghhffffffffghhhhhhggggwwwwwwwwwwgggggfhmggwwwwwwwwwwwgggggggggggmg' +
+    'gmmmggggggggggghhhhmffffgmhhhhggggwwwwwwwwwwwwwwmggggggwwwwwwwwwwwwwwgggggggggmg' +
+    'gmmmggggggggggfhhhhhgffgfghhhgggwwwwwwwwwwwwwwwwwmgggggwwwwwwwwwwwwwwwgggggggmmg' +
+    'gmmmgffgggggggfhhhhhhgggmhhggggwwwwwwwwwwwwwwwwwwwwwgwwwwwwwwwwwwwwwwwwwfggggggm' +
+    'gmmmmffggggggggghfhhhhhhhhhggggwwwfmgggggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwggggm' +
+    'gmmmffffggggggggghhhhhhhhhhfggwwwgggggggggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwggggg' +
+    'gfggfffgggggggggghhhfhhhhhfgggwwgggggggggggggggggwwwwwwwwwwwwwwwwwwwwwwwwwwfgfgg' +
+    'gmggfffghggggggggmhhhhhhggggfwwwggggggggggggggggggmwwwwwwwwwwwwwwwwwwwwwwwwwwwwm' +
+    'gmfgffggghggggggggfhhhhggwwwwmwgggggggggggggggggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwm' +
+    'ggffmfgggghgggggggghhhhgfwwwwwghggggggggggggggggggggggwwwwwwwggmwwwwwwwwwwwwwwwg' +
+    'gfffmffgggghggggggggggggwwwwwwgggggggmmggggggggggggggggwwwwfghmgwwwwwwwwwwwwwwwg' +
+    'gfmffffghhhhhhhhhhhhhhhhmmmmmhhhmhwhhmmmmhhhhhhhhhhhhhhmmhhhhhhfmmmmmmmmwwwwwwwg' +
+    'mffffgfgggggmfgggggggggggwwwwggmmmmgggmmmfgggggggggggggggggghhhhgwwwwwwwwwwwwwwg' +
+    'mfmfffffgggfffggggfgfgggggwwwmmmmmmgggmmmmfgggggggggggggggghhhhhgwwwwwwwwwwwwwwg' +
+    'gfffffffffmfmffgfffggmffmgwwwwgmmmmfmmmmmmfggggggggggggggghhhhhhmwwwwwwwwwwwwwwg' +
+    'mffffffffffffgfffffffmfggwwwwwggmmmmmmmfmmmgggggggggggghhhhhhmhggwwwwwwwwwwwwwwg' +
+    'gfffmfgffffffffffffffmfggwwwwgggmmmmmmmmfmmfgggggghhhhhhhhhhhhhggwwwwwwwwwwwwwwg' +
+    'gffffffffffffffmfffffgfgwwwwwggmmmmmmmmmmmmmggggghhhhhhhhhhhhhhgggwwwwwwwwwwwwwg' +
+    'gffmfgffffffffffffmffffgwwwwwgmmmmmmmmmfmmmggggghhhhhfhhhhhhhhhmgggwwwwwwwwwwwwg' +
+    'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
+  'c927a143-9ad1-49d6-9e6f-35b2b7927b6d':
+    'gggggggggggggmggggggggggggggggggggggggmggggmmmmmmggggggggggggggggggggggggggggggg' +
+    'ggggggggggggfhgghhhfhhgghhhfhhhhhgggfggmmmgggmmggmmfghhhgggggffffgffggffgfggfffg' +
+    'ggggggggggggwgggghhfhghhhhhhhhhhfgggfgmmmgmgfmmffmmghhhhggwgffffffffffffffgfgfmg' +
+    'ggggggggggggwghgghhggghhhhhhhhhgggggggmmmfmmmffmmgghhhhggwgfffffffffffffgffgfgfg' +
+    'gggggggggggggghgghfgghhhhgggggggggggggfmgmmmmmmmmhghhhggfgffffffgffffffffffgffgg' +
+    'gggggggggggggghghhhhhhgggggggggggggggggfgmmgggmmgghhgggwggfgffffgfffffggggfffffg' +
+    'ggggggggggggghhghhhhhfgggghhhgggghhhggmmhhhhhfmhghhggggggggggggfgggfgggggffffffg' +
+    'ggggggggggwghhgfhhhhhfgghhhhhhhhhhhhgmhhffmhfhhhhhgggggggggggggggggfgggggfgffffg' +
+    'gggggggggggghhgghhhgggghhhhhhhhhhhhhhhhhffhhgmhhgggggggggggggggggggggggggffffgfg' +
+    'ggggggggwggghhggfhfggghhhhhhhhhhhhhhhhhhhhhhhhhgggggggwggggggggggggggggggffgfffg' +
+    'gfggggggggggghhgggghhhhhhhhhhhhhhhhhhhhhgggghggggggggfggggggggggggggggggggfggfgg' +
+    'gwwwwwgwgggggghhhhhhhhhggggggggghhhhhhhgggggggggffggggggggggggggggggggggggffgfmg' +
+    'gwwwwwwgggggggggghhhhggggggffffggghhhggggggfwwwggggggggggggggggggggggggggfffggmg' +
+    'ggfggwwwggggggggggggggggffffffgfggggggggggwggggggggggggggggggggggggggggggfffggfg' +
+    'gggggwwwfggggggggggggggfffgwwwgfffgggggggwggggggggggggggggggggggggggggggffffwmgg' +
+    'ggggggwwwwwggffggggggggfgwwwwwwffgffgggggggggggggggggggggggggggggggggggggffggmgg' +
+    'gggggggwwwwwfgfggggggfffgwwwwwwwwgggggwggggggggggggggggggggggggggggggggggffggggg' +
+    'gggggggggwwwwwfffggfffggwwwgggwwwwwfggffffgggggggggggggfgffgggggggggggggggggmggg' +
+    'gggggggggggwwwgffffffgfwwwgggggfwwwwwghhhhggggggggggggggffffggggggggggggggggmmmg' +
+    'ggggggggggggwwwgfggffwwwwgggggggggwwwghhhhgggggggggggggfffffffggggggggggggggmmmg' +
+    'gfmggggggggggwwwwmmwwwwwgggggggggggwwwhhhhgggggggggggggffffffgggggggggggggggfmgg' +
+    'gmmmggggggggggwwwwwwwwggfggggggggggfwwgggggggggggggggggffggggwwwwwggggggggggfmgg' +
+    'gmmfgggggggggggfwwwwwggffgggggggggggwwwggggggggggggggggfggwwwwwwwwwgggggggggmmmg' +
+    'ggmfgggggggggggggggffffffgggggggggggwwwggggggggggggggggggwwwwwwfwwwwgggggggggmfg' +
+    'gmmmggggggggggggggfffffffggggggggggggwwwwwggggggggggggggwwwwfggggwwwgggggggggggg' +
+    'gmmmggggggggggggggggffffggggggggggfgggwwwwwwwwggggggggggwwfgggggggwwfggggggggggg' +
+    'gggmgggggggggggggggggffgfgggggggmggggggwwwwwwwwwgggggggwwwggggggggwwwggggggggggg' +
+    'gggggffggggggggggggggggggggggggggggggggggggggwwwwwwgggwwwfgggggggfgwwwgggggggggg' +
+    'ggmggffgggggggggggggggggggggggggggggggggggggggwwwwwwwwwwwgggggggggggwwwwgggggggg' +
+    'ggmfffffggggggggggggggggggggggwggggggggggggggggggwwwwwwwgggggggggggggwwwwggggggg' +
+    'gfggfffgggggggggggggggggggggggggggggggggggggggggggggfgggggggggwggggggggwwwgggggg' +
+    'gmggfffggggggggggggggggggggffgggggggggggggggggggggggggggggggggggggggggggwwwwfwwg' +
+    'gmfgffgggggggggggggggggggwgggggggggggggggggggggggggggggggggggwgggggggggggwwwwwwg' +
+    'ggffgfggggggggggggggggggfgggggggggggggggggggggggggggggggggggggggggggggggggwwwwwg' +
+    'gfffmffgggggggggggggggggfggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
+    'gffffffgggggggggggggggggwggggggggggggghhhhgggggggggggggggggggggggggggggggggggggg' +
+    'gffffgfggggggfgggggggggggwgggggggggggghhhhgggggggggggggggggfgggggggggggggggggggg' +
+    'gfffffffgggfffggggfgfggggggggggggggggghgghgggggggggggggggggwgggggggggggggggggggg' +
+    'gfffffffffgfgffgfffggffffggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
+    'gffffffffffffgfffffffffggfggggggggggggggggggggggggggggggggggfggggggggggggggggggg' +
+    'gfffgfgffffffffffffffgfggggggggggggggggggggggggggggggggggggwgggggggggggggggggggg' +
+    'gffffffffffffffgfffffgfgwggggggggggggggggggggggggggggggggwgggggggggggggggggggggg' +
+    'gffgfgffffffffffffgffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
+    'ggggghgggggggghggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
+};
+
+const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
+  w: 'water',
+  g: 'grass',
+  f: 'forest',
+  h: 'hills',
+  m: 'mountains',
+  u: 'unknown',
+};
 
 const MOUNTAIN_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
   '280acd50-3c01-4784-8dc1-bb7beafdfb87': [
@@ -237,6 +571,15 @@ function getActiveMountainCellIndexSet(): Set<number> {
   return MOUNTAIN_CELL_INDEX_SET_BY_MAP_ID.get(getFallbackMapId()) ?? new Set<number>();
 }
 
+function getActiveTerrainCodeGrid(): string {
+  const activeGrid = TERRAIN_CODE_GRID_BY_MAP_ID[getActiveMapId()];
+  if (activeGrid) {
+    return activeGrid;
+  }
+
+  return TERRAIN_CODE_GRID_BY_MAP_ID[getFallbackMapId()] ?? '';
+}
+
 function getActiveCityIndexSetByTeam(): Record<Team, Set<number>> {
   const activeSet = CITY_CELL_INDEX_SET_BY_MAP_ID.get(getActiveMapId());
   if (activeSet) {
@@ -252,6 +595,25 @@ function getActiveCityIndexSetByTeam(): Record<Team, Set<number>> {
 
 export function getGridCellIndex(col: number, row: number): number {
   return row * TERRAIN_GRID_WIDTH + col;
+}
+
+export function getGridCellTerrainType(col: number, row: number): TerrainType {
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= TERRAIN_GRID_WIDTH ||
+    row >= TERRAIN_GRID_HEIGHT
+  ) {
+    return 'unknown';
+  }
+
+  const terrainCode = getActiveTerrainCodeGrid().charAt(getGridCellIndex(col, row));
+  return TERRAIN_TYPE_BY_CODE[terrainCode] ?? 'unknown';
+}
+
+export function getWorldTerrainType(x: number, y: number): TerrainType {
+  const cell = getGridCellFromWorld(x, y);
+  return getGridCellTerrainType(cell.col, cell.row);
 }
 
 export function isGridCellMountain(col: number, row: number): boolean {

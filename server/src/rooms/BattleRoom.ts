@@ -4,8 +4,9 @@ import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import {
+  getGridCellTerrainType,
   getTeamCityGridCoordinate,
-  isGridCellImpassable,
+  type TerrainType,
 } from "../../../shared/src/terrainGrid.js";
 import {
   applyRuntimeTuningUpdate,
@@ -429,7 +430,11 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private isTerrainBlocked(cell: GridCoordinate): boolean {
-    return isGridCellImpassable(cell.col, cell.row);
+    return this.getTerrainTypeAtCell(cell) === "mountains";
+  }
+
+  private getTerrainTypeAtCell(cell: GridCoordinate): TerrainType {
+    return getGridCellTerrainType(cell.col, cell.row);
   }
 
   private traceGridLine(
