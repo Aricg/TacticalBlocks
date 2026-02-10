@@ -152,7 +152,7 @@ export const GAMEPLAY_CONFIG = {
       // Slider: Line Alpha
       lineAlpha: 0.92,
       // Slider: City Influence Power
-      cityInfluenceUnitsEquivalent: 2.0,
+      cityInfluenceUnitsEquivalent: 1.0,
     },
     bounds: {
       baseUnitHealth: { min: 20, max: 200, step: 1 },

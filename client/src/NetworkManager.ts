@@ -8,7 +8,6 @@ type ServerUnitState = {
   team: string;
   unitId: string;
   health: number;
-  combatInfluenceScore: number;
   moraleScore: number;
 };
 
@@ -33,7 +32,6 @@ export type NetworkUnitSnapshot = {
   y: number;
   rotation: number;
   health: number;
-  combatInfluenceScore: number;
   moraleScore: number;
 };
 
@@ -51,11 +49,6 @@ export type NetworkUnitHealthUpdate = {
 export type NetworkUnitRotationUpdate = {
   unitId: string;
   rotation: number;
-};
-
-export type NetworkUnitCombatInfluenceUpdate = {
-  unitId: string;
-  combatInfluenceScore: number;
 };
 
 export type NetworkUnitMoraleUpdate = {
@@ -89,9 +82,6 @@ type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
 type UnitRotationChangedHandler = (
   rotationUpdate: NetworkUnitRotationUpdate,
 ) => void;
-type UnitCombatInfluenceChangedHandler = (
-  combatInfluenceUpdate: NetworkUnitCombatInfluenceUpdate,
-) => void;
 type UnitMoraleChangedHandler = (
   moraleUpdate: NetworkUnitMoraleUpdate,
 ) => void;
@@ -117,7 +107,6 @@ export class NetworkManager {
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
-    private readonly onUnitCombatInfluenceChanged: UnitCombatInfluenceChangedHandler,
     private readonly onUnitMoraleChanged: UnitMoraleChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
@@ -177,9 +166,6 @@ export class NetworkManager {
             y: serverUnit.y,
             rotation: serverUnit.rotation,
             health: serverUnit.health,
-            combatInfluenceScore: Number.isFinite(serverUnit.combatInfluenceScore)
-              ? serverUnit.combatInfluenceScore
-              : 0,
             moraleScore: Number.isFinite(serverUnit.moraleScore)
               ? serverUnit.moraleScore
               : 0,
@@ -214,17 +200,6 @@ export class NetworkManager {
               });
             },
           );
-          const detachCombatInfluenceScore = $(serverUnit).listen(
-            'combatInfluenceScore',
-            (combatInfluenceScore: number) => {
-              this.onUnitCombatInfluenceChanged({
-                unitId,
-                combatInfluenceScore: Number.isFinite(combatInfluenceScore)
-                  ? combatInfluenceScore
-                  : 0,
-              });
-            },
-          );
           const detachMoraleScore = $(serverUnit).listen(
             'moraleScore',
             (moraleScore: number) => {
@@ -241,7 +216,6 @@ export class NetworkManager {
             detachY,
             detachHealth,
             detachRotation,
-            detachCombatInfluenceScore,
             detachMoraleScore,
           );
         },

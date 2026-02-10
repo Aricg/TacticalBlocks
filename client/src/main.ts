@@ -7,7 +7,6 @@ import {
   type NetworkUnitRotationUpdate,
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
-  type NetworkUnitCombatInfluenceUpdate,
   type NetworkUnitMoraleUpdate,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
@@ -32,8 +31,6 @@ class BattleScene extends Phaser.Scene {
   private readonly lastKnownHealthByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly combatVisualUntilByUnitId: Map<string, number> =
-    new Map<string, number>();
-  private readonly combatInfluenceScoreByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly moraleScoreByUnitId: Map<string, number> =
     new Map<string, number>();
@@ -356,9 +353,6 @@ class BattleScene extends Phaser.Scene {
       (rotationUpdate) => {
         this.applyNetworkUnitRotation(rotationUpdate);
       },
-      (combatInfluenceUpdate) => {
-        this.applyNetworkUnitCombatInfluence(combatInfluenceUpdate);
-      },
       (moraleUpdate) => {
         this.applyNetworkUnitMorale(moraleUpdate);
       },
@@ -389,7 +383,6 @@ class BattleScene extends Phaser.Scene {
       this.cities.length = 0;
       this.lastKnownHealthByUnitId.clear();
       this.combatVisualUntilByUnitId.clear();
-      this.combatInfluenceScoreByUnitId.clear();
       this.moraleScoreByUnitId.clear();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
@@ -443,10 +436,6 @@ class BattleScene extends Phaser.Scene {
       existingUnit.rotation = networkUnit.rotation;
       existingUnit.setHealth(networkUnit.health);
       this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
-      this.combatInfluenceScoreByUnitId.set(
-        networkUnit.unitId,
-        networkUnit.combatInfluenceScore,
-      );
       this.moraleScoreByUnitId.set(
         networkUnit.unitId,
         networkUnit.moraleScore,
@@ -477,10 +466,6 @@ class BattleScene extends Phaser.Scene {
     this.units.push(spawnedUnit);
     this.unitsById.set(networkUnit.unitId, spawnedUnit);
     this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
-    this.combatInfluenceScoreByUnitId.set(
-      networkUnit.unitId,
-      networkUnit.combatInfluenceScore,
-    );
     this.moraleScoreByUnitId.set(networkUnit.unitId, networkUnit.moraleScore);
     this.combatVisualUntilByUnitId.delete(networkUnit.unitId);
     this.remoteUnitTargetPositions.set(
@@ -500,7 +485,6 @@ class BattleScene extends Phaser.Scene {
     this.remoteUnitTargetPositions.delete(unitId);
     this.lastKnownHealthByUnitId.delete(unitId);
     this.combatVisualUntilByUnitId.delete(unitId);
-    this.combatInfluenceScoreByUnitId.delete(unitId);
     this.moraleScoreByUnitId.delete(unitId);
     this.selectedUnits.delete(unit);
     const index = this.units.indexOf(unit);
@@ -546,19 +530,6 @@ class BattleScene extends Phaser.Scene {
     }
 
     unit.rotation = rotationUpdate.rotation;
-  }
-
-  private applyNetworkUnitCombatInfluence(
-    influenceUpdate: NetworkUnitCombatInfluenceUpdate,
-  ): void {
-    if (!this.unitsById.has(influenceUpdate.unitId)) {
-      return;
-    }
-
-    this.combatInfluenceScoreByUnitId.set(
-      influenceUpdate.unitId,
-      influenceUpdate.combatInfluenceScore,
-    );
   }
 
   private applyNetworkUnitMorale(moraleUpdate: NetworkUnitMoraleUpdate): void {

@@ -42,7 +42,6 @@ type UnitMovementState = {
 export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
-  private readonly combatInfluenceAdvantageByUnitId = new Map<string, number>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
@@ -67,11 +66,6 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.map.height / BattleRoom.GRID_HEIGHT;
   private static readonly GRID_CONTACT_DISTANCE =
     Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
-  private static readonly MAX_ABS_TACTICAL_SCORE =
-    GAMEPLAY_CONFIG.influence.maxAbsTacticalScore;
-  private static readonly COMBAT_INFLUENCE_SHAPE_EXPONENT = 1.6;
-  private static readonly COMBAT_INFLUENCE_RISE_RATE_PER_SECOND = 2.25;
-  private static readonly COMBAT_INFLUENCE_FALL_RATE_PER_SECOND = 0.35;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 100;
 
@@ -128,7 +122,6 @@ export class BattleRoom extends Room<BattleState> {
 
   onDispose(): void {
     this.movementStateByUnitId.clear();
-    this.combatInfluenceAdvantageByUnitId.clear();
     this.sessionTeamById.clear();
     this.simulationFrame = 0;
   }
@@ -256,10 +249,6 @@ export class BattleRoom extends Room<BattleState> {
     return team.toUpperCase() === "BLUE" ? 1 : -1;
   }
 
-  private getInfluenceScoreAtUnit(unit: Unit): number {
-    return this.getInfluenceScoreAtPoint(unit.x, unit.y);
-  }
-
   private getInfluenceScoreAtPoint(x: number, y: number): number {
     const grid = this.state.influenceGrid;
     const colBasis = x / BattleRoom.CELL_WIDTH - 0.5;
@@ -292,20 +281,13 @@ export class BattleRoom extends Room<BattleState> {
     return value;
   }
 
-  private getInfluenceAdvantageNormalized(unit: Unit): number {
-    return this.getInfluenceAdvantageNormalizedAtPoint(
-      unit.x,
-      unit.y,
-      this.getTeamSign(unit.team),
-    );
-  }
-
   private getUnitMoraleScore(unit: Unit): number {
     const sampleCenter = this.worldToGridCoordinate(unit.x, unit.y);
     const grid = this.state.influenceGrid;
+    const teamSign = this.getTeamSign(unit.team);
     const sampleRadius = BattleRoom.MORALE_SAMPLE_RADIUS;
-    let normalizedFieldSum = 0;
-    let sampledCells = 0;
+    let friendlyStrength = 0;
+    let enemyStrength = 0;
 
     for (let rowOffset = -sampleRadius; rowOffset <= sampleRadius; rowOffset += 1) {
       for (let colOffset = -sampleRadius; colOffset <= sampleRadius; colOffset += 1) {
@@ -320,55 +302,30 @@ export class BattleRoom extends Room<BattleState> {
           grid.height - 1,
         );
         const cellScore = this.getInfluenceScoreAtCell(sampleCol, sampleRow);
-        const normalizedCellScore = this.clamp(
-          cellScore / BattleRoom.MAX_ABS_TACTICAL_SCORE,
-          -1,
-          1,
-        );
-        normalizedFieldSum += normalizedCellScore;
-        sampledCells += 1;
+        const alignedCellScore = cellScore * teamSign;
+        if (alignedCellScore > 0) {
+          friendlyStrength += alignedCellScore;
+        } else if (alignedCellScore < 0) {
+          enemyStrength += -alignedCellScore;
+        }
       }
     }
 
-    if (sampledCells <= 0) {
-      return 0;
+    const totalStrength = friendlyStrength + enemyStrength;
+    if (totalStrength <= 0.000001) {
+      return BattleRoom.MORALE_MAX_SCORE * 0.5;
     }
 
-    const averageNormalizedField = normalizedFieldSum / sampledCells;
     const moraleScore =
-      ((averageNormalizedField + 1) * 0.5) * BattleRoom.MORALE_MAX_SCORE;
+      (friendlyStrength / totalStrength) * BattleRoom.MORALE_MAX_SCORE;
     return this.clamp(moraleScore, 0, BattleRoom.MORALE_MAX_SCORE);
   }
 
-  private getInfluenceAdvantageNormalizedAtPoint(
-    x: number,
-    y: number,
-    teamSign: 1 | -1,
-  ): number {
-    const score = this.getInfluenceScoreAtPoint(x, y);
-    const alignedScore = score * teamSign;
-    return this.clamp(
-      alignedScore / BattleRoom.MAX_ABS_TACTICAL_SCORE,
-      0,
-      1,
-    );
-  }
-
-  private shapeCombatInfluenceAdvantage(rawAdvantage: number): number {
-    return Math.pow(
-      rawAdvantage,
-      BattleRoom.COMBAT_INFLUENCE_SHAPE_EXPONENT,
-    );
-  }
-
-  private getCombatInfluenceAdvantageAtPoint(
-    x: number,
-    y: number,
-    teamSign: 1 | -1,
-  ): number {
-    return this.shapeCombatInfluenceAdvantage(
-      this.getInfluenceAdvantageNormalizedAtPoint(x, y, teamSign),
-    );
+  private getMoraleAdvantageNormalized(unit: Unit): number {
+    const rawMoraleScore = Number.isFinite(unit.moraleScore)
+      ? unit.moraleScore
+      : this.getUnitMoraleScore(unit);
+    return this.clamp(rawMoraleScore / BattleRoom.MORALE_MAX_SCORE, 0, 1);
   }
 
   private getInfluenceBuffMultiplier(
@@ -396,67 +353,10 @@ export class BattleRoom extends Room<BattleState> {
     );
   }
 
-  private stepTowardInfluenceAdvantage(
-    current: number,
-    target: number,
-    deltaSeconds: number,
-  ): number {
-    const delta = target - current;
-    if (Math.abs(delta) <= 0.000001) {
-      return target;
-    }
-
-    const safeDeltaSeconds = Math.max(0, deltaSeconds);
-    const stepRate =
-      delta > 0
-        ? BattleRoom.COMBAT_INFLUENCE_RISE_RATE_PER_SECOND
-        : BattleRoom.COMBAT_INFLUENCE_FALL_RATE_PER_SECOND;
-    const maxStep = stepRate * safeDeltaSeconds;
-    if (Math.abs(delta) <= maxStep) {
-      return target;
-    }
-
-    return current + Math.sign(delta) * maxStep;
-  }
-
-  private buildCombatInfluenceAdvantageByUnitId(
-    units: Unit[],
-    deltaSeconds: number,
-  ): Map<string, number> {
-    const smoothedByUnitId = new Map<string, number>();
-    const aliveUnitIds = new Set<string>();
-
+  private updateUnitMoraleScores(units: Unit[]): void {
     for (const unit of units) {
-      aliveUnitIds.add(unit.unitId);
-      const rawAdvantage = this.getInfluenceAdvantageNormalized(unit);
-      const shapedAdvantage = this.shapeCombatInfluenceAdvantage(rawAdvantage);
-      const previousAdvantage = this.combatInfluenceAdvantageByUnitId.get(unit.unitId);
-      const smoothedAdvantage =
-        previousAdvantage === undefined
-          ? shapedAdvantage
-          : this.stepTowardInfluenceAdvantage(
-              previousAdvantage,
-              shapedAdvantage,
-              deltaSeconds,
-            );
-      unit.combatInfluenceScore =
-        smoothedAdvantage *
-        BattleRoom.MAX_ABS_TACTICAL_SCORE *
-        this.getTeamSign(unit.team);
-      this.combatInfluenceAdvantageByUnitId.set(unit.unitId, smoothedAdvantage);
-
       unit.moraleScore = this.getUnitMoraleScore(unit);
-
-      smoothedByUnitId.set(unit.unitId, smoothedAdvantage);
     }
-
-    for (const unitId of this.combatInfluenceAdvantageByUnitId.keys()) {
-      if (!aliveUnitIds.has(unitId)) {
-        this.combatInfluenceAdvantageByUnitId.delete(unitId);
-      }
-    }
-
-    return smoothedByUnitId;
   }
 
   private gridToWorldCenter(cell: GridCoordinate): Vector2 {
@@ -1011,7 +911,7 @@ export class BattleRoom extends Room<BattleState> {
 
     const units = Array.from(this.state.units.values()).filter((unit) => unit.health > 0);
     const pendingDamageByUnitId = new Map<string, number>();
-    this.buildCombatInfluenceAdvantageByUnitId(units, deltaSeconds);
+    this.updateUnitMoraleScores(units);
 
     for (let i = 0; i < units.length; i += 1) {
       const a = units[i];
@@ -1033,25 +933,14 @@ export class BattleRoom extends Room<BattleState> {
         this.clearMovementForUnit(a.unitId);
         this.clearMovementForUnit(b.unitId);
 
-        // Use a shared engagement sample point so both sides evaluate the same local battle context.
-        const engagementX = (a.x + b.x) * 0.5;
-        const engagementY = (a.y + b.y) * 0.5;
-        const aCombatInfluenceAdvantage = this.getCombatInfluenceAdvantageAtPoint(
-          engagementX,
-          engagementY,
-          this.getTeamSign(a.team),
-        );
-        const bCombatInfluenceAdvantage = this.getCombatInfluenceAdvantageAtPoint(
-          engagementX,
-          engagementY,
-          this.getTeamSign(b.team),
-        );
-        const aContactDps = this.getUnitContactDps(aCombatInfluenceAdvantage);
-        const bContactDps = this.getUnitContactDps(bCombatInfluenceAdvantage);
+        const aMoraleAdvantage = this.getMoraleAdvantageNormalized(a);
+        const bMoraleAdvantage = this.getMoraleAdvantageNormalized(b);
+        const aContactDps = this.getUnitContactDps(aMoraleAdvantage);
+        const bContactDps = this.getUnitContactDps(bMoraleAdvantage);
         const aHealthMitigation =
-          this.getUnitHealthMitigationMultiplier(aCombatInfluenceAdvantage);
+          this.getUnitHealthMitigationMultiplier(aMoraleAdvantage);
         const bHealthMitigation =
-          this.getUnitHealthMitigationMultiplier(bCombatInfluenceAdvantage);
+          this.getUnitHealthMitigationMultiplier(bMoraleAdvantage);
 
         const incomingDamageToA =
           (bContactDps * deltaSeconds) /
