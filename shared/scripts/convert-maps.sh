@@ -5,8 +5,9 @@ print_usage() {
   cat <<'EOF'
 Usage: ./scripts/convert-maps.sh [input_dir]
 
-Converts source maps to 16-color PNGs, regenerates shared terrain grid data,
-and ensures discovered map IDs are present in src/gameplayConfig.ts MAP_IDS.
+Converts source maps to 16-color PNGs, syncs quantized outputs into shared/,
+regenerates shared terrain grid data, and ensures discovered map IDs are
+present in src/gameplayConfig.ts MAP_IDS.
 
 Arguments:
   input_dir   Directory containing source map files (.jpeg/.jpg/.png).
@@ -86,3 +87,4 @@ if [[ ${#missing_ids[@]} -gt 0 ]]; then
 fi
 
 echo "Verified MAP_IDS contains all discovered map IDs."
+echo "If the client dev server is already running, restart it so Vite rebundles new map images."

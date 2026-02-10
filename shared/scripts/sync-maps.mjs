@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import {
   accessSync,
+  copyFileSync,
   constants,
   existsSync,
   readdirSync,
@@ -12,15 +13,16 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const SOURCE_EXTENSIONS = ['.jpeg', '.jpg', '.png'];
 const QUANTIZED_SUFFIX = '-16c.png';
 const DEFAULT_COLORS = 16;
-const DEFAULT_INPUT_DIR = process.cwd();
-const GAMEPLAY_CONFIG_PATH = path.resolve(
-  process.cwd(),
-  'src/gameplayConfig.ts',
-);
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SHARED_DIR = path.resolve(SCRIPT_DIR, '..');
+const DEFAULT_INPUT_DIR = SHARED_DIR;
+const GAMEPLAY_CONFIG_PATH = path.resolve(SHARED_DIR, 'src/gameplayConfig.ts');
+const TERRAIN_GRID_OUTPUT_PATH = path.resolve(SHARED_DIR, 'src/terrainGrid.ts');
 
 function printUsage() {
   console.log('Usage: node ./scripts/sync-maps.mjs [inputDir]');
@@ -113,13 +115,62 @@ function updateMapIdsInGameplayConfig(gameplayConfigPath, discoveredMapIds) {
 }
 
 function runTerrainGridGeneration(cwd) {
-  const command = spawnSync(process.execPath, ['./scripts/generate-terrain-grid.mjs'], {
-    cwd,
-    stdio: 'inherit',
-  });
+  const command = spawnSync(
+    process.execPath,
+    ['./scripts/generate-terrain-grid.mjs'],
+    {
+      cwd,
+      stdio: 'inherit',
+    },
+  );
   if (command.status !== 0) {
     process.exit(command.status ?? 1);
   }
+}
+
+function syncQuantizedMapsToShared(mapIds, sourceDir, sharedDir) {
+  let syncedCount = 0;
+  for (const mapId of mapIds) {
+    const sourceQuantizedPath = path.join(sourceDir, `${mapId}${QUANTIZED_SUFFIX}`);
+    const targetQuantizedPath = path.join(sharedDir, `${mapId}${QUANTIZED_SUFFIX}`);
+    if (sourceQuantizedPath === targetQuantizedPath || !existsSync(sourceQuantizedPath)) {
+      continue;
+    }
+
+    const shouldCopy =
+      !existsSync(targetQuantizedPath) ||
+      statSync(sourceQuantizedPath).mtimeMs > statSync(targetQuantizedPath).mtimeMs;
+    if (!shouldCopy) {
+      continue;
+    }
+
+    copyFileSync(sourceQuantizedPath, targetQuantizedPath);
+    syncedCount += 1;
+  }
+
+  return syncedCount;
+}
+
+function syncSourceMapsToShared(mapIdToSourcePath, sharedDir) {
+  let syncedCount = 0;
+  for (const sourcePath of mapIdToSourcePath.values()) {
+    const targetPath = path.join(sharedDir, path.basename(sourcePath));
+    if (sourcePath === targetPath) {
+      continue;
+    }
+
+    const shouldCopy =
+      !existsSync(targetPath) ||
+      statSync(sourcePath).mtimeMs > statSync(targetPath).mtimeMs;
+    if (!shouldCopy) {
+      continue;
+    }
+
+    copyFileSync(sourcePath, targetPath);
+    syncedCount += 1;
+  }
+
+  return syncedCount;
 }
 
 const [, , inputDirArg] = process.argv;
@@ -189,13 +240,24 @@ try {
   process.exit(1);
 }
 
-runTerrainGridGeneration(process.cwd());
+const syncedQuantizedMaps = syncQuantizedMapsToShared(
+  discoveredMapIds,
+  inputDir,
+  SHARED_DIR,
+);
+const syncedSourceMaps = syncSourceMapsToShared(mapIdToSourcePath, SHARED_DIR);
+
+runTerrainGridGeneration(SHARED_DIR);
 
 console.log('Map sync complete.');
 console.log(`Discovered maps: ${discoveredMapIds.length}`);
 console.log(`Converted maps: ${converted.length}`);
 if (converted.length > 0) {
   console.log(`Converted IDs: ${converted.join(', ')}`);
+}
+if (inputDir !== SHARED_DIR) {
+  console.log(`Synced source maps to shared/: ${syncedSourceMaps}`);
+  console.log(`Synced quantized maps to shared/: ${syncedQuantizedMaps}`);
 }
 console.log(`Unchanged maps: ${skipped.length}`);
 console.log(

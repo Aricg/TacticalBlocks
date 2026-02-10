@@ -66,22 +66,10 @@ export class BattleRoom extends Room<BattleState> {
     speedMultiplier: 1,
     rotateToFace: true,
   };
-  private static readonly TERRAIN_SPEED_MULTIPLIER: Record<TerrainType, number> = {
-    water: 0.3,
-    forest: 0.7,
-    hills: 0.5,
-    grass: 1.0,
-    unknown: 1.0,
-    mountains: 0,
-  };
-  private static readonly TERRAIN_MORALE_MULTIPLIER: Record<TerrainType, number> = {
-    water: 0.3,
-    forest: 0.7,
-    hills: 0.5,
-    grass: 1.0,
-    unknown: 1.0,
-    mountains: 1.0,
-  };
+  private static readonly TERRAIN_SPEED_MULTIPLIER: Record<TerrainType, number> =
+    GAMEPLAY_CONFIG.terrain.movementMultiplierByType;
+  private static readonly TERRAIN_MORALE_MULTIPLIER: Record<TerrainType, number> =
+    GAMEPLAY_CONFIG.terrain.moraleMultiplierByType;
   private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
   private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
   private static readonly CELL_WIDTH =

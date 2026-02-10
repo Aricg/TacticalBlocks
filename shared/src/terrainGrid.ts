@@ -104,6 +104,51 @@ const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
     'gffffffffffffffgfffffgfgwwwwwgfffwwwwwwwwwwggggggfffffgfffffffgfggwwwwwwwwwwwwwg' +
     'gffgfgffffffffffffgffffgwwwwwgffgwwwwwwwwwfgggggffffffffffffffffffgwwwwwwwwwwwwg' +
     'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
+  '3498110a-b6f5-41ee-89ec-67203559ed32':
+    'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggh' +
+    'gggghfffhggggggghhhfhhhhhhhfhhhhhggggggggggggggghgggggggggffgffffgffggffgfggfffh' +
+    'ggggghfffgggggggghhfhhhhhhhhhhhhfgggggggggghgggghhgggggggffgffffffffffffffgfgffh' +
+    'gggggghfffhgggggghhhgghhhhhhhhhggggggggggggffggggffgghhhgfgfffffffffffffgffgfgfh' +
+    'ggggggghfffgggggghfhhhhhhggggggggggggggggggffffgfgfgghhhgfffffffgffffffffffgffgh' +
+    'gggggggggfffgggghhhhhhgggggggggggghhgggggfggfgffgffffhhhfhfgffffgfffffggggfffffh' +
+    'ggggggggghfffggghhhhhfgggggggggggghhggfgggggfgffggggggggfggggggfgggfgggggffffffh' +
+    'ggggggggggfffggfhhhhhfgghhhgggggggffgghfgggffggfggggggghhggggggggggfgggggfgffffh' +
+    'gggggggggghffggghhhggggghhhgggghhgggghgffhggggggggggfffhgggggggggggggggggffffgfh' +
+    'gggggggggggfffggfhfggggghhhggggggfgfggfffggghhhggggfhfgggggggggggggggggggffgfffh' +
+    'gggggggggggfffhfggggggggggggggggfffhggfgfffghhhggfffggggghhhhggggghhhgggggfggfgh' +
+    'ggggggggggggffffhggggggggggfggggffggfggggfgghhhggfhggggghhhhhggggghhhgggggffgfhg' +
+    'ggggggggggggghffffggggggggfggggffggggffghgfgggggffgggggghghhhhfggghhhggggfffgghg' +
+    'ggggggggggggggghffhgggggggggggggggggffggffgggggfhggggfhhhhhhhhhggggggggggfffgghg' +
+    'gggggggggggggggghfffgggggggggggggggggggffgggggfhggggfhhhhhhhhhhgggggggggfffffhhh' +
+    'gggggggggggggggggffhgggggggggggghhffggfggfgfgffgggggghhhhhghhhfhgggggggggffgghhg' +
+    'gggggggggggggggggfffgggggggggggghhfggggggfgggfhggghgghhgggghhhhhhfgggggggffgfhhg' +
+    'ggggggggggggggggghfffggggggggggghhfggggggggggffggfgggfgfgffghhhhhfgggggggggfhhhg' +
+    'ggggggggggggggggggfffhfggggggggggggggggggggghfgghfgfffggfffffhhhhgggggggfgfghfhg' +
+    'ggggggggggggggggggffffffhffgggggggggggggggghfhgggffhgggffffffffhhggggffgfggghhgg' +
+    'ghggggggggggggggggfghfffffffgggggggggggggghfhgggffggfggffffffggggggggfggfhgghhhg' +
+    'ghhgggggggggggggggfgggggfhffffhfggggggggghffgggggggfffgfffggggggggggfggghhgghhhg' +
+    'ghhhgggggggggfffffggggggggfhfffffggggggghfffhfgggggfgfgfggggggggggghfggggffgghhh' +
+    'ghhhggggggggfggggggffgggggggghfffhggfhffffhhffffhggggggggggggggggghfgggfgfffgghg' +
+    'ghhhgghhhgghfgghhffffffggggggggffffffffhggggggfhfffgggggggggffffffhgggggfffgffgg' +
+    'ghfhhfgggffhggghhhhfffffgggggggggfffggggggggggggghffgggggggfffggggggggggghhfgffg' +
+    'ghhhfgggggggggfhhhhhgffgfgggggggggffggggggggggggggghfffhggfhgggggggggggfggffghhg' +
+    'ghhggffgggggggfhhhhhhgfgghfggggggghfgggggggggggggggggfffffggggggghhgggggfgffggfg' +
+    'ghhggffggggggggghfhhhhhhhhhggggggggffggggghhhgggggggggghffggggggghhgggghhgfgggfg' +
+    'ghhgffffggggggggghhhhhhhhhhfgggggggfhggggghhhggggggggggghfhgggggghhgggghggfggfgg' +
+    'ghggfffgggghhfggghhhfhggghfggggggggffggggghhhgggggggggggghfggggggggggfgggffffggg' +
+    'ghggfffgggghhfgggfhhgfhhgggggggggggffggggggggggggggggggggghfffggggggfgfggffgfggg' +
+    'ghfgffggggghhfggggfhhhhggghhhgggggffgfhggggggggggggggggggggffffhgggggfggfffhgfgg' +
+    'ggffgfggggggggggggghhhhggghhhgggggfhggffgggggggggggggggggggggfhffhgggggfggfggfgg' +
+    'gffffffggggggggggggggggggghhhggghffgggggfhggggggggggggggggggghggfffggggfgfggfffg' +
+    'gffffffggggggggggggggggggggggggfhggggggggffhgggggghhhgggggggfhhfgghffgggfggghggg' +
+    'gffffgfggggggfgggggggggggggggggfggggggggggghfggggghhhggggggghhhhgggghfgggggghfgg' +
+    'gfffffffgggfffggggfgfgggggggffffggghhhgggggghfgggghhhgggggghhhhhgggggfhgggfgfhfg' +
+    'gfffffffffgfgffgfffggffffggfhgggggghhhgggggggfgggggggggggghhhhhhggggghfgggggghgg' +
+    'gffffffffffffgfffffffffgggffgggggggfffgggggggfhgggggggghhhhhhfhggggggghfgggghgfg' +
+    'gfffgfhffffffffffffffgfgggfgggggggggggggggggggfggghhhhhhhhhhhhhgggggggffgggggggg' +
+    'gffffffffffffffgfffffgfggfhgggggggggggggggggggfgghhhhhhhgghhhhhggggggggfffggggfg' +
+    'gffgfgfffffffffffffffffggfgggggggggggggggggggggfhhhhhfhhhhhhhhhfggggggghfgggfffg' +
+    'ghhhhhhhhhhhhhhhhhhhhghggggggggggggggggggggggggggghhhhhhhhhhgggggggggggggggggggg',
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf':
     'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmg' +
     'mffgfffffffgfhgghhhfhhhhhhhfhhhhhgggfmmmmmmmmmmmgmmfhhhhgggggffffgffggffgfggfffg' +
@@ -437,6 +482,9 @@ const MOUNTAIN_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
   '30cae103-cb06-4791-a21d-241f488189d3': [
     
   ],
+  '3498110a-b6f5-41ee-89ec-67203559ed32': [
+    
+  ],
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
@@ -556,6 +604,14 @@ const CITY_CELL_INDEXES_BY_MAP_ID: Record<
       2871, 2872,
     ],
   },
+  '3498110a-b6f5-41ee-89ec-67203559ed32': {
+    RED: [
+      2411, 2412, 2491, 2492,
+    ],
+    BLUE: [
+      867, 946, 947, 948, 1026, 1027, 1028,
+    ],
+  },
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': {
     RED: [
       405, 406,
@@ -621,6 +677,13 @@ const NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
   '30cae103-cb06-4791-a21d-241f488189d3': [
     
   ],
+  '3498110a-b6f5-41ee-89ec-67203559ed32': [
+    293, 294, 295, 373, 374, 375, 434, 435, 453, 454, 455, 514, 515, 584, 585, 664,
+    665, 666, 744, 745, 746, 764, 765, 766, 844, 845, 846, 925, 1232, 1233, 1312, 1313,
+    1392, 1393, 2225, 2226, 2305, 2306, 2362, 2363, 2364, 2442, 2443, 2444, 2586, 2587, 2588, 2666,
+    2667, 2668, 2746, 2747, 2748, 2850, 2851, 2852, 2930, 2931, 2932, 2995, 2996, 2997, 3011, 3012,
+    3075, 3076, 3077,
+  ],
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': [
     2729, 2809,
   ],
@@ -654,6 +717,7 @@ const NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
 const CITY_ANCHOR_BY_MAP_ID: Partial<Record<string, Record<Team, GridCoordinate>>> = {
   '280acd50-3c01-4784-8dc1-bb7beafdfb87': { RED: { col: 40, row: 8 }, BLUE: { col: 40, row: 35 } },
   '30cae103-cb06-4791-a21d-241f488189d3': { RED: { col: 8, row: 8 }, BLUE: { col: 72, row: 35 } },
+  '3498110a-b6f5-41ee-89ec-67203559ed32': { RED: { col: 12, row: 31 }, BLUE: { col: 67, row: 11 } },
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': { RED: { col: 6, row: 5 }, BLUE: { col: 69, row: 36 } },
   '8183775d-55ac-4f6b-a2e1-1407cdbc9935': { RED: { col: 7, row: 9 }, BLUE: { col: 72, row: 35 } },
   '8b3c0e4a-7a4a-41db-b036-cdee835944b1': { RED: { col: 8, row: 8 }, BLUE: { col: 72, row: 35 } },
@@ -669,6 +733,18 @@ const NEUTRAL_CITY_ANCHORS_BY_MAP_ID: Record<string, GridCoordinate[]> = {
   ],
   '30cae103-cb06-4791-a21d-241f488189d3': [
     
+  ],
+  '3498110a-b6f5-41ee-89ec-67203559ed32': [
+    { col: 25, row: 8 },
+    { col: 27, row: 33 },
+    { col: 33, row: 16 },
+    { col: 35, row: 6 },
+    { col: 36, row: 38 },
+    { col: 43, row: 30 },
+    { col: 45, row: 10 },
+    { col: 51, row: 36 },
+    { col: 54, row: 4 },
+    { col: 66, row: 28 },
   ],
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': [
     { col: 9, row: 35 },

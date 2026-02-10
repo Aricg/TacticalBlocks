@@ -8,6 +8,7 @@ const MAP_IDS = [
   '280acd50-3c01-4784-8dc1-bb7beafdfb87',
   '92bc1e4e-fb8b-4621-ac4f-f92584224a0a',
   '9b90e0c7-a291-4aaa-8009-89e2b786e2c3',
+  '3498110a-b6f5-41ee-89ec-67203559ed32',
 ] as const;
 
 const UNIT_BASE_MOVE_SPEED = 120;
@@ -16,7 +17,7 @@ export const GAMEPLAY_CONFIG = {
   map: {
     width: 1920,
     height: 1080,
-    activeMapId: MAP_IDS[8],
+    activeMapId: MAP_IDS[9],
     availableMapIds: MAP_IDS,
   },
   network: {
@@ -99,6 +100,24 @@ export const GAMEPLAY_CONFIG = {
     allyCollisionPushSpeed: 180,
     allySoftSeparationDistance: 28,
     allySoftSeparationPushSpeed: 90,
+  },
+  terrain: {
+    movementMultiplierByType: {
+      water: 0.3,
+      forest: 0.7,
+      hills: 0.5,
+      grass: 1.0,
+      unknown: 1.0,
+      mountains: 0,
+    },
+    moraleMultiplierByType: {
+      water: 0.3,
+      forest: 0.7,
+      hills: 0.5,
+      grass: 1.0,
+      unknown: 1.0,
+      mountains: 1.0,
+    },
   },
   combat: {
     battleJiggleSpeed: 44,
