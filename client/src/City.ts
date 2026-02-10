@@ -1,15 +1,18 @@
 import Phaser from 'phaser';
 import { Team } from './Team';
 
+export type CityOwner = Team | 'NEUTRAL';
+
 export class City extends Phaser.GameObjects.Container {
   private readonly marker: Phaser.GameObjects.Star;
-  private owner: Team;
-  private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
+  private owner: CityOwner;
+  private static readonly TEAM_FILL_COLORS: Record<CityOwner, number> = {
     [Team.RED]: 0xa05555,
     [Team.BLUE]: 0x4e6f9e,
+    NEUTRAL: 0xd9bf59,
   };
 
-  constructor(scene: Phaser.Scene, x: number, y: number, owner: Team) {
+  constructor(scene: Phaser.Scene, x: number, y: number, owner: CityOwner) {
     super(scene, x, y);
     this.owner = owner;
 
@@ -30,7 +33,7 @@ export class City extends Phaser.GameObjects.Container {
     scene.add.existing(this);
   }
 
-  public setOwner(nextOwner: Team): void {
+  public setOwner(nextOwner: CityOwner): void {
     if (nextOwner === this.owner) {
       return;
     }

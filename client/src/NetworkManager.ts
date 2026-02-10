@@ -25,6 +25,7 @@ type BattleRoomState = {
   influenceGrid: ServerInfluenceGridState;
   redCityOwner: string;
   blueCityOwner: string;
+  neutralCityOwners: ArrayLike<string>;
 };
 
 export type NetworkUnitSnapshot = {
@@ -70,6 +71,7 @@ export type NetworkInfluenceGridUpdate = {
 export type NetworkCityOwnershipUpdate = {
   redCityOwner: string;
   blueCityOwner: string;
+  neutralCityOwners: string[];
 };
 
 export type NetworkUnitPathCommand = {
@@ -161,6 +163,10 @@ export class NetworkManager {
         this.onCityOwnershipChanged({
           redCityOwner: state.redCityOwner,
           blueCityOwner: state.blueCityOwner,
+          neutralCityOwners: Array.from(
+            state.neutralCityOwners,
+            (owner) => owner ?? 'NEUTRAL',
+          ),
         });
       };
 
@@ -176,10 +182,16 @@ export class NetworkManager {
       const detachBlueCityOwner = $(state).listen('blueCityOwner', () => {
         emitCityOwnershipUpdate();
       });
+      const detachNeutralCityOwnerChange = $(state).neutralCityOwners.onChange(
+        () => {
+          emitCityOwnershipUpdate();
+        },
+      );
       this.detachCallbacks.push(
         detachInfluenceGridRevision,
         detachRedCityOwner,
         detachBlueCityOwner,
+        detachNeutralCityOwnerChange,
       );
       emitInfluenceGridUpdate();
       emitCityOwnershipUpdate();

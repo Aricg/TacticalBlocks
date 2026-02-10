@@ -614,6 +614,43 @@ const CITY_CELL_INDEXES_BY_MAP_ID: Record<
   },
 };
 
+const NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
+  '280acd50-3c01-4784-8dc1-bb7beafdfb87': [
+    
+  ],
+  '30cae103-cb06-4791-a21d-241f488189d3': [
+    
+  ],
+  '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': [
+    2729, 2809,
+  ],
+  '8183775d-55ac-4f6b-a2e1-1407cdbc9935': [
+    568, 648,
+  ],
+  '8b3c0e4a-7a4a-41db-b036-cdee835944b1': [
+    
+  ],
+  '92bc1e4e-fb8b-4621-ac4f-f92584224a0a': [
+    293, 294, 295, 373, 374, 375, 434, 435, 453, 454, 455, 514, 515, 584, 585, 586,
+    664, 665, 666, 744, 745, 746, 764, 765, 766, 844, 845, 846, 1232, 1233, 1312, 1313,
+    1392, 1393, 2362, 2363, 2364, 2442, 2443, 2444, 2586, 2587, 2588, 2666, 2667, 2668, 2746, 2747,
+    2748, 2850, 2851, 2852, 2930, 2931, 2932, 2995, 2996, 2997, 3010, 3011, 3012, 3075, 3076, 3077,
+  ],
+  '9b90e0c7-a291-4aaa-8009-89e2b786e2c3': [
+    293, 294, 295, 373, 374, 375, 434, 435, 453, 454, 455, 514, 515, 584, 585, 586,
+    664, 665, 666, 744, 745, 746, 764, 765, 766, 844, 845, 846, 925, 1232, 1233, 1312,
+    1313, 1392, 1393, 2225, 2226, 2305, 2306, 2362, 2363, 2364, 2385, 2386, 2442, 2443, 2444, 2586,
+    2587, 2588, 2666, 2667, 2668, 2746, 2747, 2748, 2850, 2851, 2852, 2931, 2932, 2995, 2996, 2997,
+    3010, 3011, 3012, 3075, 3076, 3077,
+  ],
+  'b94a7e47-8778-43d3-a3fa-d26f831233f6': [
+    
+  ],
+  'c927a143-9ad1-49d6-9e6f-35b2b7927b6d': [
+    
+  ],
+};
+
 const CITY_ANCHOR_BY_MAP_ID: Partial<Record<string, Record<Team, GridCoordinate>>> = {
   '280acd50-3c01-4784-8dc1-bb7beafdfb87': { RED: { col: 40, row: 8 }, BLUE: { col: 40, row: 35 } },
   '30cae103-cb06-4791-a21d-241f488189d3': { RED: { col: 8, row: 8 }, BLUE: { col: 72, row: 35 } },
@@ -624,6 +661,53 @@ const CITY_ANCHOR_BY_MAP_ID: Partial<Record<string, Record<Team, GridCoordinate>
   '9b90e0c7-a291-4aaa-8009-89e2b786e2c3': { RED: { col: 12, row: 31 }, BLUE: { col: 67, row: 11 } },
   'b94a7e47-8778-43d3-a3fa-d26f831233f6': { RED: { col: 8, row: 22 }, BLUE: { col: 72, row: 22 } },
   'c927a143-9ad1-49d6-9e6f-35b2b7927b6d': { RED: { col: 40, row: 19 }, BLUE: { col: 40, row: 36 } },
+};
+
+const NEUTRAL_CITY_ANCHORS_BY_MAP_ID: Record<string, GridCoordinate[]> = {
+  '280acd50-3c01-4784-8dc1-bb7beafdfb87': [
+    
+  ],
+  '30cae103-cb06-4791-a21d-241f488189d3': [
+    
+  ],
+  '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': [
+    { col: 9, row: 35 },
+  ],
+  '8183775d-55ac-4f6b-a2e1-1407cdbc9935': [
+    { col: 8, row: 8 },
+  ],
+  '8b3c0e4a-7a4a-41db-b036-cdee835944b1': [
+    
+  ],
+  '92bc1e4e-fb8b-4621-ac4f-f92584224a0a': [
+    { col: 25, row: 8 },
+    { col: 27, row: 33 },
+    { col: 33, row: 16 },
+    { col: 35, row: 6 },
+    { col: 36, row: 38 },
+    { col: 43, row: 30 },
+    { col: 45, row: 10 },
+    { col: 51, row: 36 },
+    { col: 54, row: 4 },
+  ],
+  '9b90e0c7-a291-4aaa-8009-89e2b786e2c3': [
+    { col: 25, row: 8 },
+    { col: 27, row: 33 },
+    { col: 33, row: 16 },
+    { col: 35, row: 6 },
+    { col: 36, row: 38 },
+    { col: 43, row: 30 },
+    { col: 45, row: 10 },
+    { col: 51, row: 36 },
+    { col: 54, row: 4 },
+    { col: 66, row: 28 },
+  ],
+  'b94a7e47-8778-43d3-a3fa-d26f831233f6': [
+    
+  ],
+  'c927a143-9ad1-49d6-9e6f-35b2b7927b6d': [
+    
+  ],
 };
 
 const MOUNTAIN_CELL_INDEX_SET_BY_MAP_ID = new Map<string, Set<number>>(
@@ -640,6 +724,13 @@ const CITY_CELL_INDEX_SET_BY_MAP_ID = new Map<string, Record<Team, Set<number>>>
       RED: new Set<number>(byTeam.RED),
       BLUE: new Set<number>(byTeam.BLUE),
     },
+  ]),
+);
+
+const NEUTRAL_CITY_CELL_INDEX_SET_BY_MAP_ID = new Map<string, Set<number>>(
+  Object.entries(NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID).map(([mapId, indexes]) => [
+    mapId,
+    new Set<number>(indexes),
   ]),
 );
 
@@ -702,6 +793,18 @@ function getActiveCityIndexSetByTeam(): Record<Team, Set<number>> {
   );
 }
 
+function getActiveNeutralCityIndexSet(): Set<number> {
+  const activeSet = NEUTRAL_CITY_CELL_INDEX_SET_BY_MAP_ID.get(getActiveMapId());
+  if (activeSet) {
+    return activeSet;
+  }
+
+  return (
+    NEUTRAL_CITY_CELL_INDEX_SET_BY_MAP_ID.get(getFallbackMapId()) ??
+    new Set<number>()
+  );
+}
+
 export function getGridCellIndex(col: number, row: number): number {
   return row * TERRAIN_GRID_WIDTH + col;
 }
@@ -755,6 +858,19 @@ export function isGridCellTeamCity(col: number, row: number, team: Team): boolea
   return getActiveCityIndexSetByTeam()[team].has(getGridCellIndex(col, row));
 }
 
+export function isGridCellNeutralCity(col: number, row: number): boolean {
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= TERRAIN_GRID_WIDTH ||
+    row >= TERRAIN_GRID_HEIGHT
+  ) {
+    return false;
+  }
+
+  return getActiveNeutralCityIndexSet().has(getGridCellIndex(col, row));
+}
+
 export function getTeamCityGridCoordinate(team: Team): GridCoordinate {
   const activeAnchors = CITY_ANCHOR_BY_MAP_ID[getActiveMapId()];
   if (activeAnchors) {
@@ -767,4 +883,18 @@ export function getTeamCityGridCoordinate(team: Team): GridCoordinate {
   }
 
   return getDefaultTeamCityGridCoordinate(team);
+}
+
+export function getNeutralCityGridCoordinates(): GridCoordinate[] {
+  const activeAnchors = NEUTRAL_CITY_ANCHORS_BY_MAP_ID[getActiveMapId()];
+  if (activeAnchors) {
+    return activeAnchors.map((anchor) => ({ ...anchor }));
+  }
+
+  const fallbackAnchors = NEUTRAL_CITY_ANCHORS_BY_MAP_ID[getFallbackMapId()];
+  if (fallbackAnchors) {
+    return fallbackAnchors.map((anchor) => ({ ...anchor }));
+  }
+
+  return [];
 }

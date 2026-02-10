@@ -274,6 +274,16 @@ function formatIndexArray(indexes, indent = '    ') {
   return lines.join('\n');
 }
 
+function formatGridCoordinateArray(coordinates, indent = '    ') {
+  if (coordinates.length === 0) {
+    return `${indent}`;
+  }
+
+  return coordinates
+    .map((coordinate) => `${indent}{ col: ${coordinate.col}, row: ${coordinate.row} },`)
+    .join('\n');
+}
+
 function formatTerrainCodeGrid(codeGrid, gridWidth, indent = '    ') {
   if (codeGrid.length === 0 || gridWidth <= 0) {
     return `${indent}''`;
@@ -392,21 +402,28 @@ function getTeamCityData(sourcePixels, gridWidth) {
   const blueComponent = firstIsRed ? secondComponent : firstComponent;
   const redCenter = firstIsRed ? firstCenter : secondCenter;
   const blueCenter = firstIsRed ? secondCenter : firstCenter;
+  const neutralComponents = components.filter(
+    (component) => component !== redComponent && component !== blueComponent,
+  );
 
   const toIndexes = (component) =>
     component.map((cell) => cell.row * gridWidth + cell.col).sort((a, b) => a - b);
+  const toAnchor = (center) => ({
+    col: Math.round(center.col),
+    row: Math.round(center.row),
+  });
 
   return {
     redIndexes: toIndexes(redComponent),
     blueIndexes: toIndexes(blueComponent),
-    redAnchor: {
-      col: Math.round(redCenter.col),
-      row: Math.round(redCenter.row),
-    },
-    blueAnchor: {
-      col: Math.round(blueCenter.col),
-      row: Math.round(blueCenter.row),
-    },
+    neutralIndexes: neutralComponents
+      .flatMap((component) => component.map((cell) => cell.row * gridWidth + cell.col))
+      .sort((a, b) => a - b),
+    redAnchor: toAnchor(redCenter),
+    blueAnchor: toAnchor(blueCenter),
+    neutralAnchors: neutralComponents
+      .map((component) => toAnchor(getComponentCenter(component)))
+      .sort((a, b) => a.col - b.col || a.row - b.row),
   };
 }
 
@@ -467,6 +484,8 @@ const mountainIndexesByMapId = new Map();
 const terrainCodeGridByMapId = new Map();
 const cityIndexesByMapId = new Map();
 const cityAnchorsByMapId = new Map();
+const neutralCityIndexesByMapId = new Map();
+const neutralCityAnchorsByMapId = new Map();
 
 for (const mapFile of mapFiles) {
   const mapId = mapFile.slice(0, -QUANTIZED_MAP_SUFFIX.length);
@@ -500,6 +519,8 @@ for (const mapFile of mapFiles) {
       RED: teamCityData.redAnchor,
       BLUE: teamCityData.blueAnchor,
     });
+    neutralCityIndexesByMapId.set(mapId, teamCityData.neutralIndexes);
+    neutralCityAnchorsByMapId.set(mapId, teamCityData.neutralAnchors);
   }
 }
 
@@ -507,6 +528,8 @@ const mountainEntries = [];
 const terrainCodeEntries = [];
 const cityMaskEntries = [];
 const cityAnchorEntries = [];
+const neutralCityMaskEntries = [];
+const neutralCityAnchorEntries = [];
 let totalMountainCells = 0;
 
 for (const [mapId, indexes] of mountainIndexesByMapId) {
@@ -527,6 +550,10 @@ for (const [mapId, indexes] of mountainIndexesByMapId) {
       `    BLUE: [\n${formatIndexArray(cityMasks.BLUE, '      ')}\n    ],\n` +
       `  },`,
   );
+  const neutralCityMasks = neutralCityIndexesByMapId.get(mapId) ?? [];
+  neutralCityMaskEntries.push(
+    `  '${mapId}': [\n${formatIndexArray(neutralCityMasks)}\n  ],`,
+  );
 
   const cityAnchors = cityAnchorsByMapId.get(mapId);
   if (cityAnchors) {
@@ -534,6 +561,10 @@ for (const [mapId, indexes] of mountainIndexesByMapId) {
       `  '${mapId}': { RED: { col: ${cityAnchors.RED.col}, row: ${cityAnchors.RED.row} }, BLUE: { col: ${cityAnchors.BLUE.col}, row: ${cityAnchors.BLUE.row} } },`,
     );
   }
+  const neutralCityAnchors = neutralCityAnchorsByMapId.get(mapId) ?? [];
+  neutralCityAnchorEntries.push(
+    `  '${mapId}': [\n${formatGridCoordinateArray(neutralCityAnchors)}\n  ],`,
+  );
 }
 
 const fileContent = `import { GAMEPLAY_CONFIG } from './gameplayConfig.js';
@@ -575,8 +606,16 @@ const CITY_CELL_INDEXES_BY_MAP_ID: Record<
 ${cityMaskEntries.join('\n')}
 };
 
+const NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
+${neutralCityMaskEntries.join('\n')}
+};
+
 const CITY_ANCHOR_BY_MAP_ID: Partial<Record<string, Record<Team, GridCoordinate>>> = {
 ${cityAnchorEntries.join('\n')}
+};
+
+const NEUTRAL_CITY_ANCHORS_BY_MAP_ID: Record<string, GridCoordinate[]> = {
+${neutralCityAnchorEntries.join('\n')}
 };
 
 const MOUNTAIN_CELL_INDEX_SET_BY_MAP_ID = new Map<string, Set<number>>(
@@ -593,6 +632,13 @@ const CITY_CELL_INDEX_SET_BY_MAP_ID = new Map<string, Record<Team, Set<number>>>
       RED: new Set<number>(byTeam.RED),
       BLUE: new Set<number>(byTeam.BLUE),
     },
+  ]),
+);
+
+const NEUTRAL_CITY_CELL_INDEX_SET_BY_MAP_ID = new Map<string, Set<number>>(
+  Object.entries(NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID).map(([mapId, indexes]) => [
+    mapId,
+    new Set<number>(indexes),
   ]),
 );
 
@@ -655,6 +701,18 @@ function getActiveCityIndexSetByTeam(): Record<Team, Set<number>> {
   );
 }
 
+function getActiveNeutralCityIndexSet(): Set<number> {
+  const activeSet = NEUTRAL_CITY_CELL_INDEX_SET_BY_MAP_ID.get(getActiveMapId());
+  if (activeSet) {
+    return activeSet;
+  }
+
+  return (
+    NEUTRAL_CITY_CELL_INDEX_SET_BY_MAP_ID.get(getFallbackMapId()) ??
+    new Set<number>()
+  );
+}
+
 export function getGridCellIndex(col: number, row: number): number {
   return row * TERRAIN_GRID_WIDTH + col;
 }
@@ -708,6 +766,19 @@ export function isGridCellTeamCity(col: number, row: number, team: Team): boolea
   return getActiveCityIndexSetByTeam()[team].has(getGridCellIndex(col, row));
 }
 
+export function isGridCellNeutralCity(col: number, row: number): boolean {
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= TERRAIN_GRID_WIDTH ||
+    row >= TERRAIN_GRID_HEIGHT
+  ) {
+    return false;
+  }
+
+  return getActiveNeutralCityIndexSet().has(getGridCellIndex(col, row));
+}
+
 export function getTeamCityGridCoordinate(team: Team): GridCoordinate {
   const activeAnchors = CITY_ANCHOR_BY_MAP_ID[getActiveMapId()];
   if (activeAnchors) {
@@ -720,6 +791,20 @@ export function getTeamCityGridCoordinate(team: Team): GridCoordinate {
   }
 
   return getDefaultTeamCityGridCoordinate(team);
+}
+
+export function getNeutralCityGridCoordinates(): GridCoordinate[] {
+  const activeAnchors = NEUTRAL_CITY_ANCHORS_BY_MAP_ID[getActiveMapId()];
+  if (activeAnchors) {
+    return activeAnchors.map((anchor) => ({ ...anchor }));
+  }
+
+  const fallbackAnchors = NEUTRAL_CITY_ANCHORS_BY_MAP_ID[getFallbackMapId()];
+  if (fallbackAnchors) {
+    return fallbackAnchors.map((anchor) => ({ ...anchor }));
+  }
+
+  return [];
 }
 `;
 

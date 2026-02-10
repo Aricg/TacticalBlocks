@@ -12,6 +12,7 @@ import {
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
+  getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
   isGridCellImpassable,
 } from '../../shared/src/terrainGrid.js';
@@ -20,7 +21,7 @@ import {
   DEFAULT_RUNTIME_TUNING,
   type RuntimeTuning,
 } from '../../shared/src/runtimeTuning.js';
-import { City } from './City';
+import { City, type CityOwner } from './City';
 import { InfluenceRenderer } from './InfluenceRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
@@ -131,10 +132,15 @@ class BattleScene extends Phaser.Scene {
     [Team.RED]: null,
     [Team.BLUE]: null,
   };
+  private readonly neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+  private readonly neutralCities: City[] = [];
   private cityOwnerByHomeTeam: Record<Team, Team> = {
     [Team.RED]: Team.RED,
     [Team.BLUE]: Team.BLUE,
   };
+  private neutralCityOwners: CityOwner[] = this.neutralCityGridCoordinates.map(
+    () => 'NEUTRAL',
+  );
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
   private networkManager: NetworkManager | null = null;
   private localPlayerTeam: Team = Team.BLUE;
@@ -507,8 +513,12 @@ class BattleScene extends Phaser.Scene {
         city.destroy();
       }
       this.cities.length = 0;
+      this.neutralCities.length = 0;
       this.cityByHomeTeam[Team.RED] = null;
       this.cityByHomeTeam[Team.BLUE] = null;
+      this.neutralCityOwners = this.neutralCityGridCoordinates.map(
+        () => 'NEUTRAL',
+      );
       this.lastKnownHealthByUnitId.clear();
       this.combatVisualUntilByUnitId.clear();
       this.moraleScoreByUnitId.clear();
@@ -536,6 +546,19 @@ class BattleScene extends Phaser.Scene {
     this.cityByHomeTeam[Team.RED] = redCity;
     this.cityByHomeTeam[Team.BLUE] = blueCity;
     this.cities.push(redCity, blueCity);
+
+    for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
+      const neutralCell = this.neutralCityGridCoordinates[index];
+      const neutralPosition = this.gridToWorldCenter(neutralCell);
+      const neutralCity = new City(
+        this,
+        neutralPosition.x,
+        neutralPosition.y,
+        this.neutralCityOwners[index] ?? 'NEUTRAL',
+      );
+      this.cities.push(neutralCity);
+      this.neutralCities.push(neutralCity);
+    }
   }
 
   private applyRuntimeTuning(runtimeTuning: RuntimeTuning): void {
@@ -562,17 +585,37 @@ class BattleScene extends Phaser.Scene {
     return teamValue.toUpperCase() === Team.RED ? Team.RED : Team.BLUE;
   }
 
+  private normalizeCityOwner(ownerValue: string): CityOwner {
+    const normalizedOwner = ownerValue.toUpperCase();
+    if (normalizedOwner === Team.RED) {
+      return Team.RED;
+    }
+    if (normalizedOwner === Team.BLUE) {
+      return Team.BLUE;
+    }
+    return 'NEUTRAL';
+  }
+
   private applyCityOwnership(
     cityOwnershipUpdate: NetworkCityOwnershipUpdate,
   ): void {
     const redOwner = this.normalizeTeam(cityOwnershipUpdate.redCityOwner);
     const blueOwner = this.normalizeTeam(cityOwnershipUpdate.blueCityOwner);
+    this.neutralCityOwners = this.neutralCityGridCoordinates.map(
+      (_, index) =>
+        this.normalizeCityOwner(cityOwnershipUpdate.neutralCityOwners[index] ?? 'NEUTRAL'),
+    );
     this.cityOwnerByHomeTeam = {
       [Team.RED]: redOwner,
       [Team.BLUE]: blueOwner,
     };
     this.cityByHomeTeam[Team.RED]?.setOwner(redOwner);
     this.cityByHomeTeam[Team.BLUE]?.setOwner(blueOwner);
+    for (let index = 0; index < this.neutralCities.length; index += 1) {
+      this.neutralCities[index]?.setOwner(
+        this.neutralCityOwners[index] ?? 'NEUTRAL',
+      );
+    }
     this.refreshFogOfWar();
   }
 
@@ -1289,6 +1332,12 @@ class BattleScene extends Phaser.Scene {
         continue;
       }
       positions.push(this.getCityWorldPosition(homeTeam));
+    }
+    for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
+      if (this.neutralCityOwners[index] !== ownerTeam) {
+        continue;
+      }
+      positions.push(this.gridToWorldCenter(this.neutralCityGridCoordinates[index]));
     }
     return positions;
   }

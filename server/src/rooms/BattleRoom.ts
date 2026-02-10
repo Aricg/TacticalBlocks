@@ -5,6 +5,7 @@ import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import {
   getGridCellTerrainType,
+  getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
   type TerrainType,
 } from "../../../shared/src/terrainGrid.js";
@@ -15,6 +16,7 @@ import {
 } from "../../../shared/src/runtimeTuning.js";
 
 type PlayerTeam = "BLUE" | "RED";
+type CityOwner = PlayerTeam | "NEUTRAL";
 type Vector2 = {
   x: number;
   y: number;
@@ -48,6 +50,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
+  private readonly neutralCityCells = getNeutralCityGridCoordinates();
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
 
@@ -93,6 +96,7 @@ export class BattleRoom extends Room<BattleState> {
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
+    this.initializeNeutralCityOwnership();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
     this.spawnTestUnits();
@@ -536,6 +540,12 @@ export class BattleRoom extends Room<BattleState> {
     );
   }
 
+  private initializeNeutralCityOwnership(): void {
+    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
+      this.state.neutralCityOwners.push("NEUTRAL");
+    }
+  }
+
   private getCityWorldPosition(team: PlayerTeam): Vector2 {
     const cityCell = getTeamCityGridCoordinate(team);
     return this.gridToWorldCenter(cityCell);
@@ -561,6 +571,28 @@ export class BattleRoom extends Room<BattleState> {
   private getCityCell(homeCity: PlayerTeam): GridCoordinate {
     const cityPosition = this.getCityWorldPosition(homeCity);
     return this.worldToGridCoordinate(cityPosition.x, cityPosition.y);
+  }
+
+  private getNeutralCityCell(index: number): GridCoordinate | null {
+    const cityCell = this.neutralCityCells[index];
+    if (!cityCell) {
+      return null;
+    }
+
+    return cityCell;
+  }
+
+  private getNeutralCityOwner(index: number): CityOwner {
+    const owner = this.state.neutralCityOwners[index];
+    if (owner === "RED" || owner === "BLUE") {
+      return owner;
+    }
+
+    return "NEUTRAL";
+  }
+
+  private setNeutralCityOwner(index: number, owner: CityOwner): void {
+    this.state.neutralCityOwners[index] = owner;
   }
 
   private getOccupyingTeamAtCell(targetCell: GridCoordinate): PlayerTeam | null {
@@ -597,6 +629,26 @@ export class BattleRoom extends Room<BattleState> {
       changed = true;
     }
 
+    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
+      const cityCell = this.getNeutralCityCell(index);
+      if (!cityCell) {
+        continue;
+      }
+
+      const occupyingTeam = this.getOccupyingTeamAtCell(cityCell);
+      if (!occupyingTeam) {
+        continue;
+      }
+
+      const currentOwner = this.getNeutralCityOwner(index);
+      if (occupyingTeam === currentOwner) {
+        continue;
+      }
+
+      this.setNeutralCityOwner(index, occupyingTeam);
+      changed = true;
+    }
+
     return changed;
   }
 
@@ -610,7 +662,12 @@ export class BattleRoom extends Room<BattleState> {
       this.runtimeTuning.unitInfluenceMultiplier *
       this.runtimeTuning.cityInfluenceUnitsEquivalent;
 
-    this.influenceGridSystem.setStaticInfluenceSources([
+    const staticSources: Array<{
+      x: number;
+      y: number;
+      power: number;
+      team: PlayerTeam;
+    }> = [
       {
         x: redCityPosition.x,
         y: redCityPosition.y,
@@ -623,7 +680,25 @@ export class BattleRoom extends Room<BattleState> {
         power: cityPower,
         team: blueCityOwner,
       },
-    ]);
+    ];
+
+    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
+      const cityCell = this.getNeutralCityCell(index);
+      const owner = this.getNeutralCityOwner(index);
+      if (!cityCell || owner === "NEUTRAL") {
+        continue;
+      }
+
+      const cityPosition = this.gridToWorldCenter(cityCell);
+      staticSources.push({
+        x: cityPosition.x,
+        y: cityPosition.y,
+        power: cityPower,
+        team: owner,
+      });
+    }
+
+    this.influenceGridSystem.setStaticInfluenceSources(staticSources);
   }
 
   private handleRuntimeTuningUpdate(
