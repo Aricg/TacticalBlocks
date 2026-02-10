@@ -26,6 +26,9 @@ type DominanceTarget = {
 
 export class InfluenceGridSystem {
   private static readonly MAX_MAGNITUDE_EXTRA_DECAY = 0.05;
+  private static readonly BALANCE_NEUTRAL_SNAP_DOMINANCE = 0.04;
+  private static readonly BALANCE_NEUTRAL_FADE_DOMINANCE = 0.12;
+  private static readonly BALANCE_NEUTRAL_MIN_TOTAL_PRESSURE = 0.000001;
   private readonly gridWidth: number;
   private readonly gridHeight: number;
   private readonly cellWidth: number;
@@ -228,6 +231,8 @@ export class InfluenceGridSystem {
       const worldY = (cellY + 0.5) * this.cellHeight;
       let blueUnitPressure = 0;
       let redUnitPressure = 0;
+      let blueTotalPressure = 0;
+      let redTotalPressure = 0;
 
       for (const unit of contributingUnits) {
         const distance = Math.hypot(worldX - unit.x, worldY - unit.y);
@@ -237,8 +242,10 @@ export class InfluenceGridSystem {
         scores[index] += localInfluence * unit.teamSign;
         if (unit.teamSign > 0) {
           blueUnitPressure += localInfluence;
+          blueTotalPressure += localInfluence;
         } else {
           redUnitPressure += localInfluence;
+          redTotalPressure += localInfluence;
         }
       }
 
@@ -247,8 +254,20 @@ export class InfluenceGridSystem {
         const localInfluence = source.power / (distance * distance + 1);
         const enemyPressure = source.teamSign > 0 ? redUnitPressure : blueUnitPressure;
         const gateMultiplier = this.getCityGateMultiplier(enemyPressure);
-        scores[index] += localInfluence * gateMultiplier * source.teamSign;
+        const effectiveInfluence = localInfluence * gateMultiplier;
+        scores[index] += effectiveInfluence * source.teamSign;
+        if (source.teamSign > 0) {
+          blueTotalPressure += effectiveInfluence;
+        } else {
+          redTotalPressure += effectiveInfluence;
+        }
       }
+
+      // Near 50/50 pressure should render as neutral instead of retaining tiny bias.
+      scores[index] *= this.getBalanceNeutralizationFactor(
+        blueTotalPressure,
+        redTotalPressure,
+      );
     }
 
     for (const unit of contributingUnits) {
@@ -341,6 +360,30 @@ export class InfluenceGridSystem {
       return 1;
     }
     return Math.exp(-this.cityEnemyGateAlpha * Math.max(0, enemyPressure));
+  }
+
+  private getBalanceNeutralizationFactor(
+    bluePressure: number,
+    redPressure: number,
+  ): number {
+    const totalPressure = bluePressure + redPressure;
+    if (totalPressure <= InfluenceGridSystem.BALANCE_NEUTRAL_MIN_TOTAL_PRESSURE) {
+      return 0;
+    }
+
+    const dominance = Math.abs(bluePressure - redPressure) / totalPressure;
+    if (dominance <= InfluenceGridSystem.BALANCE_NEUTRAL_SNAP_DOMINANCE) {
+      return 0;
+    }
+    if (dominance >= InfluenceGridSystem.BALANCE_NEUTRAL_FADE_DOMINANCE) {
+      return 1;
+    }
+
+    const t =
+      (dominance - InfluenceGridSystem.BALANCE_NEUTRAL_SNAP_DOMINANCE) /
+      (InfluenceGridSystem.BALANCE_NEUTRAL_FADE_DOMINANCE -
+        InfluenceGridSystem.BALANCE_NEUTRAL_SNAP_DOMINANCE);
+    return t * t * (3 - 2 * t);
   }
 
   private enforceCoreMinimumInfluence(

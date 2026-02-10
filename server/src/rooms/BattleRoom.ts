@@ -290,8 +290,8 @@ export class BattleRoom extends Room<BattleState> {
     const grid = this.state.influenceGrid;
     const teamSign = this.getTeamSign(unit.team);
     const sampleRadius = BattleRoom.MORALE_SAMPLE_RADIUS;
-    let friendlyStrength = 0;
-    let enemyStrength = 0;
+    let friendlyDots = 0;
+    let sampledCells = 0;
 
     for (let rowOffset = -sampleRadius; rowOffset <= sampleRadius; rowOffset += 1) {
       for (let colOffset = -sampleRadius; colOffset <= sampleRadius; colOffset += 1) {
@@ -307,21 +307,18 @@ export class BattleRoom extends Room<BattleState> {
         );
         const cellScore = this.getInfluenceScoreAtCell(sampleCol, sampleRow);
         const alignedCellScore = cellScore * teamSign;
-        if (alignedCellScore > 0) {
-          friendlyStrength += alignedCellScore;
-        } else if (alignedCellScore < 0) {
-          enemyStrength += -alignedCellScore;
+        if (alignedCellScore >= 0) {
+          friendlyDots += 1;
         }
+        sampledCells += 1;
       }
     }
 
-    const totalStrength = friendlyStrength + enemyStrength;
-    if (totalStrength <= 0.000001) {
-      return BattleRoom.MORALE_MAX_SCORE * 0.5;
+    if (sampledCells <= 0) {
+      return 0;
     }
 
-    const moraleScore =
-      (friendlyStrength / totalStrength) * BattleRoom.MORALE_MAX_SCORE;
+    const moraleScore = (friendlyDots / sampledCells) * BattleRoom.MORALE_MAX_SCORE;
     return this.clamp(moraleScore, 0, BattleRoom.MORALE_MAX_SCORE);
   }
 
