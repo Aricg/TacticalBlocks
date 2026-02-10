@@ -193,6 +193,7 @@ export class InfluenceGridSystem {
     const activeUnits = this.collectActiveUnits(units);
     const cellCount = this.gridWidth * this.gridHeight;
     const scores = new Float32Array(cellCount);
+    const balanceNeutralizationFactorByCell = new Float32Array(cellCount);
     const blueFloorByCell = new Float32Array(cellCount);
     const redFloorByCell = new Float32Array(cellCount);
 
@@ -264,10 +265,12 @@ export class InfluenceGridSystem {
       }
 
       // Near 50/50 pressure should render as neutral instead of retaining tiny bias.
-      scores[index] *= this.getBalanceNeutralizationFactor(
+      const balanceNeutralizationFactor = this.getBalanceNeutralizationFactor(
         blueTotalPressure,
         redTotalPressure,
       );
+      balanceNeutralizationFactorByCell[index] = balanceNeutralizationFactor;
+      scores[index] *= balanceNeutralizationFactor;
     }
 
     for (const unit of contributingUnits) {
@@ -305,8 +308,10 @@ export class InfluenceGridSystem {
     // Resolve floors order-independently. In contested cells, avoid forcing either
     // side's floor so small numerical asymmetries can't accumulate into side bias.
     for (let index = 0; index < cellCount; index += 1) {
-      const blueFloor = blueFloorByCell[index];
-      const redFloor = redFloorByCell[index];
+      const balanceNeutralizationFactor = balanceNeutralizationFactorByCell[index] ?? 1;
+      const floorDamping = balanceNeutralizationFactor * balanceNeutralizationFactor;
+      const blueFloor = blueFloorByCell[index] * floorDamping;
+      const redFloor = redFloorByCell[index] * floorDamping;
       if (blueFloor > 0 && redFloor > 0) {
         // No floor is forced in contested cells.
       } else if (blueFloor > 0) {
