@@ -7,6 +7,14 @@ type MovementCommandMode = {
   rotateToFace: boolean;
 };
 
+export type TerrainType =
+  | 'water'
+  | 'grass'
+  | 'forest'
+  | 'hills'
+  | 'mountains'
+  | 'unknown';
+
 export class Unit extends Phaser.GameObjects.Container {
   public selected: boolean;
   public readonly engagedUnits: Set<Unit>;
@@ -24,9 +32,12 @@ export class Unit extends Phaser.GameObjects.Container {
   private readonly healthBoxBg: Phaser.GameObjects.Rectangle;
   private readonly healthBoxFill: Phaser.GameObjects.Rectangle;
   private readonly dpsText: Phaser.GameObjects.Text;
+  private readonly terrainDebugText: Phaser.GameObjects.Text;
   private health: number;
   private healthMax: number;
   private currentDpsOutput: number;
+  private terrainColor: number | null;
+  private terrainType: TerrainType;
 
   private static readonly BODY_WIDTH: number = GAMEPLAY_CONFIG.unit.bodyWidth;
   private static readonly BODY_HEIGHT: number = GAMEPLAY_CONFIG.unit.bodyHeight;
@@ -43,6 +54,7 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly HEALTH_FILL_BASE_X = -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1;
   private static readonly DPS_TEXT_BASE_Y = Unit.BODY_HEIGHT * 0.5 - 6;
+  private static readonly TERRAIN_TEXT_BASE_Y = -(Unit.BODY_HEIGHT * 0.5) - 11;
   private static readonly ARROW_VERTICES = [
     { x: -5, y: 3 },
     { x: 0, y: -5 },
@@ -90,6 +102,8 @@ export class Unit extends Phaser.GameObjects.Container {
     this.healthMax = Unit.HEALTH_MAX;
     this.health = Phaser.Math.Clamp(health, 0, this.healthMax);
     this.currentDpsOutput = 0;
+    this.terrainColor = null;
+    this.terrainType = 'unknown';
     this.rotation = rotation;
 
     // Rectangle source-of-truth: centered at local (0,0).
@@ -164,17 +178,33 @@ export class Unit extends Phaser.GameObjects.Container {
     );
     this.dpsText.setOrigin(0.5, 0.5);
 
+    this.terrainDebugText = new Phaser.GameObjects.Text(
+      scene,
+      0,
+      Unit.TERRAIN_TEXT_BASE_Y,
+      '',
+      {
+        fontFamily: 'monospace',
+        fontSize: '8px',
+        color: '#f3f3f3',
+        backgroundColor: '#111111',
+      },
+    );
+    this.terrainDebugText.setOrigin(0.5, 0.5);
+
     this.add([
       this.unitBody,
       this.facingArrow,
       this.healthBoxBg,
       this.healthBoxFill,
       this.dpsText,
+      this.terrainDebugText,
     ]);
 
     scene.add.existing(this);
     this.refreshHealthVisuals();
     this.refreshDpsOutputVisual();
+    this.refreshTerrainDebugVisual();
   }
 
   public static fromGameObject(
@@ -313,10 +343,39 @@ export class Unit extends Phaser.GameObjects.Container {
       Unit.HEALTH_BOX_BASE_Y + offsetY,
     );
     this.dpsText.setPosition(offsetX, Unit.DPS_TEXT_BASE_Y + offsetY);
+    this.terrainDebugText.setPosition(offsetX, Unit.TERRAIN_TEXT_BASE_Y + offsetY);
   }
 
   public clearCombatVisualOffset(): void {
     this.setCombatVisualOffset(0, 0);
+  }
+
+  public setTerrainColor(color: number | null): void {
+    this.terrainColor = Number.isFinite(color) ? color : null;
+  }
+
+  public getTerrainColor(): number | null {
+    return this.terrainColor;
+  }
+
+  public getTerrainColorHex(): string | null {
+    if (this.terrainColor === null) {
+      return null;
+    }
+    return `#${this.terrainColor.toString(16).padStart(6, '0')}`;
+  }
+
+  public setTerrainType(type: TerrainType): void {
+    this.terrainType = type;
+    this.refreshTerrainDebugVisual();
+  }
+
+  public getTerrainType(): TerrainType {
+    return this.terrainType;
+  }
+
+  private refreshTerrainDebugVisual(): void {
+    this.terrainDebugText.setText(this.terrainType.toUpperCase());
   }
 
   private faceCurrentDestination(): void {

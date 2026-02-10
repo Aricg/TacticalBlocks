@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import battleMapImage from '../../shared/b94a7e47-8778-43d3-a3fa-d26f831233f6-16c.png';
 import {
   type NetworkCityOwnershipUpdate,
   type NetworkInfluenceGridUpdate,
@@ -20,9 +21,36 @@ import { City } from './City';
 import { InfluenceRenderer } from './InfluenceRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
-import { Unit } from './Unit';
+import { type TerrainType, Unit } from './Unit';
+
+type TerrainSwatch = {
+  color: number;
+  type: TerrainType;
+};
 
 class BattleScene extends Phaser.Scene {
+  private static readonly MAP_BACKGROUND_TEXTURE_KEY = 'battle-map-background';
+  private static readonly TERRAIN_SWATCHES: TerrainSwatch[] = [
+    { color: 0x0f2232, type: 'water' },
+    { color: 0x102236, type: 'water' },
+    { color: 0x71844b, type: 'grass' },
+    { color: 0x70834e, type: 'grass' },
+    { color: 0x748764, type: 'grass' },
+    { color: 0x364d31, type: 'forest' },
+    { color: 0x122115, type: 'forest' },
+    { color: 0x404b3c, type: 'forest' },
+    { color: 0xc4a771, type: 'hills' },
+    { color: 0x9e8c5d, type: 'hills' },
+    { color: 0xa79168, type: 'hills' },
+    { color: 0xefb72f, type: 'hills' },
+    { color: 0xddb650, type: 'hills' },
+    { color: 0x708188, type: 'mountains' },
+    { color: 0x6d7e85, type: 'mountains' },
+    { color: 0x5a6960, type: 'mountains' },
+  ];
+  private static readonly TERRAIN_BY_COLOR = new Map<number, TerrainType>(
+    BattleScene.TERRAIN_SWATCHES.map((swatch) => [swatch.color, swatch.type]),
+  );
   private readonly units: Unit[] = [];
   private readonly unitsById: Map<string, Unit> = new Map<string, Unit>();
   private readonly plannedPathsByUnitId: Map<string, Phaser.Math.Vector2[]> =
@@ -64,6 +92,8 @@ class BattleScene extends Phaser.Scene {
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
+  private mapSamplingWidth = 0;
+  private mapSamplingHeight = 0;
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
@@ -98,10 +128,20 @@ class BattleScene extends Phaser.Scene {
     super({ key: 'BattleScene' });
   }
 
+  preload(): void {
+    this.load.image(BattleScene.MAP_BACKGROUND_TEXTURE_KEY, battleMapImage);
+  }
+
   create(): void {
     this.cameras.main.setBackgroundColor(0x2f7d32);
     this.cameras.main.setScroll(0, 0);
     this.cameras.main.setBounds(0, 0, BattleScene.MAP_WIDTH, BattleScene.MAP_HEIGHT);
+    this.add
+      .image(0, 0, BattleScene.MAP_BACKGROUND_TEXTURE_KEY)
+      .setOrigin(0, 0)
+      .setDisplaySize(BattleScene.MAP_WIDTH, BattleScene.MAP_HEIGHT)
+      .setDepth(-1000);
+    this.initializeMapTerrainSampling();
     this.input.mouse?.disableContextMenu();
     this.shiftKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
@@ -1144,6 +1184,108 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private initializeMapTerrainSampling(): void {
+    const texture = this.textures.get(BattleScene.MAP_BACKGROUND_TEXTURE_KEY);
+    const sourceImage = texture?.getSourceImage() as
+      | {
+          width?: number;
+          height?: number;
+          naturalWidth?: number;
+          naturalHeight?: number;
+          videoWidth?: number;
+          videoHeight?: number;
+        }
+      | undefined;
+    if (!sourceImage) {
+      this.mapSamplingWidth = 0;
+      this.mapSamplingHeight = 0;
+      return;
+    }
+
+    const width =
+      sourceImage.naturalWidth ??
+      sourceImage.videoWidth ??
+      sourceImage.width ??
+      0;
+    const height =
+      sourceImage.naturalHeight ??
+      sourceImage.videoHeight ??
+      sourceImage.height ??
+      0;
+
+    this.mapSamplingWidth = width > 0 ? width : 0;
+    this.mapSamplingHeight = height > 0 ? height : 0;
+  }
+
+  private updateUnitTerrainColors(): void {
+    for (const unit of this.units) {
+      const terrainColor = this.sampleMapColorAt(unit.x, unit.y);
+      unit.setTerrainColor(terrainColor);
+      unit.setTerrainType(this.resolveTerrainType(terrainColor));
+    }
+  }
+
+  private sampleMapColorAt(worldX: number, worldY: number): number | null {
+    if (this.mapSamplingWidth <= 0 || this.mapSamplingHeight <= 0) {
+      return null;
+    }
+
+    const sampleX = Phaser.Math.Clamp(
+      Math.floor((worldX / BattleScene.MAP_WIDTH) * this.mapSamplingWidth),
+      0,
+      this.mapSamplingWidth - 1,
+    );
+    const sampleY = Phaser.Math.Clamp(
+      Math.floor((worldY / BattleScene.MAP_HEIGHT) * this.mapSamplingHeight),
+      0,
+      this.mapSamplingHeight - 1,
+    );
+    const pixel = this.textures.getPixel(
+      sampleX,
+      sampleY,
+      BattleScene.MAP_BACKGROUND_TEXTURE_KEY,
+    );
+    if (!pixel) {
+      return null;
+    }
+
+    return Phaser.Display.Color.GetColor(pixel.red, pixel.green, pixel.blue);
+  }
+
+  private resolveTerrainType(color: number | null): TerrainType {
+    if (color === null) {
+      return 'unknown';
+    }
+
+    const directMatch = BattleScene.TERRAIN_BY_COLOR.get(color);
+    if (directMatch) {
+      return directMatch;
+    }
+
+    // Fallback for future maps where colors are close but not exact swatches.
+    let closestDistance = Number.POSITIVE_INFINITY;
+    let closestType: TerrainType = 'unknown';
+    const colorR = (color >> 16) & 0xff;
+    const colorG = (color >> 8) & 0xff;
+    const colorB = color & 0xff;
+
+    for (const swatch of BattleScene.TERRAIN_SWATCHES) {
+      const swatchR = (swatch.color >> 16) & 0xff;
+      const swatchG = (swatch.color >> 8) & 0xff;
+      const swatchB = swatch.color & 0xff;
+      const dr = colorR - swatchR;
+      const dg = colorG - swatchG;
+      const db = colorB - swatchB;
+      const distanceSq = dr * dr + dg * dg + db * db;
+      if (distanceSq < closestDistance) {
+        closestDistance = distanceSq;
+        closestType = swatch.type;
+      }
+    }
+
+    return closestType;
+  }
+
   private updateInfluenceDebugFocus(): void {
     if (!this.influenceRenderer) {
       return;
@@ -1215,6 +1357,7 @@ class BattleScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     this.smoothRemoteUnitPositions(delta);
     this.applyCombatVisualWiggle(time);
+    this.updateUnitTerrainColors();
     this.advancePlannedPaths();
     this.refreshFogOfWar();
     this.renderMovementLines();
