@@ -40,6 +40,7 @@ export class InfluenceGridSystem {
   private staticCityCapGate: number;
   private unitCapThreshold: number;
   private unitInfluenceMultiplier: number;
+  private cityEnemyGateAlpha: number;
   private staticVelocityEpsilon: number;
   private dominancePowerMultiplier: number;
   private dominanceMinFloor: number;
@@ -92,6 +93,10 @@ export class InfluenceGridSystem {
       0,
       GAMEPLAY_CONFIG.influence.unitInfluenceMultiplier,
     );
+    this.cityEnemyGateAlpha = Math.max(
+      0,
+      GAMEPLAY_CONFIG.influence.cityEnemyGateAlpha,
+    );
     this.staticVelocityEpsilon = Math.max(
       0,
       GAMEPLAY_CONFIG.influence.staticVelocityEpsilon,
@@ -129,6 +134,7 @@ export class InfluenceGridSystem {
     this.staticCityCapGate = PhaserMath.clamp(tuning.staticCityCapGate, 0, 1);
     this.unitCapThreshold = Math.max(0.1, tuning.unitCapThreshold);
     this.unitInfluenceMultiplier = Math.max(0, tuning.unitInfluenceMultiplier);
+    this.cityEnemyGateAlpha = Math.max(0, tuning.cityEnemyGateAlpha);
     this.enemyPressureDebuffFloor = PhaserMath.clamp(
       tuning.influenceEnemyPressureDebuffFloor,
       0,
@@ -204,6 +210,8 @@ export class InfluenceGridSystem {
       const cellY = Math.floor(index / this.gridWidth);
       const worldX = (cellX + 0.5) * this.cellWidth;
       const worldY = (cellY + 0.5) * this.cellHeight;
+      let blueUnitPressure = 0;
+      let redUnitPressure = 0;
 
       for (const unit of contributingUnits) {
         const distance = Math.hypot(worldX - unit.x, worldY - unit.y);
@@ -211,12 +219,19 @@ export class InfluenceGridSystem {
         const localInfluence =
           (unit.power * contestMultiplier) / (distance * distance + 1);
         scores[index] += localInfluence * unit.teamSign;
+        if (unit.teamSign > 0) {
+          blueUnitPressure += localInfluence;
+        } else {
+          redUnitPressure += localInfluence;
+        }
       }
 
       for (const source of contributingStaticSources) {
         const distance = Math.hypot(worldX - source.x, worldY - source.y);
         const localInfluence = source.power / (distance * distance + 1);
-        scores[index] += localInfluence * source.teamSign;
+        const enemyPressure = source.teamSign > 0 ? redUnitPressure : blueUnitPressure;
+        const gateMultiplier = this.getCityGateMultiplier(enemyPressure);
+        scores[index] += localInfluence * gateMultiplier * source.teamSign;
       }
     }
 
@@ -290,6 +305,13 @@ export class InfluenceGridSystem {
     );
     const extraDecay = (1 - normalizedMagnitude) * this.maxExtraDecayAtZero;
     return PhaserMath.clamp(this.decayRate - extraDecay, 0, 1);
+  }
+
+  private getCityGateMultiplier(enemyPressure: number): number {
+    if (this.cityEnemyGateAlpha <= 0) {
+      return 1;
+    }
+    return Math.exp(-this.cityEnemyGateAlpha * Math.max(0, enemyPressure));
   }
 
   private enforceCoreMinimumInfluence(

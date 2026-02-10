@@ -34,6 +34,8 @@ export const GAMEPLAY_CONFIG = {
     dominancePowerMultiplier: 0.22,
     // Multiplier on per-unit influence contribution.
     unitInfluenceMultiplier: 0.05,
+    // Exponential damping strength for city influence under enemy unit pressure.
+    cityEnemyGateAlpha: 0.02,
     // Never allow dominance/core floors below this absolute value.
     dominanceMinFloor: 1,
     // Guaranteed minimum core influence as a fraction of dominance strength.
@@ -112,6 +114,7 @@ export const GAMEPLAY_CONFIG = {
       staticCityCapGate: 0,
       unitCapThreshold: 1.05,
       unitInfluenceMultiplier: 0.05,
+      cityEnemyGateAlpha: 0.02,
       influenceEnemyPressureDebuffFloor: 0.05,
       influenceCoreMinInfluenceFactor: 0.13,
       influenceMaxExtraDecayAtZero: 0.4,
@@ -135,6 +138,7 @@ export const GAMEPLAY_CONFIG = {
       staticCityCapGate: { min: 0, max: 1, step: 1 },
       unitCapThreshold: { min: 0.1, max: 2, step: 0.05 },
       unitInfluenceMultiplier: { min: 0, max: 0.1, step: 0.0025 },
+      cityEnemyGateAlpha: { min: 0, max: 0.2, step: 0.002 },
       influenceEnemyPressureDebuffFloor: { min: 0, max: 1, step: 0.01 },
       influenceCoreMinInfluenceFactor: { min: 0, max: 1, step: 0.01 },
       influenceMaxExtraDecayAtZero: { min: 0, max: 0.9, step: 0.01 },

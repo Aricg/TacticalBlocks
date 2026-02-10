@@ -552,6 +552,7 @@ export class BattleRoom extends Room<BattleState> {
     const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
     const cityPower =
       this.runtimeTuning.baseUnitHealth *
+      this.runtimeTuning.unitInfluenceMultiplier *
       this.runtimeTuning.cityInfluenceUnitsEquivalent;
 
     this.influenceGridSystem.setStaticInfluenceSources([

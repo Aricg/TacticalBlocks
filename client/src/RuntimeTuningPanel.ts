@@ -57,6 +57,11 @@ const SLIDERS: SliderDescriptor[] = [
     group: 'Influence',
   },
   {
+    key: 'cityEnemyGateAlpha',
+    label: 'City Enemy Gate',
+    group: 'Influence',
+  },
+  {
     key: 'influenceEnemyPressureDebuffFloor',
     label: 'Enemy Pressure Floor',
     group: 'Influence',
