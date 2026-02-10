@@ -352,6 +352,14 @@ export class NetworkManager {
     this.room.send('lobbySelectMap', { mapId });
   }
 
+  public sendLobbyRandomMap(): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.room.send('lobbyRandomMap', {});
+  }
+
   public async disconnect(): Promise<void> {
     if (!this.room) {
       return;

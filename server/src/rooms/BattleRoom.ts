@@ -45,6 +45,7 @@ type LobbyReadyMessage = {
 type LobbySelectMapMessage = {
   mapId: string;
 };
+type LobbyRandomMapMessage = Record<string, never>;
 type LobbyPlayerSnapshot = {
   sessionId: string;
   team: PlayerTeam;
@@ -153,6 +154,12 @@ export class BattleRoom extends Room<BattleState> {
     this.onMessage("lobbySelectMap", (client, message: LobbySelectMapMessage) => {
       this.handleLobbySelectMapMessage(client, message);
     });
+    this.onMessage(
+      "lobbyRandomMap",
+      (client, _message: LobbyRandomMapMessage) => {
+        this.handleLobbyRandomMapMessage(client);
+      },
+    );
   }
 
   onJoin(client: Client): void {
@@ -801,6 +808,32 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     this.applyLobbyMapSelection(mapId);
+    this.broadcastLobbyState();
+  }
+
+  private handleLobbyRandomMapMessage(client: Client): void {
+    if (this.matchPhase !== "LOBBY") {
+      return;
+    }
+
+    if (!this.sessionTeamById.has(client.sessionId)) {
+      return;
+    }
+
+    const candidateMapIds = this.availableMapIds.filter(
+      (mapId) => mapId !== this.state.mapId,
+    );
+    if (candidateMapIds.length === 0) {
+      return;
+    }
+
+    const randomIndex = Math.floor(Math.random() * candidateMapIds.length);
+    const randomMapId = candidateMapIds[randomIndex];
+    if (!randomMapId) {
+      return;
+    }
+
+    this.applyLobbyMapSelection(randomMapId);
     this.broadcastLobbyState();
   }
 

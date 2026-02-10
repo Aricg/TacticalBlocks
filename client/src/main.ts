@@ -185,6 +185,8 @@ class BattleScene extends Phaser.Scene {
   private lobbyStatusText: Phaser.GameObjects.Text | null = null;
   private lobbyActionText: Phaser.GameObjects.Text | null = null;
   private lobbyMapText: Phaser.GameObjects.Text | null = null;
+  private lobbyRandomMapButtonBg: Phaser.GameObjects.Rectangle | null = null;
+  private lobbyRandomMapButtonText: Phaser.GameObjects.Text | null = null;
   private lobbyReadyButtonBg: Phaser.GameObjects.Rectangle | null = null;
   private lobbyReadyButtonText: Phaser.GameObjects.Text | null = null;
   private mapSamplingWidth = 0;
@@ -601,6 +603,8 @@ class BattleScene extends Phaser.Scene {
       this.lobbyStatusText = null;
       this.lobbyActionText = null;
       this.lobbyMapText = null;
+      this.lobbyRandomMapButtonBg = null;
+      this.lobbyRandomMapButtonText = null;
       this.lobbyReadyButtonBg = null;
       this.lobbyReadyButtonText = null;
       this.mapBackground = null;
@@ -720,6 +724,21 @@ class BattleScene extends Phaser.Scene {
     this.refreshLobbyOverlay();
   }
 
+  private requestRandomLobbyMap(): void {
+    if (!this.networkManager || this.matchPhase !== 'LOBBY' || this.hasExitedBattle) {
+      return;
+    }
+
+    const selectableMapIds = this.availableMapIds.filter((mapId) =>
+      Boolean(resolveMapImageById(mapId)),
+    );
+    if (selectableMapIds.length <= 1) {
+      return;
+    }
+
+    this.networkManager.sendLobbyRandomMap();
+  }
+
   private createLobbyOverlay(): void {
     const panel = this.add.container(
       BattleScene.MAP_WIDTH * 0.5,
@@ -778,14 +797,32 @@ class BattleScene extends Phaser.Scene {
     });
     this.lobbyActionText.setOrigin(0.5, 0.5);
 
-    this.lobbyReadyButtonBg = this.add.rectangle(0, 140, 240, 46, 0x2f8f46, 1);
+    this.lobbyRandomMapButtonBg = this.add.rectangle(-130, 140, 240, 46, 0x47627a, 1);
+    this.lobbyRandomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
+    this.lobbyRandomMapButtonBg.setInteractive({ useHandCursor: true });
+    this.lobbyRandomMapButtonBg.on('pointerdown', () => {
+      this.requestRandomLobbyMap();
+    });
+
+    this.lobbyRandomMapButtonText = this.add.text(-130, 140, 'RANDOM MAP', {
+      fontFamily: 'monospace',
+      fontSize: '18px',
+      color: '#ffffff',
+    });
+    this.lobbyRandomMapButtonText.setOrigin(0.5, 0.5);
+    this.lobbyRandomMapButtonText.setInteractive({ useHandCursor: true });
+    this.lobbyRandomMapButtonText.on('pointerdown', () => {
+      this.requestRandomLobbyMap();
+    });
+
+    this.lobbyReadyButtonBg = this.add.rectangle(130, 140, 240, 46, 0x2f8f46, 1);
     this.lobbyReadyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
     this.lobbyReadyButtonBg.setInteractive({ useHandCursor: true });
     this.lobbyReadyButtonBg.on('pointerdown', () => {
       this.toggleLobbyReady();
     });
 
-    this.lobbyReadyButtonText = this.add.text(0, 140, 'READY', {
+    this.lobbyReadyButtonText = this.add.text(130, 140, 'READY', {
       fontFamily: 'monospace',
       fontSize: '21px',
       color: '#ffffff',
@@ -803,6 +840,8 @@ class BattleScene extends Phaser.Scene {
       this.lobbyStatusText,
       this.lobbyMapText,
       this.lobbyActionText,
+      this.lobbyRandomMapButtonBg,
+      this.lobbyRandomMapButtonText,
       this.lobbyReadyButtonBg,
       this.lobbyReadyButtonText,
     ]);
@@ -858,6 +897,8 @@ class BattleScene extends Phaser.Scene {
       !this.lobbyStatusText ||
       !this.lobbyActionText ||
       !this.lobbyMapText ||
+      !this.lobbyRandomMapButtonBg ||
+      !this.lobbyRandomMapButtonText ||
       !this.lobbyReadyButtonBg ||
       !this.lobbyReadyButtonText
     ) {
@@ -875,6 +916,9 @@ class BattleScene extends Phaser.Scene {
       this.lobbyStatusText.setText('You exited the battle room.');
       this.lobbyActionText.setText('Refresh the page to join again.');
       this.lobbyMapText.setVisible(false);
+      this.lobbyRandomMapButtonBg.setVisible(false);
+      this.lobbyRandomMapButtonBg.disableInteractive();
+      this.lobbyRandomMapButtonText.setVisible(false);
       this.lobbyReadyButtonBg.setVisible(false);
       this.lobbyReadyButtonBg.disableInteractive();
       this.lobbyReadyButtonText.setVisible(false);
@@ -885,6 +929,23 @@ class BattleScene extends Phaser.Scene {
     this.lobbyMapText.setText(
       `Map: ${this.selectedLobbyMapId}  (click to cycle, shift+click back)`,
     );
+
+    const selectableMapIds = this.availableMapIds.filter((mapId) =>
+      Boolean(resolveMapImageById(mapId)),
+    );
+    const canRandomizeMap = selectableMapIds.length > 1;
+    this.lobbyRandomMapButtonBg.setVisible(true);
+    this.lobbyRandomMapButtonText.setVisible(true);
+    this.lobbyRandomMapButtonBg.setFillStyle(canRandomizeMap ? 0x47627a : 0x3d3d3d, 1);
+    this.lobbyRandomMapButtonText.setText('RANDOM MAP');
+    if (canRandomizeMap) {
+      this.lobbyRandomMapButtonBg.setInteractive({ useHandCursor: true });
+      this.lobbyRandomMapButtonText.setInteractive({ useHandCursor: true });
+    } else {
+      this.lobbyRandomMapButtonBg.disableInteractive();
+      this.lobbyRandomMapButtonText.disableInteractive();
+    }
+
     this.lobbyReadyButtonBg.setVisible(true);
     this.lobbyReadyButtonBg.setInteractive({ useHandCursor: true });
     this.lobbyReadyButtonText.setVisible(true);
