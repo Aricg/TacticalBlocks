@@ -111,6 +111,10 @@ class BattleScene extends Phaser.Scene {
     { color: 0x6d7e85, type: 'mountains' },
     { color: 0x5a6960, type: 'mountains' },
     { color: 0x404b3c, type: 'mountains' },
+    { color: 0x6a7c8c, type: 'mountains' },
+    { color: 0x4e5f5d, type: 'mountains' },
+    { color: 0x3a4a54, type: 'mountains' },
+    { color: 0x96a2a0, type: 'mountains' },
   ];
   private static readonly TERRAIN_BY_COLOR = new Map<number, TerrainType>(
     BattleScene.TERRAIN_SWATCHES.map((swatch) => [swatch.color, swatch.type]),

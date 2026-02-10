@@ -105,50 +105,50 @@ const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
     'gffgfgffffffffffffgffffgwwwwwgffgwwwwwwwwwfgggggffffffffffffffffffgwwwwwwwwwwwwg' +
     'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
   '3498110a-b6f5-41ee-89ec-67203559ed32':
-    'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggh' +
-    'gggghfffhggggggghhhfhhhhhhhfhhhhhggggggggggggggghgggggggggffgffffgffggffgfggfffh' +
-    'ggggghfffgggggggghhfhhhhhhhhhhhhfgggggggggghgggghhgggggggffgffffffffffffffgfgffh' +
-    'gggggghfffhgggggghhhgghhhhhhhhhggggggggggggffggggffgghhhgfgfffffffffffffgffgfgfh' +
-    'ggggggghfffgggggghfhhhhhhggggggggggggggggggffffgfgfgghhhgfffffffgffffffffffgffgh' +
-    'gggggggggfffgggghhhhhhgggggggggggghhgggggfggfgffgffffhhhfhfgffffgfffffggggfffffh' +
-    'ggggggggghfffggghhhhhfgggggggggggghhggfgggggfgffggggggggfggggggfgggfgggggffffffh' +
-    'ggggggggggfffggfhhhhhfgghhhgggggggffgghfgggffggfggggggghhggggggggggfgggggfgffffh' +
-    'gggggggggghffggghhhggggghhhgggghhgggghgffhggggggggggfffhgggggggggggggggggffffgfh' +
-    'gggggggggggfffggfhfggggghhhggggggfgfggfffggghhhggggfhfgggggggggggggggggggffgfffh' +
-    'gggggggggggfffhfggggggggggggggggfffhggfgfffghhhggfffggggghhhhggggghhhgggggfggfgh' +
-    'ggggggggggggffffhggggggggggfggggffggfggggfgghhhggfhggggghhhhhggggghhhgggggffgfhg' +
-    'ggggggggggggghffffggggggggfggggffggggffghgfgggggffgggggghghhhhfggghhhggggfffgghg' +
-    'ggggggggggggggghffhgggggggggggggggggffggffgggggfhggggfhhhhhhhhhggggggggggfffgghg' +
-    'gggggggggggggggghfffgggggggggggggggggggffgggggfhggggfhhhhhhhhhhgggggggggfffffhhh' +
-    'gggggggggggggggggffhgggggggggggghhffggfggfgfgffgggggghhhhhghhhfhgggggggggffgghhg' +
-    'gggggggggggggggggfffgggggggggggghhfggggggfgggfhggghgghhgggghhhhhhfgggggggffgfhhg' +
-    'ggggggggggggggggghfffggggggggggghhfggggggggggffggfgggfgfgffghhhhhfgggggggggfhhhg' +
-    'ggggggggggggggggggfffhfggggggggggggggggggggghfgghfgfffggfffffhhhhgggggggfgfghfhg' +
-    'ggggggggggggggggggffffffhffgggggggggggggggghfhgggffhgggffffffffhhggggffgfggghhgg' +
-    'ghggggggggggggggggfghfffffffgggggggggggggghfhgggffggfggffffffggggggggfggfhgghhhg' +
-    'ghhgggggggggggggggfgggggfhffffhfggggggggghffgggggggfffgfffggggggggggfggghhgghhhg' +
-    'ghhhgggggggggfffffggggggggfhfffffggggggghfffhfgggggfgfgfggggggggggghfggggffgghhh' +
-    'ghhhggggggggfggggggffgggggggghfffhggfhffffhhffffhggggggggggggggggghfgggfgfffgghg' +
-    'ghhhgghhhgghfgghhffffffggggggggffffffffhggggggfhfffgggggggggffffffhgggggfffgffgg' +
-    'ghfhhfgggffhggghhhhfffffgggggggggfffggggggggggggghffgggggggfffggggggggggghhfgffg' +
-    'ghhhfgggggggggfhhhhhgffgfgggggggggffggggggggggggggghfffhggfhgggggggggggfggffghhg' +
-    'ghhggffgggggggfhhhhhhgfgghfggggggghfgggggggggggggggggfffffggggggghhgggggfgffggfg' +
-    'ghhggffggggggggghfhhhhhhhhhggggggggffggggghhhgggggggggghffggggggghhgggghhgfgggfg' +
-    'ghhgffffggggggggghhhhhhhhhhfgggggggfhggggghhhggggggggggghfhgggggghhgggghggfggfgg' +
-    'ghggfffgggghhfggghhhfhggghfggggggggffggggghhhgggggggggggghfggggggggggfgggffffggg' +
-    'ghggfffgggghhfgggfhhgfhhgggggggggggffggggggggggggggggggggghfffggggggfgfggffgfggg' +
-    'ghfgffggggghhfggggfhhhhggghhhgggggffgfhggggggggggggggggggggffffhgggggfggfffhgfgg' +
-    'ggffgfggggggggggggghhhhggghhhgggggfhggffgggggggggggggggggggggfhffhgggggfggfggfgg' +
-    'gffffffggggggggggggggggggghhhggghffgggggfhggggggggggggggggggghggfffggggfgfggfffg' +
-    'gffffffggggggggggggggggggggggggfhggggggggffhgggggghhhgggggggfhhfgghffgggfggghggg' +
-    'gffffgfggggggfgggggggggggggggggfggggggggggghfggggghhhggggggghhhhgggghfgggggghfgg' +
-    'gfffffffgggfffggggfgfgggggggffffggghhhgggggghfgggghhhgggggghhhhhgggggfhgggfgfhfg' +
-    'gfffffffffgfgffgfffggffffggfhgggggghhhgggggggfgggggggggggghhhhhhggggghfgggggghgg' +
-    'gffffffffffffgfffffffffgggffgggggggfffgggggggfhgggggggghhhhhhfhggggggghfgggghgfg' +
-    'gfffgfhffffffffffffffgfgggfgggggggggggggggggggfggghhhhhhhhhhhhhgggggggffgggggggg' +
-    'gffffffffffffffgfffffgfggfhgggggggggggggggggggfgghhhhhhhgghhhhhggggggggfffggggfg' +
-    'gffgfgfffffffffffffffffggfgggggggggggggggggggggfhhhhhfhhhhhhhhhfggggggghfgggfffg' +
-    'ghhhhhhhhhhhhhhhhhhhhghggggggggggggggggggggggggggghhhhhhhhhhgggggggggggggggggggg',
+    'ggggmgmggggmggggmggggggmgggggmmgmgmgmggggggmgmmgmgggmggggmgggggggggggggggggggggm' +
+    'gggghfffhggggggghhhfhhhhhhhfhhhhhggggggggggmggggmgggggggggffgffffgffggffgfggfffh' +
+    'ggggghfffgggggggghhfhhhhhhhhhhhhfgggggggggmmmgggmmgggggggffgffffffffffffffgfgffm' +
+    'gggggghfffhgggggghhhgghhhhhhhhhgggggggggggmfmggmmmmgghhhgfgfffffffffffffgffgfgfm' +
+    'ggggggghfffgggggghfhhhhhhggggggggggggggggmmmmmfmmmmmghhhgfffffffgffffffffffgffgm' +
+    'gggggggggfffgggghhhhhhgggggggggggghhggggmfmmmmmfmmmmfhhhfmfgffffgfffffggggfffffm' +
+    'ggggggggghfffggghhhhhfgggggggggggghhggfmmmmmmmmmggggggggfggggggfgggfgggggffffffm' +
+    'ggggggggggfffggfhhhhhfgghhhgggggggffggmfmmmmfmmmmgggggghhggggggggggfgggggfgffffh' +
+    'gggggggggghffggghhhggggghhhggggmmggggmmmfmmmggggggggfffmgggggggggggggggggffffgfm' +
+    'gggggggggggfffggfhfggggghhhgggmmmmgfmmmmmmmghhhggggfhfgggggggggggggggggggffgfffm' +
+    'gggggggggggfffhfgggggggggggggmmmmmmmmmmmmmmghhhggfffggggghhhhggggghhhgggggfgmfgh' +
+    'ggggggggggggffffhggggggggggfmmmmmmmmmmmmmmmmhhhggfhggggghhhhhggggghhhgggggffgfhg' +
+    'ggggggggggggghffffggggggggfmmmmmmmmmmfmmmmmmggggffgggggghghhhhfggghhhggggfffgghg' +
+    'ggggggggggggggghffhgggggggggggggmmmmmfmmfmgggggfhggggfhhhhhhhhhggggggggggfffgghg' +
+    'gggggggggggggggghfffgggggggggggggggggmmfmmmgggfhggggfhhhhhhhhhhgggggggggfffffhhh' +
+    'gggggggggggggggggffhgggggggggggghhffmmfmmmmmgffgggggghhhhhghhhfhgggggggggffgghhg' +
+    'gggggggggggggggggfffgggggggggggghhfgggmmmmgggfhgggmmghhgggghhhhhhfgggggggffgfhhg' +
+    'ggggggggggggggggghfffggggggggggghhfggggggggggffggmmmmfgfgffghhhhhfgggggggggfhhhg' +
+    'ggggggggggggggggggfffmfggggggggggggggggggggghfggmmmmmmggfffffhhhhgggggggfmfghfhg' +
+    'ggggggggggggggggggffffffhffgggggggggggggggghfhgmmmmmmmgffffffffhhggggffmfggghhgg' +
+    'ghggggggggggggggggfghfffffffgggggggggggggghfhgmmmmmmmggffffffggggggggfggfmgghhhg' +
+    'ghhgggggggggggggggfgggggfhffffhfggggggggghffggggmmmmmmgfffggggggggggfgggmmgghhhg' +
+    'ghhhgggggggggfffffggggggggfhfffffggggggghfffhfgggmmmmfgfggggggggggghfggmmmmgghhh' +
+    'ghhhggggggggfggggggffgggggggghfffhggfhffffhhffffhggggggggggggggggghfggmfmmmmmghg' +
+    'ghhhgghhmgghfgghhffffffggggggggffffffffhggggggfhfffgggggggggffffffhggmmmffmmmfgg' +
+    'ghfhhfgggffhggghhhhfffffgggggggggfffgggggggggggggmffgggggggfffggggggggmmmmmmmffg' +
+    'ghhhfgggggggggfhhhhhgffgfgggggggggffggggggggggggggghfffhgmfhgggggggggggfmmmmgmmg' +
+    'ghhggffgggggggfhhhhhhgfgghfggggggghfgggggggggggggggggfffffggggggghhggggmmmmmmmmg' +
+    'ghhggffggggggggghfhhhhhhhhhggggggggffggggghhhgggggggggghffggggggghhgggmmmmmmmmfg' +
+    'ghhgffffggggggggghhhhhhhhhhfgggggggfhggggghhhggggggggggghfhgggggghhgggmmmmfmmmmg' +
+    'ghggfffgggghhfggghhhfhggghfggggggggffggggghhhgggggggggggghfggggggggggfmmmmmmmmmg' +
+    'ghggfffgggghhfgggfhhgfhhgggggggggggffggggggggggggggggggggghfffggggggfmmmmmmmmggg' +
+    'ghfgffggggghhfggggfhhhhggghhhgggggffgfhggggggggggggggggggggffffhgggmmfmmmmmmmmgg' +
+    'ggffgfggggggggggggghhhhggghhhgggggfhggffgggggggggggggggggggggfhffhgggmmmmmfmmmmg' +
+    'gffffffggggggggggggggggggghhhgggmffgggggfhgggggggggggggggggggmggfffggggfgfmmmmmg' +
+    'gffffffggggggggggggggggggggggggfhggggggggffhgggggghhhgggggggfhhfgghffgggfmmmmmmg' +
+    'gffffgfggggggfgggggggggggggggggfggggggggggghfggggghhhggggggghhhhgggghfgggggmmmgg' +
+    'gfffffffgggfffggggfgfgggggggffffggghhhgggggghfgggghhhgggggghhhhhgggggfhgggfmmmmg' +
+    'gfffffffffgfgffgfffggffffggfhgggggghhhgggggggfgggggggggggghhhhhhggggghfggmmmmmmg' +
+    'gffffffffffffgfffffffffgggffgggggggfffgggggggfhgggggggghhhhhhfhggggggghfgggmmmmg' +
+    'gfffgfhffffffffffffffgfgggfgggggggggggggggggggfggghhhhhhhhhhhhhgggggggffgggmmmmg' +
+    'gffffffffffffffgfffffgfggfmgggggggggggggggggggfgghhhhhhhgghhhhhggggggggfffmmmmmg' +
+    'gffgfgfffffffffffffffffggfgggggggggggggggggggggfhhhhhfhhhhhhhhhfggggggghfggmmmmg' +
+    'mmmmmmmmmmmmmmmmmmmmhghggggggggggggggggggggggggggghhhhmhhhhhgggggggggggggggggggg',
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf':
     'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmg' +
     'mffgfffffffgfhgghhhfhhhhhhhfhhhhhgggfmmmmmmmmmmmgmmfhhhhgggggffffgffggffgfggfffg' +
@@ -483,7 +483,28 @@ const MOUNTAIN_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
     
   ],
   '3498110a-b6f5-41ee-89ec-67203559ed32': [
-    
+    29, 30, 43, 45, 46, 48, 123, 128, 202, 203, 204, 208, 209, 239, 282, 284,
+    287, 288, 289, 290, 319, 361, 362, 363, 364, 365, 367, 368, 369, 370, 371, 399,
+    440, 442, 443, 444, 445, 446, 448, 449, 450, 451, 479, 519, 520, 521, 522, 523,
+    524, 525, 526, 527, 559, 598, 600, 601, 602, 603, 605, 606, 607, 608, 671, 672,
+    677, 678, 679, 681, 682, 683, 719, 750, 751, 752, 753, 756, 757, 758, 759, 760,
+    761, 762, 799, 829, 830, 831, 832, 833, 834, 835, 836, 837, 838, 839, 840, 841,
+    842, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919, 920, 921, 922,
+    923, 987, 988, 989, 990, 991, 992, 993, 994, 995, 996, 998, 999, 1000, 1001, 1002,
+    1003, 1072, 1073, 1074, 1075, 1076, 1078, 1079, 1081, 1157, 1158, 1160, 1161, 1162, 1236, 1237,
+    1239, 1240, 1241, 1242, 1243, 1318, 1319, 1320, 1321, 1330, 1331, 1409, 1410, 1411, 1412, 1488,
+    1489, 1490, 1491, 1492, 1493, 1567, 1568, 1569, 1570, 1571, 1572, 1573, 1646, 1647, 1648, 1649,
+    1650, 1651, 1652, 1673, 1728, 1729, 1730, 1731, 1732, 1733, 1752, 1753, 1809, 1810, 1811, 1812,
+    1831, 1832, 1833, 1834, 1910, 1912, 1913, 1914, 1915, 1916, 1989, 1990, 1991, 1994, 1995, 1996,
+    2070, 2071, 2072, 2073, 2074, 2075, 2076, 2152, 2153, 2154, 2155, 2157, 2158, 2231, 2232, 2233,
+    2234, 2235, 2236, 2237, 2238, 2310, 2311, 2312, 2313, 2314, 2315, 2316, 2317, 2390, 2391, 2392,
+    2393, 2395, 2396, 2397, 2398, 2470, 2471, 2472, 2473, 2474, 2475, 2476, 2477, 2478, 2549, 2550,
+    2551, 2552, 2553, 2554, 2555, 2556, 2627, 2628, 2630, 2631, 2632, 2633, 2634, 2635, 2636, 2637,
+    2709, 2710, 2711, 2712, 2713, 2715, 2716, 2717, 2718, 2794, 2795, 2796, 2797, 2798, 2873, 2874,
+    2875, 2876, 2877, 2878, 2955, 2956, 2957, 3035, 3036, 3037, 3038, 3113, 3114, 3115, 3116, 3117,
+    3118, 3195, 3196, 3197, 3198, 3275, 3276, 3277, 3278, 3354, 3355, 3356, 3357, 3358, 3435, 3436,
+    3437, 3438, 3440, 3441, 3442, 3443, 3444, 3445, 3446, 3447, 3448, 3449, 3450, 3451, 3452, 3453,
+    3454, 3455, 3456, 3457, 3458, 3459,
   ],
   '7391c2fe-3bbb-4805-b2e8-56b10dc042cf': [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
