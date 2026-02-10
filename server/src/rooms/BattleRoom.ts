@@ -81,9 +81,13 @@ export class BattleRoom extends Room<BattleState> {
       const deltaSeconds = deltaMs / 1000;
       this.simulationFrame += 1;
       this.updateMovement(deltaSeconds);
+      const cityOwnershipChanged = this.updateCityOwnershipFromOccupancy();
+      if (cityOwnershipChanged) {
+        this.syncCityInfluenceSources();
+      }
       const engagements = this.updateUnitInteractions(deltaSeconds);
       this.updateCombatRotation(deltaSeconds, engagements);
-      this.updateInfluenceGrid();
+      this.updateInfluenceGrid(cityOwnershipChanged);
     }, GAMEPLAY_CONFIG.network.positionSyncIntervalMs);
 
     this.onMessage("unitPath", (client, message: UnitPathMessage) => {
@@ -492,9 +496,80 @@ export class BattleRoom extends Room<BattleState> {
     );
   }
 
+  private getCityWorldPosition(team: PlayerTeam): Vector2 {
+    const spawn = team === "RED" ? GAMEPLAY_CONFIG.spawn.red : GAMEPLAY_CONFIG.spawn.blue;
+    const rawX =
+      team === "RED"
+        ? spawn.x - GAMEPLAY_CONFIG.cities.backlineOffset
+        : spawn.x + GAMEPLAY_CONFIG.cities.backlineOffset;
+    const snappedCell = this.worldToGridCoordinate(rawX, spawn.y);
+    return this.gridToWorldCenter(snappedCell);
+  }
+
+  private normalizeTeam(teamValue: string): PlayerTeam {
+    return teamValue.toUpperCase() === "RED" ? "RED" : "BLUE";
+  }
+
+  private getCityOwner(homeCity: PlayerTeam): PlayerTeam {
+    const owner = homeCity === "RED" ? this.state.redCityOwner : this.state.blueCityOwner;
+    return this.normalizeTeam(owner);
+  }
+
+  private setCityOwner(homeCity: PlayerTeam, owner: PlayerTeam): void {
+    if (homeCity === "RED") {
+      this.state.redCityOwner = owner;
+      return;
+    }
+    this.state.blueCityOwner = owner;
+  }
+
+  private getCityCell(homeCity: PlayerTeam): GridCoordinate {
+    const cityPosition = this.getCityWorldPosition(homeCity);
+    return this.worldToGridCoordinate(cityPosition.x, cityPosition.y);
+  }
+
+  private getOccupyingTeamAtCell(targetCell: GridCoordinate): PlayerTeam | null {
+    for (const unit of this.state.units.values()) {
+      if (unit.health <= 0) {
+        continue;
+      }
+      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+      if (unitCell.col !== targetCell.col || unitCell.row !== targetCell.row) {
+        continue;
+      }
+      return this.normalizeTeam(unit.team);
+    }
+
+    return null;
+  }
+
+  private updateCityOwnershipFromOccupancy(): boolean {
+    let changed = false;
+    const homeCities: PlayerTeam[] = ["RED", "BLUE"];
+    for (const homeCity of homeCities) {
+      const cityCell = this.getCityCell(homeCity);
+      const occupyingTeam = this.getOccupyingTeamAtCell(cityCell);
+      if (!occupyingTeam) {
+        continue;
+      }
+
+      const currentOwner = this.getCityOwner(homeCity);
+      if (occupyingTeam === currentOwner) {
+        continue;
+      }
+
+      this.setCityOwner(homeCity, occupyingTeam);
+      changed = true;
+    }
+
+    return changed;
+  }
+
   private syncCityInfluenceSources(): void {
-    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
-    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
+    const redCityPosition = this.getCityWorldPosition("RED");
+    const blueCityPosition = this.getCityWorldPosition("BLUE");
+    const redCityOwner = this.getCityOwner("RED");
+    const blueCityOwner = this.getCityOwner("BLUE");
     const cityPower =
       this.runtimeTuning.baseUnitHealth *
       this.runtimeTuning.unitInfluenceMultiplier *
@@ -502,16 +577,16 @@ export class BattleRoom extends Room<BattleState> {
 
     this.influenceGridSystem.setStaticInfluenceSources([
       {
-        x: redSpawn.x - GAMEPLAY_CONFIG.cities.backlineOffset,
-        y: redSpawn.y,
+        x: redCityPosition.x,
+        y: redCityPosition.y,
         power: cityPower,
-        team: "RED",
+        team: redCityOwner,
       },
       {
-        x: blueSpawn.x + GAMEPLAY_CONFIG.cities.backlineOffset,
-        y: blueSpawn.y,
+        x: blueCityPosition.x,
+        y: blueCityPosition.y,
         power: cityPower,
-        team: "BLUE",
+        team: blueCityOwner,
       },
     ]);
   }

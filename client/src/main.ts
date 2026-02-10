@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  type NetworkCityOwnershipUpdate,
   type NetworkInfluenceGridUpdate,
   NetworkManager,
   type NetworkUnitHealthUpdate,
@@ -35,6 +36,14 @@ class BattleScene extends Phaser.Scene {
   private readonly moraleScoreByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly cities: City[] = [];
+  private readonly cityByHomeTeam: Record<Team, City | null> = {
+    [Team.RED]: null,
+    [Team.BLUE]: null,
+  };
+  private cityOwnerByHomeTeam: Record<Team, Team> = {
+    [Team.RED]: Team.RED,
+    [Team.BLUE]: Team.BLUE,
+  };
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
   private networkManager: NetworkManager | null = null;
   private localPlayerTeam: Team = Team.BLUE;
@@ -359,6 +368,9 @@ class BattleScene extends Phaser.Scene {
       (influenceGridUpdate) => {
         this.applyInfluenceGrid(influenceGridUpdate);
       },
+      (cityOwnershipUpdate) => {
+        this.applyCityOwnership(cityOwnershipUpdate);
+      },
       (runtimeTuning) => {
         this.applyRuntimeTuning(runtimeTuning);
       },
@@ -381,6 +393,8 @@ class BattleScene extends Phaser.Scene {
         city.destroy();
       }
       this.cities.length = 0;
+      this.cityByHomeTeam[Team.RED] = null;
+      this.cityByHomeTeam[Team.BLUE] = null;
       this.lastKnownHealthByUnitId.clear();
       this.combatVisualUntilByUnitId.clear();
       this.moraleScoreByUnitId.clear();
@@ -390,23 +404,24 @@ class BattleScene extends Phaser.Scene {
   }
 
   private createCities(): void {
-    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
-    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
-
-    this.cities.push(
-      new City(
-        this,
-        redSpawn.x - BattleScene.CITY_BACKLINE_OFFSET,
-        redSpawn.y,
-        'Red City',
-      ),
-      new City(
-        this,
-        blueSpawn.x + BattleScene.CITY_BACKLINE_OFFSET,
-        blueSpawn.y,
-        'Blue City',
-      ),
+    const redCityPosition = this.getCityWorldPosition(Team.RED);
+    const blueCityPosition = this.getCityWorldPosition(Team.BLUE);
+    const redCity = new City(
+      this,
+      redCityPosition.x,
+      redCityPosition.y,
+      this.cityOwnerByHomeTeam[Team.RED],
     );
+    const blueCity = new City(
+      this,
+      blueCityPosition.x,
+      blueCityPosition.y,
+      this.cityOwnerByHomeTeam[Team.BLUE],
+    );
+
+    this.cityByHomeTeam[Team.RED] = redCity;
+    this.cityByHomeTeam[Team.BLUE] = blueCity;
+    this.cities.push(redCity, blueCity);
   }
 
   private applyRuntimeTuning(runtimeTuning: RuntimeTuning): void {
@@ -427,6 +442,24 @@ class BattleScene extends Phaser.Scene {
     influenceGridUpdate: NetworkInfluenceGridUpdate,
   ): void {
     this.influenceRenderer?.setInfluenceGrid(influenceGridUpdate);
+  }
+
+  private normalizeTeam(teamValue: string): Team {
+    return teamValue.toUpperCase() === Team.RED ? Team.RED : Team.BLUE;
+  }
+
+  private applyCityOwnership(
+    cityOwnershipUpdate: NetworkCityOwnershipUpdate,
+  ): void {
+    const redOwner = this.normalizeTeam(cityOwnershipUpdate.redCityOwner);
+    const blueOwner = this.normalizeTeam(cityOwnershipUpdate.blueCityOwner);
+    this.cityOwnerByHomeTeam = {
+      [Team.RED]: redOwner,
+      [Team.BLUE]: blueOwner,
+    };
+    this.cityByHomeTeam[Team.RED]?.setOwner(redOwner);
+    this.cityByHomeTeam[Team.BLUE]?.setOwner(blueOwner);
+    this.refreshFogOfWar();
   }
 
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
@@ -967,6 +1000,27 @@ class BattleScene extends Phaser.Scene {
     );
   }
 
+  private getCityWorldPosition(team: Team): Phaser.Math.Vector2 {
+    const spawn = team === Team.RED ? GAMEPLAY_CONFIG.spawn.red : GAMEPLAY_CONFIG.spawn.blue;
+    const rawX =
+      team === Team.RED
+        ? spawn.x - BattleScene.CITY_BACKLINE_OFFSET
+        : spawn.x + BattleScene.CITY_BACKLINE_OFFSET;
+    return this.snapPointToGrid(rawX, spawn.y);
+  }
+
+  private getOwnedCityPositions(ownerTeam: Team): Phaser.Math.Vector2[] {
+    const positions: Phaser.Math.Vector2[] = [];
+    const homeTeams: Team[] = [Team.RED, Team.BLUE];
+    for (const homeTeam of homeTeams) {
+      if (this.cityOwnerByHomeTeam[homeTeam] !== ownerTeam) {
+        continue;
+      }
+      positions.push(this.getCityWorldPosition(homeTeam));
+    }
+    return positions;
+  }
+
   private snapAndCompactPath(
     path: Phaser.Math.Vector2[],
   ): Phaser.Math.Vector2[] {
@@ -1027,21 +1081,10 @@ class BattleScene extends Phaser.Scene {
       this.fogOfWarLayer.erase(this.visionBrush, unit.x, unit.y);
     }
 
-    const allyCityPosition =
-      this.localPlayerTeam === Team.RED
-        ? {
-            x: GAMEPLAY_CONFIG.spawn.red.x - BattleScene.CITY_BACKLINE_OFFSET,
-            y: GAMEPLAY_CONFIG.spawn.red.y,
-          }
-        : {
-            x: GAMEPLAY_CONFIG.spawn.blue.x + BattleScene.CITY_BACKLINE_OFFSET,
-            y: GAMEPLAY_CONFIG.spawn.blue.y,
-          };
-    this.fogOfWarLayer.erase(
-      this.cityVisionBrush,
-      allyCityPosition.x,
-      allyCityPosition.y,
-    );
+    const allyCityPositions = this.getOwnedCityPositions(this.localPlayerTeam);
+    for (const cityPosition of allyCityPositions) {
+      this.fogOfWarLayer.erase(this.cityVisionBrush, cityPosition.x, cityPosition.y);
+    }
 
     const visibilitySources: Array<{ x: number; y: number; radius: number }> = [
       ...allyVisionSources.map((unit) => ({
@@ -1049,11 +1092,11 @@ class BattleScene extends Phaser.Scene {
         y: unit.y,
         radius: this.runtimeTuning.fogVisionRadius,
       })),
-      {
-        x: allyCityPosition.x,
-        y: allyCityPosition.y,
+      ...allyCityPositions.map((cityPosition) => ({
+        x: cityPosition.x,
+        y: cityPosition.y,
         radius: this.runtimeTuning.cityVisionRadius,
-      },
+      })),
     ];
 
     for (const unit of this.units) {

@@ -23,6 +23,8 @@ type ServerInfluenceGridState = {
 type BattleRoomState = {
   units: unknown;
   influenceGrid: ServerInfluenceGridState;
+  redCityOwner: string;
+  blueCityOwner: string;
 };
 
 export type NetworkUnitSnapshot = {
@@ -65,6 +67,11 @@ export type NetworkInfluenceGridUpdate = {
   cells: number[];
 };
 
+export type NetworkCityOwnershipUpdate = {
+  redCityOwner: string;
+  blueCityOwner: string;
+};
+
 export type NetworkUnitPathCommand = {
   unitId: string;
   path: Array<{ x: number; y: number }>;
@@ -88,6 +95,9 @@ type UnitMoraleChangedHandler = (
 type InfluenceGridChangedHandler = (
   influenceGridUpdate: NetworkInfluenceGridUpdate,
 ) => void;
+type CityOwnershipChangedHandler = (
+  cityOwnershipUpdate: NetworkCityOwnershipUpdate,
+) => void;
 type RuntimeTuningChangedHandler = (runtimeTuning: RuntimeTuning) => void;
 
 type TeamAssignedMessage = {
@@ -109,6 +119,7 @@ export class NetworkManager {
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
     private readonly onUnitMoraleChanged: UnitMoraleChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
+    private readonly onCityOwnershipChanged: CityOwnershipChangedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
     endpoint = 'ws://localhost:2567',
     roomName = 'battle',
@@ -146,6 +157,12 @@ export class NetworkManager {
           ),
         });
       };
+      const emitCityOwnershipUpdate = () => {
+        this.onCityOwnershipChanged({
+          redCityOwner: state.redCityOwner,
+          blueCityOwner: state.blueCityOwner,
+        });
+      };
 
       const detachInfluenceGridRevision = $(state.influenceGrid).listen(
         'revision',
@@ -153,8 +170,19 @@ export class NetworkManager {
           emitInfluenceGridUpdate();
         },
       );
-      this.detachCallbacks.push(detachInfluenceGridRevision);
+      const detachRedCityOwner = $(state).listen('redCityOwner', () => {
+        emitCityOwnershipUpdate();
+      });
+      const detachBlueCityOwner = $(state).listen('blueCityOwner', () => {
+        emitCityOwnershipUpdate();
+      });
+      this.detachCallbacks.push(
+        detachInfluenceGridRevision,
+        detachRedCityOwner,
+        detachBlueCityOwner,
+      );
       emitInfluenceGridUpdate();
+      emitCityOwnershipUpdate();
 
       const detachUnitAdd = $(state).units.onAdd(
         (serverUnit: ServerUnitState, unitKey: string) => {
