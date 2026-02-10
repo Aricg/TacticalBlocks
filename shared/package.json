@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "map:quantize16": "node ./scripts/convert-map-16.mjs"
+    "map:quantize16": "node ./scripts/convert-map-16.mjs",
+    "map:generateTerrainGrid": "node ./scripts/generate-terrain-grid.mjs"
   }
 }

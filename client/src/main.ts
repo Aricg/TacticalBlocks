@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import battleMapImage from '../../shared/b94a7e47-8778-43d3-a3fa-d26f831233f6-16c.png';
 import {
   type NetworkCityOwnershipUpdate,
   type NetworkInfluenceGridUpdate,
@@ -12,6 +11,7 @@ import {
   type NetworkUnitMoraleUpdate,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
+import { isGridCellImpassable } from '../../shared/src/terrainGrid.js';
 import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
@@ -28,6 +28,23 @@ type TerrainSwatch = {
   type: TerrainType;
 };
 
+type GridCoordinate = {
+  col: number;
+  row: number;
+};
+
+const MAP_IMAGE_BY_PATH = import.meta.glob('../../shared/*-16c.png', {
+  eager: true,
+  import: 'default',
+}) as Record<string, string>;
+
+function resolveActiveMapImage(): string {
+  const activeMapPath = `../../shared/${GAMEPLAY_CONFIG.map.activeMapId}-16c.png`;
+  const fallbackMapId = GAMEPLAY_CONFIG.map.availableMapIds[0];
+  const fallbackMapPath = `../../shared/${fallbackMapId}-16c.png`;
+  return MAP_IMAGE_BY_PATH[activeMapPath] ?? MAP_IMAGE_BY_PATH[fallbackMapPath];
+}
+
 class BattleScene extends Phaser.Scene {
   private static readonly MAP_BACKGROUND_TEXTURE_KEY = 'battle-map-background';
   private static readonly TERRAIN_SWATCHES: TerrainSwatch[] = [
@@ -38,7 +55,6 @@ class BattleScene extends Phaser.Scene {
     { color: 0x748764, type: 'grass' },
     { color: 0x364d31, type: 'forest' },
     { color: 0x122115, type: 'forest' },
-    { color: 0x404b3c, type: 'forest' },
     { color: 0xc4a771, type: 'hills' },
     { color: 0x9e8c5d, type: 'hills' },
     { color: 0xa79168, type: 'hills' },
@@ -47,6 +63,7 @@ class BattleScene extends Phaser.Scene {
     { color: 0x708188, type: 'mountains' },
     { color: 0x6d7e85, type: 'mountains' },
     { color: 0x5a6960, type: 'mountains' },
+    { color: 0x404b3c, type: 'mountains' },
   ];
   private static readonly TERRAIN_BY_COLOR = new Map<number, TerrainType>(
     BattleScene.TERRAIN_SWATCHES.map((swatch) => [swatch.color, swatch.type]),
@@ -129,7 +146,10 @@ class BattleScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image(BattleScene.MAP_BACKGROUND_TEXTURE_KEY, battleMapImage);
+    this.load.image(
+      BattleScene.MAP_BACKGROUND_TEXTURE_KEY,
+      resolveActiveMapImage(),
+    );
   }
 
   create(): void {
@@ -822,14 +842,24 @@ class BattleScene extends Phaser.Scene {
       }
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
-      const snappedTarget = this.snapPointToGrid(
+      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+      const targetCell = this.worldToGridCoordinate(
         targetX + offsetX,
         targetY + offsetY,
       );
-      const unitPath = [snappedTarget];
+      const clippedTargetCells = this.clipPathTargetsByTerrain(unitCell, [
+        targetCell,
+      ]);
+      if (clippedTargetCells.length === 0) {
+        this.plannedPathsByUnitId.delete(unitId);
+        continue;
+      }
+      const unitPath = clippedTargetCells.map((cell) =>
+        this.gridToWorldCenter(cell),
+      );
       this.networkManager.sendUnitPathCommand({
         unitId,
-        path: [{ x: unitPath[0].x, y: unitPath[0].y }],
+        path: unitPath.map((point) => ({ x: point.x, y: point.y })),
         movementCommandMode,
       });
       this.setPlannedPath(unitId, unitPath);
@@ -863,14 +893,29 @@ class BattleScene extends Phaser.Scene {
       }
       const offsetX = unit.x - formationCenterX;
       const offsetY = unit.y - formationCenterY;
-      const unitPath = this.snapAndCompactPath(
+      const snappedPath = this.snapAndCompactPath(
         path.map((point) =>
           new Phaser.Math.Vector2(point.x + offsetX, point.y + offsetY),
         ),
       );
-      if (unitPath.length === 0) {
+      if (snappedPath.length === 0) {
         continue;
       }
+      const targetCells = snappedPath.map((point) =>
+        this.worldToGridCoordinate(point.x, point.y),
+      );
+      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+      const clippedTargetCells = this.clipPathTargetsByTerrain(
+        unitCell,
+        targetCells,
+      );
+      if (clippedTargetCells.length === 0) {
+        this.plannedPathsByUnitId.delete(unitId);
+        continue;
+      }
+      const unitPath = clippedTargetCells.map((cell) =>
+        this.gridToWorldCenter(cell),
+      );
       this.networkManager.sendUnitPathCommand({
         unitId,
         path: unitPath.map((point) => ({ x: point.x, y: point.y })),
@@ -1020,24 +1065,122 @@ class BattleScene extends Phaser.Scene {
     return this.snapAndCompactPath(commandPath);
   }
 
-  private snapPointToGrid(x: number, y: number): Phaser.Math.Vector2 {
+  private worldToGridCoordinate(x: number, y: number): GridCoordinate {
     const colBasis = x / BattleScene.GRID_CELL_WIDTH - 0.5;
     const rowBasis = y / BattleScene.GRID_CELL_HEIGHT - 0.5;
-    const col = Phaser.Math.Clamp(
-      Math.round(colBasis),
-      0,
-      BattleScene.GRID_WIDTH - 1,
-    );
-    const row = Phaser.Math.Clamp(
-      Math.round(rowBasis),
-      0,
-      BattleScene.GRID_HEIGHT - 1,
-    );
+    return {
+      col: Phaser.Math.Clamp(
+        Math.round(colBasis),
+        0,
+        BattleScene.GRID_WIDTH - 1,
+      ),
+      row: Phaser.Math.Clamp(
+        Math.round(rowBasis),
+        0,
+        BattleScene.GRID_HEIGHT - 1,
+      ),
+    };
+  }
 
+  private gridToWorldCenter(cell: GridCoordinate): Phaser.Math.Vector2 {
     return new Phaser.Math.Vector2(
-      (col + 0.5) * BattleScene.GRID_CELL_WIDTH,
-      (row + 0.5) * BattleScene.GRID_CELL_HEIGHT,
+      (cell.col + 0.5) * BattleScene.GRID_CELL_WIDTH,
+      (cell.row + 0.5) * BattleScene.GRID_CELL_HEIGHT,
     );
+  }
+
+  private snapPointToGrid(x: number, y: number): Phaser.Math.Vector2 {
+    return this.gridToWorldCenter(this.worldToGridCoordinate(x, y));
+  }
+
+  private traceGridLine(
+    start: GridCoordinate,
+    end: GridCoordinate,
+  ): GridCoordinate[] {
+    const points: GridCoordinate[] = [];
+    let x0 = start.col;
+    let y0 = start.row;
+    const x1 = end.col;
+    const y1 = end.row;
+    const dx = Math.abs(x1 - x0);
+    const sx = x0 < x1 ? 1 : -1;
+    const dy = -Math.abs(y1 - y0);
+    const sy = y0 < y1 ? 1 : -1;
+    let error = dx + dy;
+
+    while (true) {
+      points.push({ col: x0, row: y0 });
+      if (x0 === x1 && y0 === y1) {
+        break;
+      }
+      const e2 = 2 * error;
+      if (e2 >= dy) {
+        error += dy;
+        x0 += sx;
+      }
+      if (e2 <= dx) {
+        error += dx;
+        y0 += sy;
+      }
+    }
+
+    return points;
+  }
+
+  private clipPathTargetsByTerrain(
+    start: GridCoordinate,
+    targets: GridCoordinate[],
+  ): GridCoordinate[] {
+    const clippedTargets: GridCoordinate[] = [];
+    let cursor = { col: start.col, row: start.row };
+
+    for (const target of targets) {
+      const segment = this.traceGridLine(cursor, target);
+      let lastTraversable = { col: cursor.col, row: cursor.row };
+      let blocked = false;
+
+      for (let i = 1; i < segment.length; i += 1) {
+        const step = segment[i];
+        if (isGridCellImpassable(step.col, step.row)) {
+          blocked = true;
+          break;
+        }
+        lastTraversable = step;
+      }
+
+      if (blocked) {
+        if (
+          lastTraversable.col !== cursor.col ||
+          lastTraversable.row !== cursor.row
+        ) {
+          clippedTargets.push(lastTraversable);
+        }
+        break;
+      }
+
+      clippedTargets.push(target);
+      cursor = target;
+    }
+
+    return this.compactGridCoordinates(clippedTargets);
+  }
+
+  private compactGridCoordinates(path: GridCoordinate[]): GridCoordinate[] {
+    if (path.length <= 1) {
+      return path;
+    }
+
+    const compacted: GridCoordinate[] = [path[0]];
+    for (let i = 1; i < path.length; i += 1) {
+      const next = path[i];
+      const previous = compacted[compacted.length - 1];
+      if (next.col === previous.col && next.row === previous.row) {
+        continue;
+      }
+      compacted.push(next);
+    }
+
+    return compacted;
   }
 
   private getCityWorldPosition(team: Team): Phaser.Math.Vector2 {

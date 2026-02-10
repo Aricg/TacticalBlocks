@@ -3,6 +3,7 @@ import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
+import { isGridCellImpassable } from "../../../shared/src/terrainGrid.js";
 import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
@@ -424,6 +425,10 @@ export class BattleRoom extends Room<BattleState> {
     return !(destinationSet.size === 1 && destinationSet.has(unitId));
   }
 
+  private isTerrainBlocked(cell: GridCoordinate): boolean {
+    return isGridCellImpassable(cell.col, cell.row);
+  }
+
   private traceGridLine(
     start: GridCoordinate,
     end: GridCoordinate,
@@ -734,11 +739,20 @@ export class BattleRoom extends Room<BattleState> {
     const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
     let pathCursor = { col: unitCell.col, row: unitCell.row };
     const route: GridCoordinate[] = [];
+    let blockedByTerrain = false;
 
     for (const targetCell of snappedTargetCells) {
       const segment = this.traceGridLine(pathCursor, targetCell);
       for (let i = 1; i < segment.length; i += 1) {
-        route.push(segment[i]);
+        const nextCell = segment[i];
+        if (this.isTerrainBlocked(nextCell)) {
+          blockedByTerrain = true;
+          break;
+        }
+        route.push(nextCell);
+      }
+      if (blockedByTerrain) {
+        break;
       }
       pathCursor = targetCell;
     }
@@ -862,6 +876,10 @@ export class BattleRoom extends Room<BattleState> {
 
       while (movementState.destinationCell && movementState.movementBudget > 0) {
         const destinationCell = movementState.destinationCell;
+        if (this.isTerrainBlocked(destinationCell)) {
+          this.clearMovementForUnit(unit.unitId);
+          break;
+        }
         const destination = this.gridToWorldCenter(destinationCell);
         const toTargetX = destination.x - unit.x;
         const toTargetY = destination.y - unit.y;

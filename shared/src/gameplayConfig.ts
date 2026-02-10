@@ -1,7 +1,16 @@
+const MAP_IDS = [
+  'b94a7e47-8778-43d3-a3fa-d26f831233f6',
+  '30cae103-cb06-4791-a21d-241f488189d3',
+  '8183775d-55ac-4f6b-a2e1-1407cdbc9935',
+  '8b3c0e4a-7a4a-41db-b036-cdee835944b1',
+] as const;
+
 export const GAMEPLAY_CONFIG = {
   map: {
     width: 1920,
     height: 1080,
+    activeMapId: MAP_IDS[0],
+    availableMapIds: MAP_IDS,
   },
   network: {
     maxPlayers: 2,
