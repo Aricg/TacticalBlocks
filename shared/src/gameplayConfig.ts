@@ -130,7 +130,7 @@ export const GAMEPLAY_CONFIG = {
       // Slider: Unit Cap Threshold
       unitCapThreshold: 1.05,
       // Slider: Unit Influence Power
-      unitInfluenceMultiplier: 0.05,
+      unitInfluenceMultiplier: 0.0125,
       // Slider: City Enemy Gate
       cityEnemyGateAlpha: 0.02,
       // Slider: Isolated Unit Floor
@@ -142,7 +142,7 @@ export const GAMEPLAY_CONFIG = {
       // Slider: Core Min Influence
       influenceCoreMinInfluenceFactor: 0.13,
       // Slider: Extra Decay @ Zero
-      influenceMaxExtraDecayAtZero: 0.4,
+      influenceMaxExtraDecayAtZero: 0.99,
       // Slider: Vision Radius
       fogVisionRadius: 178,
       // Slider: City Vision Radius
@@ -152,7 +152,7 @@ export const GAMEPLAY_CONFIG = {
       // Slider: Line Alpha
       lineAlpha: 0.92,
       // Slider: City Influence Power
-      cityInfluenceUnitsEquivalent: 3,
+      cityInfluenceUnitsEquivalent: 2.0,
     },
     bounds: {
       baseUnitHealth: { min: 20, max: 200, step: 1 },

@@ -55,3 +55,9 @@ Vibe Check: Use catmullRom or a similar spline interpolation to ensure the line 
 
 "The Influence Line is purely a visual representation of the current state of units. It should not block unit movement, but simply reflect the balance of power on the map."
 
+
+the units have an influece score and its displayed visually with a number, when a unit is clicked on. this value tops out at 100.
+
+the calculation is a complicated field. I belive the field should stay the same so we can see each teams total influence, and the lines of influence can be drawn on the map. this part is working well.  but for an individual unit the score should be determined by the squares of influence surrounding it. for example if there are ajacent squares that are not of its color its strenght should never reach 100. 
+basically the influcen score should apply to the map as it does and a new concept the units moral should be derived from the strenght of the field surrounding it
+

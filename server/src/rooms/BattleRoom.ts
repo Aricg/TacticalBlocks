@@ -43,6 +43,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly combatInfluenceAdvantageByUnitId = new Map<string, number>();
+  private readonly unitMoraleNormalizedByUnitId = new Map<string, number>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
@@ -72,6 +73,20 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly COMBAT_INFLUENCE_SHAPE_EXPONENT = 1.6;
   private static readonly COMBAT_INFLUENCE_RISE_RATE_PER_SECOND = 2.25;
   private static readonly COMBAT_INFLUENCE_FALL_RATE_PER_SECOND = 0.35;
+  private static readonly MORALE_SAMPLE_RADIUS = 1;
+  private static readonly MORALE_STRATEGIC_SAMPLE_RADIUS = 2;
+  private static readonly MORALE_TACTICAL_REFERENCE = 18;
+  private static readonly MORALE_CENTER_WEIGHT = 1.5;
+  private static readonly MORALE_NEIGHBOR_WEIGHT = 1;
+  private static readonly MORALE_CONTESTED_NEIGHBOR_PENALTY = 0.22;
+  private static readonly MORALE_ENEMY_NEIGHBOR_PENALTY = 0.32;
+  private static readonly MORALE_OUTER_ENEMY_PRESSURE_WEIGHT = 0.3;
+  private static readonly MORALE_FRIENDLY_SEED_FLOOR = 0.06;
+  private static readonly MORALE_CONTESTED_CAP_DROP = 0.45;
+  private static readonly MORALE_ENEMY_CAP_DROP = 0.65;
+  private static readonly MORALE_RISE_RATE_PER_SECOND = 1.6;
+  private static readonly MORALE_FALL_RATE_PER_SECOND = 2.8;
+  private static readonly UNIT_MAX_MORALE_SCORE = 100;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
@@ -127,6 +142,7 @@ export class BattleRoom extends Room<BattleState> {
   onDispose(): void {
     this.movementStateByUnitId.clear();
     this.combatInfluenceAdvantageByUnitId.clear();
+    this.unitMoraleNormalizedByUnitId.clear();
     this.sessionTeamById.clear();
     this.simulationFrame = 0;
   }
@@ -298,6 +314,136 @@ export class BattleRoom extends Room<BattleState> {
     );
   }
 
+  private getUnitMoraleNormalized(unit: Unit): number {
+    const sampleCenter = this.worldToGridCoordinate(unit.x, unit.y);
+    const grid = this.state.influenceGrid;
+    const teamSign = this.getTeamSign(unit.team);
+    const localSampleRadius = BattleRoom.MORALE_SAMPLE_RADIUS;
+    const strategicSampleRadius = BattleRoom.MORALE_STRATEGIC_SAMPLE_RADIUS;
+    const adjacentSlotCount = localSampleRadius > 0 ? 8 : 1;
+    let weightedFriendlyControl = 0;
+    let weightedEnemyControl = 0;
+    let totalWeight = 0;
+    let friendlyAdjacentCells = 0;
+    let nonFriendlyAdjacentCells = 0;
+    let enemyAdjacentCells = 0;
+    let weightedOuterEnemyPressure = 0;
+    let totalOuterWeight = 0;
+
+    for (
+      let rowOffset = -strategicSampleRadius;
+      rowOffset <= strategicSampleRadius;
+      rowOffset += 1
+    ) {
+      for (
+        let colOffset = -strategicSampleRadius;
+        colOffset <= strategicSampleRadius;
+        colOffset += 1
+      ) {
+        const sampleCol = this.clamp(
+          sampleCenter.col + colOffset,
+          0,
+          grid.width - 1,
+        );
+        const sampleRow = this.clamp(
+          sampleCenter.row + rowOffset,
+          0,
+          grid.height - 1,
+        );
+        const ringDistance = Math.max(Math.abs(colOffset), Math.abs(rowOffset));
+        const isCenter = colOffset === 0 && rowOffset === 0;
+        const cellScore = this.getInfluenceScoreAtCell(sampleCol, sampleRow);
+        const alignedCellScore = this.clamp(
+          (cellScore * teamSign) / BattleRoom.MORALE_TACTICAL_REFERENCE,
+          -1,
+          1,
+        );
+
+        if (ringDistance <= localSampleRadius) {
+          const weight = isCenter
+            ? BattleRoom.MORALE_CENTER_WEIGHT
+            : BattleRoom.MORALE_NEIGHBOR_WEIGHT;
+          if (alignedCellScore > 0) {
+            weightedFriendlyControl += alignedCellScore * weight;
+          } else if (alignedCellScore < 0) {
+            weightedEnemyControl += -alignedCellScore * weight;
+          }
+
+          if (!isCenter) {
+            if (alignedCellScore > 0) {
+              friendlyAdjacentCells += 1;
+            } else {
+              nonFriendlyAdjacentCells += 1;
+              if (alignedCellScore < 0) {
+                enemyAdjacentCells += 1;
+              }
+            }
+          }
+
+          totalWeight += weight;
+          continue;
+        }
+
+        if (alignedCellScore < 0) {
+          const ringWeight = 1 / Math.max(1, ringDistance * ringDistance);
+          weightedOuterEnemyPressure += -alignedCellScore * ringWeight;
+          totalOuterWeight += ringWeight;
+        } else if (ringDistance > 0) {
+          totalOuterWeight += 1 / Math.max(1, ringDistance * ringDistance);
+        }
+      }
+    }
+
+    if (totalWeight <= 0) {
+      return 0;
+    }
+
+    const localControlDenominator =
+      weightedFriendlyControl + weightedEnemyControl;
+    const localFriendlyControl =
+      localControlDenominator > 0
+        ? weightedFriendlyControl / localControlDenominator
+        : 0;
+    const contestedRatio = nonFriendlyAdjacentCells / adjacentSlotCount;
+    const enemyRatio = enemyAdjacentCells / adjacentSlotCount;
+    const outerEnemyPressure =
+      totalOuterWeight > 0
+        ? weightedOuterEnemyPressure / totalOuterWeight
+        : 0;
+
+    let moraleNormalized =
+      localFriendlyControl -
+      contestedRatio * BattleRoom.MORALE_CONTESTED_NEIGHBOR_PENALTY -
+      enemyRatio * BattleRoom.MORALE_ENEMY_NEIGHBOR_PENALTY -
+      outerEnemyPressure * BattleRoom.MORALE_OUTER_ENEMY_PRESSURE_WEIGHT;
+
+    if (friendlyAdjacentCells > 0 || weightedFriendlyControl > 0.05) {
+      moraleNormalized = Math.max(
+        moraleNormalized,
+        BattleRoom.MORALE_FRIENDLY_SEED_FLOOR,
+      );
+    }
+
+    let moraleCap = 1;
+    if (nonFriendlyAdjacentCells > 0) {
+      moraleCap = Math.min(
+        moraleCap,
+        1 - contestedRatio * BattleRoom.MORALE_CONTESTED_CAP_DROP,
+      );
+    }
+    if (enemyAdjacentCells > 0) {
+      moraleCap = Math.min(
+        moraleCap,
+        1 - enemyRatio * BattleRoom.MORALE_ENEMY_CAP_DROP,
+      );
+    }
+    if (moraleCap <= 0) {
+      return 0;
+    }
+
+    return this.clamp(moraleNormalized, 0, moraleCap);
+  }
+
   private getInfluenceAdvantageNormalizedAtPoint(
     x: number,
     y: number,
@@ -377,6 +523,29 @@ export class BattleRoom extends Room<BattleState> {
     return current + Math.sign(delta) * maxStep;
   }
 
+  private stepTowardMoraleNormalized(
+    current: number,
+    target: number,
+    deltaSeconds: number,
+  ): number {
+    const delta = target - current;
+    if (Math.abs(delta) <= 0.000001) {
+      return target;
+    }
+
+    const safeDeltaSeconds = Math.max(0, deltaSeconds);
+    const stepRate =
+      delta > 0
+        ? BattleRoom.MORALE_RISE_RATE_PER_SECOND
+        : BattleRoom.MORALE_FALL_RATE_PER_SECOND;
+    const maxStep = stepRate * safeDeltaSeconds;
+    if (Math.abs(delta) <= maxStep) {
+      return target;
+    }
+
+    return current + Math.sign(delta) * maxStep;
+  }
+
   private buildCombatInfluenceAdvantageByUnitId(
     units: Unit[],
     deltaSeconds: number,
@@ -402,12 +571,35 @@ export class BattleRoom extends Room<BattleState> {
         BattleRoom.MAX_ABS_TACTICAL_SCORE *
         this.getTeamSign(unit.team);
       this.combatInfluenceAdvantageByUnitId.set(unit.unitId, smoothedAdvantage);
+
+      const rawMoraleNormalized = this.getUnitMoraleNormalized(unit);
+      const previousMorale = this.unitMoraleNormalizedByUnitId.get(unit.unitId);
+      const smoothedMorale =
+        previousMorale === undefined
+          ? rawMoraleNormalized
+          : this.stepTowardMoraleNormalized(
+              previousMorale,
+              rawMoraleNormalized,
+              deltaSeconds,
+            );
+      this.unitMoraleNormalizedByUnitId.set(unit.unitId, smoothedMorale);
+      unit.moraleScore = this.clamp(
+        Math.round(smoothedMorale * BattleRoom.UNIT_MAX_MORALE_SCORE),
+        0,
+        BattleRoom.UNIT_MAX_MORALE_SCORE,
+      );
+
       smoothedByUnitId.set(unit.unitId, smoothedAdvantage);
     }
 
     for (const unitId of this.combatInfluenceAdvantageByUnitId.keys()) {
       if (!aliveUnitIds.has(unitId)) {
         this.combatInfluenceAdvantageByUnitId.delete(unitId);
+      }
+    }
+    for (const unitId of this.unitMoraleNormalizedByUnitId.keys()) {
+      if (!aliveUnitIds.has(unitId)) {
+        this.unitMoraleNormalizedByUnitId.delete(unitId);
       }
     }
 

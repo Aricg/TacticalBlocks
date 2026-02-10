@@ -9,6 +9,7 @@ type ServerUnitState = {
   unitId: string;
   health: number;
   combatInfluenceScore: number;
+  moraleScore: number;
 };
 
 type ServerInfluenceGridState = {
@@ -33,6 +34,7 @@ export type NetworkUnitSnapshot = {
   rotation: number;
   health: number;
   combatInfluenceScore: number;
+  moraleScore: number;
 };
 
 export type NetworkUnitPositionUpdate = {
@@ -54,6 +56,11 @@ export type NetworkUnitRotationUpdate = {
 export type NetworkUnitCombatInfluenceUpdate = {
   unitId: string;
   combatInfluenceScore: number;
+};
+
+export type NetworkUnitMoraleUpdate = {
+  unitId: string;
+  moraleScore: number;
 };
 
 export type NetworkInfluenceGridUpdate = {
@@ -85,6 +92,9 @@ type UnitRotationChangedHandler = (
 type UnitCombatInfluenceChangedHandler = (
   combatInfluenceUpdate: NetworkUnitCombatInfluenceUpdate,
 ) => void;
+type UnitMoraleChangedHandler = (
+  moraleUpdate: NetworkUnitMoraleUpdate,
+) => void;
 type InfluenceGridChangedHandler = (
   influenceGridUpdate: NetworkInfluenceGridUpdate,
 ) => void;
@@ -108,6 +118,7 @@ export class NetworkManager {
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
     private readonly onUnitCombatInfluenceChanged: UnitCombatInfluenceChangedHandler,
+    private readonly onUnitMoraleChanged: UnitMoraleChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
     endpoint = 'ws://localhost:2567',
@@ -169,6 +180,9 @@ export class NetworkManager {
             combatInfluenceScore: Number.isFinite(serverUnit.combatInfluenceScore)
               ? serverUnit.combatInfluenceScore
               : 0,
+            moraleScore: Number.isFinite(serverUnit.moraleScore)
+              ? serverUnit.moraleScore
+              : 100,
           });
 
           const detachX = $(serverUnit).listen('x', (x: number) => {
@@ -211,12 +225,24 @@ export class NetworkManager {
               });
             },
           );
+          const detachMoraleScore = $(serverUnit).listen(
+            'moraleScore',
+            (moraleScore: number) => {
+              this.onUnitMoraleChanged({
+                unitId,
+                moraleScore: Number.isFinite(moraleScore)
+                  ? moraleScore
+                  : 100,
+              });
+            },
+          );
           this.detachCallbacks.push(
             detachX,
             detachY,
             detachHealth,
             detachRotation,
             detachCombatInfluenceScore,
+            detachMoraleScore,
           );
         },
         true,

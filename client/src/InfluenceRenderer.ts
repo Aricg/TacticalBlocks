@@ -283,12 +283,17 @@ export class InfluenceRenderer {
       return;
     }
 
+    const hasScoreOverride = this.debugFocusScoreOverride !== null;
     const sampledScore =
       this.debugFocusScoreOverride ??
       this.sampleInfluenceAtCell(rawServerCells, this.debugFocusPoint);
-    const color = this.getDebugColor(sampledScore);
+    const color = hasScoreOverride
+      ? InfluenceRenderer.DEBUG_NEUTRAL_COLOR
+      : this.getDebugColor(sampledScore);
     const primaryText = this.debugCellValueTexts[0];
-    primaryText.setText(sampledScore.toFixed(2));
+    primaryText.setText(
+      hasScoreOverride ? `${Math.round(sampledScore)}` : sampledScore.toFixed(2),
+    );
     primaryText.setColor(this.toCssColor(color));
     primaryText.setPosition(
       this.debugFocusPoint.x + InfluenceRenderer.DEBUG_TEXT_OFFSET_X,
