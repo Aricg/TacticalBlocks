@@ -17,6 +17,7 @@ import {
 
 type PlayerTeam = "BLUE" | "RED";
 type CityOwner = PlayerTeam | "NEUTRAL";
+type MatchPhase = "LOBBY" | "BATTLE";
 type Vector2 = {
   x: number;
   y: number;
@@ -38,6 +39,23 @@ type UnitCancelMovementMessage = {
   unitId: string;
 };
 type RuntimeTuningUpdateMessage = Partial<RuntimeTuning>;
+type LobbyReadyMessage = {
+  ready: boolean;
+};
+type LobbySelectMapMessage = {
+  mapId: string;
+};
+type LobbyPlayerSnapshot = {
+  sessionId: string;
+  team: PlayerTeam;
+  ready: boolean;
+};
+type LobbyStateMessage = {
+  phase: MatchPhase;
+  players: LobbyPlayerSnapshot[];
+  mapId: string;
+  availableMapIds: string[];
+};
 type UnitMovementState = {
   destinationCell: GridCoordinate | null;
   queuedCells: GridCoordinate[];
@@ -47,10 +65,15 @@ type UnitMovementState = {
 };
 
 export class BattleRoom extends Room<BattleState> {
+  private readonly availableMapIds: string[] = [
+    ...GAMEPLAY_CONFIG.map.availableMapIds,
+  ];
   private readonly sessionTeamById = new Map<string, PlayerTeam>();
+  private readonly readyBySessionId = new Map<string, boolean>();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
-  private readonly neutralCityCells = getNeutralCityGridCoordinates();
+  private neutralCityCells: GridCoordinate[] = [];
+  private matchPhase: MatchPhase = "LOBBY";
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
 
@@ -84,6 +107,9 @@ export class BattleRoom extends Room<BattleState> {
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
+    this.state.mapId = this.getValidatedMapId(this.state.mapId);
+    this.applyMapIdToRuntimeTerrain(this.state.mapId);
+    this.refreshNeutralCityCells();
     this.initializeNeutralCityOwnership();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
@@ -91,6 +117,9 @@ export class BattleRoom extends Room<BattleState> {
     this.updateInfluenceGrid(true);
 
     this.setSimulationInterval((deltaMs) => {
+      if (this.matchPhase !== "BATTLE") {
+        return;
+      }
       const deltaSeconds = deltaMs / 1000;
       this.simulationFrame += 1;
       this.updateMovement(deltaSeconds);
@@ -118,12 +147,20 @@ export class BattleRoom extends Room<BattleState> {
         this.handleRuntimeTuningUpdate(client, message);
       },
     );
+    this.onMessage("lobbyReady", (client, message: LobbyReadyMessage) => {
+      this.handleLobbyReadyMessage(client, message);
+    });
+    this.onMessage("lobbySelectMap", (client, message: LobbySelectMapMessage) => {
+      this.handleLobbySelectMapMessage(client, message);
+    });
   }
 
   onJoin(client: Client): void {
     const assignedTeam = this.assignTeam(client.sessionId);
+    this.readyBySessionId.set(client.sessionId, false);
     client.send("teamAssigned", { team: assignedTeam });
     client.send("runtimeTuningSnapshot", this.runtimeTuning);
+    this.broadcastLobbyState();
     console.log(`Client joined battle room: ${client.sessionId} (${assignedTeam})`);
   }
 
@@ -132,6 +169,8 @@ export class BattleRoom extends Room<BattleState> {
     if (team) {
       this.sessionTeamById.delete(client.sessionId);
     }
+    this.readyBySessionId.delete(client.sessionId);
+    this.broadcastLobbyState();
     console.log(
       `Client left battle room: ${client.sessionId}${team ? ` (${team})` : ""}`,
     );
@@ -140,6 +179,7 @@ export class BattleRoom extends Room<BattleState> {
   onDispose(): void {
     this.movementStateByUnitId.clear();
     this.sessionTeamById.clear();
+    this.readyBySessionId.clear();
     this.simulationFrame = 0;
   }
 
@@ -716,6 +756,54 @@ export class BattleRoom extends Room<BattleState> {
     this.updateInfluenceGrid(true);
   }
 
+  private handleLobbyReadyMessage(
+    client: Client,
+    message: LobbyReadyMessage,
+  ): void {
+    if (this.matchPhase !== "LOBBY") {
+      return;
+    }
+
+    if (!this.sessionTeamById.has(client.sessionId)) {
+      return;
+    }
+
+    const ready = message?.ready;
+    if (typeof ready !== "boolean") {
+      return;
+    }
+
+    this.readyBySessionId.set(client.sessionId, ready);
+    this.broadcastLobbyState();
+    this.tryStartBattle();
+  }
+
+  private handleLobbySelectMapMessage(
+    client: Client,
+    message: LobbySelectMapMessage,
+  ): void {
+    if (this.matchPhase !== "LOBBY") {
+      return;
+    }
+
+    if (!this.sessionTeamById.has(client.sessionId)) {
+      return;
+    }
+
+    const requestedMapId = message?.mapId;
+    if (typeof requestedMapId !== "string") {
+      return;
+    }
+
+    const mapId = this.getValidatedMapId(requestedMapId);
+    if (mapId === this.state.mapId) {
+      return;
+    }
+
+    this.applyLobbyMapSelection(mapId);
+    this.broadcastLobbyState();
+  }
+
   private rescaleUnitHealthForNewBase(
     previousBaseUnitHealth: number,
     nextBaseUnitHealth: number,
@@ -730,6 +818,69 @@ export class BattleRoom extends Room<BattleState> {
       const healthRatio = this.clamp(unit.health / safePreviousBase, 0, 1);
       unit.health = healthRatio * safeNextBase;
     }
+  }
+
+  private getValidatedMapId(requestedMapId: string): string {
+    if (this.availableMapIds.includes(requestedMapId)) {
+      return requestedMapId;
+    }
+    return this.availableMapIds[0] ?? GAMEPLAY_CONFIG.map.activeMapId;
+  }
+
+  private applyMapIdToRuntimeTerrain(mapId: string): void {
+    (
+      GAMEPLAY_CONFIG.map as unknown as {
+        activeMapId: string;
+      }
+    ).activeMapId = mapId;
+  }
+
+  private refreshNeutralCityCells(): void {
+    this.neutralCityCells = getNeutralCityGridCoordinates();
+  }
+
+  private clearUnits(): void {
+    for (const unitId of Array.from(this.state.units.keys())) {
+      this.state.units.delete(unitId);
+    }
+    this.movementStateByUnitId.clear();
+  }
+
+  private clearInfluenceGrid(): void {
+    const grid = this.state.influenceGrid;
+    for (let i = 0; i < grid.cells.length; i += 1) {
+      grid.cells[i] = 0;
+    }
+    grid.revision += 1;
+  }
+
+  private resetNeutralCityOwnership(): void {
+    while (this.state.neutralCityOwners.length > 0) {
+      this.state.neutralCityOwners.pop();
+    }
+    this.initializeNeutralCityOwnership();
+  }
+
+  private resetLobbyReadyStates(): void {
+    for (const sessionId of this.readyBySessionId.keys()) {
+      this.readyBySessionId.set(sessionId, false);
+    }
+  }
+
+  private applyLobbyMapSelection(mapId: string): void {
+    this.state.mapId = mapId;
+    this.applyMapIdToRuntimeTerrain(mapId);
+    this.refreshNeutralCityCells();
+    this.state.redCityOwner = "RED";
+    this.state.blueCityOwner = "BLUE";
+    this.resetNeutralCityOwnership();
+    this.resetLobbyReadyStates();
+    this.clearUnits();
+    this.syncCityInfluenceSources();
+    this.spawnTestUnits();
+    this.clearInfluenceGrid();
+    this.updateInfluenceGrid(true);
+    this.simulationFrame = 0;
   }
 
   private spawnTestUnits(): void {
@@ -788,13 +939,26 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private assignTeam(sessionId: string): PlayerTeam {
-    const takenTeams = new Set(this.sessionTeamById.values());
-    const team: PlayerTeam = takenTeams.has("BLUE") ? "RED" : "BLUE";
+    let blueCount = 0;
+    let redCount = 0;
+    for (const team of this.sessionTeamById.values()) {
+      if (team === "BLUE") {
+        blueCount += 1;
+      } else {
+        redCount += 1;
+      }
+    }
+
+    const team: PlayerTeam = blueCount <= redCount ? "BLUE" : "RED";
     this.sessionTeamById.set(sessionId, team);
     return team;
   }
 
   private handleUnitPathMessage(client: Client, message: UnitPathMessage): void {
+    if (this.matchPhase !== "BATTLE") {
+      return;
+    }
+
     const assignedTeam = this.sessionTeamById.get(client.sessionId);
     if (!assignedTeam) {
       return;
@@ -879,6 +1043,10 @@ export class BattleRoom extends Room<BattleState> {
     client: Client,
     message: UnitCancelMovementMessage,
   ): void {
+    if (this.matchPhase !== "BATTLE") {
+      return;
+    }
+
     const assignedTeam = this.sessionTeamById.get(client.sessionId);
     if (!assignedTeam) {
       return;
@@ -1208,5 +1376,61 @@ export class BattleRoom extends Room<BattleState> {
         );
       }
     }
+  }
+
+  private getLobbyPlayersSnapshot(): LobbyPlayerSnapshot[] {
+    const players = Array.from(this.sessionTeamById, ([sessionId, team]) => ({
+      sessionId,
+      team,
+      ready: this.readyBySessionId.get(sessionId) === true,
+    }));
+
+    players.sort((a, b) => {
+      if (a.team !== b.team) {
+        return a.team === "BLUE" ? -1 : 1;
+      }
+      return a.sessionId.localeCompare(b.sessionId);
+    });
+
+    return players;
+  }
+
+  private getLobbyStateMessage(): LobbyStateMessage {
+    return {
+      phase: this.matchPhase,
+      players: this.getLobbyPlayersSnapshot(),
+      mapId: this.state.mapId,
+      availableMapIds: this.availableMapIds,
+    };
+  }
+
+  private broadcastLobbyState(): void {
+    this.broadcast("lobbyState", this.getLobbyStateMessage());
+  }
+
+  private tryStartBattle(): void {
+    if (this.matchPhase !== "LOBBY") {
+      return;
+    }
+
+    const players = this.getLobbyPlayersSnapshot();
+    if (players.length < 2) {
+      return;
+    }
+
+    const hasBlue = players.some((player) => player.team === "BLUE");
+    const hasRed = players.some((player) => player.team === "RED");
+    if (!hasBlue || !hasRed) {
+      return;
+    }
+
+    const allReady = players.every((player) => player.ready);
+    if (!allReady) {
+      return;
+    }
+
+    this.matchPhase = "BATTLE";
+    this.broadcastLobbyState();
+    console.log("Battle started: all lobby players ready.");
   }
 }

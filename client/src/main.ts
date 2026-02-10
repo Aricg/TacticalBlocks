@@ -2,8 +2,10 @@ import Phaser from 'phaser';
 import {
   type NetworkCityOwnershipUpdate,
   type NetworkInfluenceGridUpdate,
+  type NetworkLobbyStateUpdate,
   NetworkManager,
   type NetworkUnitHealthUpdate,
+  type NetworkMatchPhase,
   type NetworkUnitPathCommand,
   type NetworkUnitRotationUpdate,
   type NetworkUnitSnapshot,
@@ -37,10 +39,20 @@ type GridCoordinate = {
   row: number;
 };
 
+type LobbyPlayerView = {
+  sessionId: string;
+  team: Team;
+  ready: boolean;
+};
+
 const MAP_IMAGE_BY_PATH = import.meta.glob('../../shared/*-16c.png', {
   eager: true,
   import: 'default',
 }) as Record<string, string>;
+
+function getTextureKeyForMapId(mapId: string): string {
+  return `battle-map-${mapId}`;
+}
 
 function resolveMapImageById(mapId: string): string | undefined {
   const exactPath = `../../shared/${mapId}-16c.png`;
@@ -59,41 +71,35 @@ function resolveMapImageById(mapId: string): string | undefined {
   return undefined;
 }
 
-function resolveActiveMapImage(): string {
-  const activeMapId = GAMEPLAY_CONFIG.map.activeMapId;
-  const activeMapImage = resolveMapImageById(activeMapId);
-  if (activeMapImage) {
-    return activeMapImage;
+function getBundledMapIds(): string[] {
+  return Object.keys(MAP_IMAGE_BY_PATH)
+    .map((filePath) => filePath.replace('../../shared/', '').replace('-16c.png', ''))
+    .sort();
+}
+
+function resolveInitialMapId(): string {
+  const configuredMapId = GAMEPLAY_CONFIG.map.activeMapId;
+  if (resolveMapImageById(configuredMapId)) {
+    return configuredMapId;
   }
 
-  const fallbackMapId = GAMEPLAY_CONFIG.map.availableMapIds[0];
-  const fallbackImage = resolveMapImageById(fallbackMapId);
-  if (fallbackImage) {
-    const availableMapImages = Object.keys(MAP_IMAGE_BY_PATH)
-      .map((path) => path.replace('../../shared/', '').replace('-16c.png', ''))
-      .sort()
-      .join(', ');
-    console.warn(
-      `Active map "${activeMapId}" was not found in bundled map images. ` +
-        `Falling back to "${fallbackMapId}". ` +
-        `If you just added maps, restart the client dev server. ` +
-        `Available bundled map IDs: [${availableMapImages}]`,
-    );
-    return fallbackImage;
-  }
-
-  const firstImage = Object.values(MAP_IMAGE_BY_PATH)[0];
-  if (firstImage) {
-    return firstImage;
-  }
-
-  throw new Error(
-    'No map images were bundled. Expected files matching "../../shared/*-16c.png".',
+  const fallbackFromConfig = GAMEPLAY_CONFIG.map.availableMapIds.find((mapId) =>
+    Boolean(resolveMapImageById(mapId)),
   );
+  if (fallbackFromConfig) {
+    return fallbackFromConfig;
+  }
+
+  const bundledMapIds = getBundledMapIds();
+  const firstBundledMapId = bundledMapIds[0];
+  if (firstBundledMapId) {
+    return firstBundledMapId;
+  }
+
+  throw new Error('No map images were bundled. Expected files matching "../../shared/*-16c.png".');
 }
 
 class BattleScene extends Phaser.Scene {
-  private static readonly MAP_BACKGROUND_TEXTURE_KEY = 'battle-map-background';
   private static readonly TERRAIN_SWATCHES: TerrainSwatch[] = [
     { color: 0x0f2232, type: 'water' },
     { color: 0x102236, type: 'water' },
@@ -136,18 +142,26 @@ class BattleScene extends Phaser.Scene {
     [Team.RED]: null,
     [Team.BLUE]: null,
   };
-  private readonly neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+  private neutralCityGridCoordinates: GridCoordinate[] = [];
   private readonly neutralCities: City[] = [];
   private cityOwnerByHomeTeam: Record<Team, Team> = {
     [Team.RED]: Team.RED,
     [Team.BLUE]: Team.BLUE,
   };
-  private neutralCityOwners: CityOwner[] = this.neutralCityGridCoordinates.map(
-    () => 'NEUTRAL',
-  );
+  private neutralCityOwners: CityOwner[] = [];
   private readonly selectedUnits: Set<Unit> = new Set<Unit>();
   private networkManager: NetworkManager | null = null;
+  private mapBackground: Phaser.GameObjects.Image | null = null;
+  private activeMapId = resolveInitialMapId();
+  private availableMapIds: string[] = [...GAMEPLAY_CONFIG.map.availableMapIds];
+  private selectedLobbyMapId = this.activeMapId;
+  private mapTextureKey = getTextureKeyForMapId(this.activeMapId);
   private localPlayerTeam: Team = Team.BLUE;
+  private matchPhase: NetworkMatchPhase = 'LOBBY';
+  private localSessionId: string | null = null;
+  private localLobbyReady = false;
+  private hasExitedBattle = false;
+  private lobbyPlayers: LobbyPlayerView[] = [];
   private suppressCommandOnPointerUp = false;
   private dragStart: Phaser.Math.Vector2 | null = null;
   private pathDragStart: Phaser.Math.Vector2 | null = null;
@@ -166,6 +180,13 @@ class BattleScene extends Phaser.Scene {
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
+  private lobbyPanel: Phaser.GameObjects.Container | null = null;
+  private lobbyTeamText: Phaser.GameObjects.Text | null = null;
+  private lobbyStatusText: Phaser.GameObjects.Text | null = null;
+  private lobbyActionText: Phaser.GameObjects.Text | null = null;
+  private lobbyMapText: Phaser.GameObjects.Text | null = null;
+  private lobbyReadyButtonBg: Phaser.GameObjects.Rectangle | null = null;
+  private lobbyReadyButtonText: Phaser.GameObjects.Text | null = null;
   private mapSamplingWidth = 0;
   private mapSamplingHeight = 0;
 
@@ -201,24 +222,32 @@ class BattleScene extends Phaser.Scene {
   private static readonly IMPASSABLE_OVERLAY_FILL_ALPHA = 0.28;
   private static readonly IMPASSABLE_OVERLAY_STROKE_COLOR = 0xb30000;
   private static readonly IMPASSABLE_OVERLAY_STROKE_ALPHA = 0.55;
+  private static readonly LOBBY_OVERLAY_DEPTH = 2200;
 
   constructor() {
     super({ key: 'BattleScene' });
   }
 
   preload(): void {
-    this.load.image(
-      BattleScene.MAP_BACKGROUND_TEXTURE_KEY,
-      resolveActiveMapImage(),
-    );
+    const bundledMapIds = getBundledMapIds();
+    for (const mapId of bundledMapIds) {
+      const imagePath = resolveMapImageById(mapId);
+      if (!imagePath) {
+        continue;
+      }
+      this.load.image(getTextureKeyForMapId(mapId), imagePath);
+    }
   }
 
   create(): void {
     this.cameras.main.setBackgroundColor(0x2f7d32);
     this.cameras.main.setScroll(0, 0);
     this.cameras.main.setBounds(0, 0, BattleScene.MAP_WIDTH, BattleScene.MAP_HEIGHT);
-    this.add
-      .image(0, 0, BattleScene.MAP_BACKGROUND_TEXTURE_KEY)
+    this.applyMapIdToRuntimeTerrain(this.activeMapId);
+    this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+    this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
+    this.mapBackground = this.add
+      .image(0, 0, this.mapTextureKey)
       .setOrigin(0, 0)
       .setDisplaySize(BattleScene.MAP_WIDTH, BattleScene.MAP_HEIGHT)
       .setDepth(-1000);
@@ -276,6 +305,8 @@ class BattleScene extends Phaser.Scene {
     );
     this.applyRuntimeTuning(this.runtimeTuning);
     this.refreshFogOfWar();
+    this.createLobbyOverlay();
+    this.refreshLobbyOverlay();
 
     this.input.on(
       'gameobjectdown',
@@ -284,6 +315,10 @@ class BattleScene extends Phaser.Scene {
         gameObject: Phaser.GameObjects.GameObject,
         event: Phaser.Types.Input.EventData,
       ) => {
+        if (!this.isBattleActive()) {
+          return;
+        }
+
         if (pointer.button !== 0) {
           return;
         }
@@ -319,6 +354,10 @@ class BattleScene extends Phaser.Scene {
     );
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (!this.isBattleActive()) {
+        return;
+      }
+
       if (pointer.button === 2) {
         this.commandSelectedUnits(
           pointer.worldX,
@@ -354,6 +393,10 @@ class BattleScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!this.isBattleActive()) {
+        return;
+      }
+
       // 1. Handle Path Drawing (Dragging from a Unit)
       if (this.pathDragStart) {
         if (!pointer.leftButtonDown()) {
@@ -399,6 +442,10 @@ class BattleScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (!this.isBattleActive()) {
+        return;
+      }
+
       if (pointer.button !== 0) {
         return;
       }
@@ -464,7 +511,13 @@ class BattleScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.on('keydown-SPACE', () => {
+      if (!this.isBattleActive()) {
+        return;
+      }
       this.cancelSelectedUnitMovement();
+    });
+    this.input.keyboard?.on('keydown-ESC', () => {
+      this.exitBattle();
     });
 
     this.networkManager = new NetworkManager(
@@ -476,6 +529,9 @@ class BattleScene extends Phaser.Scene {
       },
       (assignedTeam) => {
         this.applyAssignedTeam(assignedTeam);
+      },
+      (lobbyState) => {
+        this.applyLobbyState(lobbyState);
       },
       (positionUpdate) => {
         this.applyNetworkUnitPosition(positionUpdate);
@@ -499,9 +555,20 @@ class BattleScene extends Phaser.Scene {
         this.applyRuntimeTuning(runtimeTuning);
       },
     );
-    void this.networkManager.connect().catch((error: unknown) => {
-      console.error('Failed to connect to battle room.', error);
-    });
+    const networkManager = this.networkManager;
+    void networkManager
+      .connect()
+      .then(() => {
+        if (!this.hasExitedBattle) {
+          return;
+        }
+        void networkManager.disconnect().catch((error: unknown) => {
+          console.error('Failed to disconnect after escape exit.', error);
+        });
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to connect to battle room.', error);
+      });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       const networkManager = this.networkManager;
@@ -528,6 +595,15 @@ class BattleScene extends Phaser.Scene {
       this.moraleScoreByUnitId.clear();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
+      this.lobbyPanel?.destroy();
+      this.lobbyPanel = null;
+      this.lobbyTeamText = null;
+      this.lobbyStatusText = null;
+      this.lobbyActionText = null;
+      this.lobbyMapText = null;
+      this.lobbyReadyButtonBg = null;
+      this.lobbyReadyButtonText = null;
+      this.mapBackground = null;
     });
   }
 
@@ -563,6 +639,336 @@ class BattleScene extends Phaser.Scene {
       this.cities.push(neutralCity);
       this.neutralCities.push(neutralCity);
     }
+  }
+
+  private rebuildCitiesForCurrentMap(): void {
+    for (const city of this.cities) {
+      city.destroy();
+    }
+    this.cities.length = 0;
+    this.neutralCities.length = 0;
+    this.cityByHomeTeam[Team.RED] = null;
+    this.cityByHomeTeam[Team.BLUE] = null;
+    this.createCities();
+  }
+
+  private applyMapIdToRuntimeTerrain(mapId: string): void {
+    (
+      GAMEPLAY_CONFIG.map as unknown as {
+        activeMapId: string;
+      }
+    ).activeMapId = mapId;
+  }
+
+  private getResolvedLobbyMapId(requestedMapId: string): string {
+    if (resolveMapImageById(requestedMapId)) {
+      return requestedMapId;
+    }
+
+    const firstLobbyMapIdWithImage = this.availableMapIds.find((mapId) =>
+      Boolean(resolveMapImageById(mapId)),
+    );
+    if (firstLobbyMapIdWithImage) {
+      return firstLobbyMapIdWithImage;
+    }
+
+    return resolveInitialMapId();
+  }
+
+  private applySelectedLobbyMap(requestedMapId: string): void {
+    const nextMapId = this.getResolvedLobbyMapId(requestedMapId);
+    this.selectedLobbyMapId = nextMapId;
+    if (nextMapId === this.activeMapId) {
+      return;
+    }
+
+    this.activeMapId = nextMapId;
+    this.mapTextureKey = getTextureKeyForMapId(nextMapId);
+    this.applyMapIdToRuntimeTerrain(nextMapId);
+    this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+    this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
+
+    if (this.mapBackground) {
+      this.mapBackground.setTexture(this.mapTextureKey);
+    }
+
+    this.rebuildCitiesForCurrentMap();
+    this.drawImpassableOverlay();
+    this.initializeMapTerrainSampling();
+    this.refreshFogOfWar();
+  }
+
+  private requestLobbyMapStep(step: number): void {
+    if (!this.networkManager || this.matchPhase !== 'LOBBY' || this.hasExitedBattle) {
+      return;
+    }
+
+    const mapIds = this.availableMapIds.filter((mapId) =>
+      Boolean(resolveMapImageById(mapId)),
+    );
+    if (mapIds.length === 0) {
+      return;
+    }
+
+    const currentIndex = mapIds.indexOf(this.selectedLobbyMapId);
+    const startIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (startIndex + step + mapIds.length) % mapIds.length;
+    const nextMapId = mapIds[nextIndex];
+
+    this.selectedLobbyMapId = nextMapId;
+    this.networkManager.sendLobbySelectMap(nextMapId);
+    this.refreshLobbyOverlay();
+  }
+
+  private createLobbyOverlay(): void {
+    const panel = this.add.container(
+      BattleScene.MAP_WIDTH * 0.5,
+      BattleScene.MAP_HEIGHT * 0.5,
+    );
+    panel.setDepth(BattleScene.LOBBY_OVERLAY_DEPTH);
+    panel.setScrollFactor(0);
+
+    const panelBackground = this.add.rectangle(0, 0, 680, 360, 0x121212, 0.9);
+    panelBackground.setStrokeStyle(2, 0xffffff, 0.35);
+
+    const titleText = this.add.text(0, -145, 'Battle Lobby', {
+      fontFamily: 'monospace',
+      fontSize: '34px',
+      color: '#f1f1f1',
+    });
+    titleText.setOrigin(0.5, 0.5);
+
+    this.lobbyTeamText = this.add.text(0, -95, 'Team: BLUE', {
+      fontFamily: 'monospace',
+      fontSize: '22px',
+      color: '#d7d7d7',
+    });
+    this.lobbyTeamText.setOrigin(0.5, 0.5);
+
+    this.lobbyStatusText = this.add.text(0, -15, '', {
+      fontFamily: 'monospace',
+      fontSize: '18px',
+      color: '#e0e0e0',
+      align: 'center',
+      wordWrap: { width: 620, useAdvancedWrap: true },
+    });
+    this.lobbyStatusText.setOrigin(0.5, 0.5);
+
+    this.lobbyMapText = this.add.text(0, 55, '', {
+      fontFamily: 'monospace',
+      fontSize: '18px',
+      color: '#b9d9ff',
+      align: 'center',
+    });
+    this.lobbyMapText.setOrigin(0.5, 0.5);
+    this.lobbyMapText.setInteractive({ useHandCursor: true });
+    this.lobbyMapText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      this.requestLobbyMapStep(this.isShiftHeld(pointer) ? -1 : 1);
+    });
+
+    this.lobbyActionText = this.add.text(0, 92, '', {
+      fontFamily: 'monospace',
+      fontSize: '17px',
+      color: '#f4e7b2',
+      align: 'center',
+      wordWrap: { width: 620, useAdvancedWrap: true },
+    });
+    this.lobbyActionText.setOrigin(0.5, 0.5);
+
+    this.lobbyReadyButtonBg = this.add.rectangle(0, 140, 240, 46, 0x2f8f46, 1);
+    this.lobbyReadyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
+    this.lobbyReadyButtonBg.setInteractive({ useHandCursor: true });
+    this.lobbyReadyButtonBg.on('pointerdown', () => {
+      this.toggleLobbyReady();
+    });
+
+    this.lobbyReadyButtonText = this.add.text(0, 140, 'READY', {
+      fontFamily: 'monospace',
+      fontSize: '21px',
+      color: '#ffffff',
+    });
+    this.lobbyReadyButtonText.setOrigin(0.5, 0.5);
+    this.lobbyReadyButtonText.setInteractive({ useHandCursor: true });
+    this.lobbyReadyButtonText.on('pointerdown', () => {
+      this.toggleLobbyReady();
+    });
+
+    panel.add([
+      panelBackground,
+      titleText,
+      this.lobbyTeamText,
+      this.lobbyStatusText,
+      this.lobbyMapText,
+      this.lobbyActionText,
+      this.lobbyReadyButtonBg,
+      this.lobbyReadyButtonText,
+    ]);
+
+    this.lobbyPanel = panel;
+  }
+
+  private toggleLobbyReady(): void {
+    if (!this.networkManager || this.matchPhase !== 'LOBBY') {
+      return;
+    }
+
+    this.localLobbyReady = !this.localLobbyReady;
+    this.networkManager.sendLobbyReady(this.localLobbyReady);
+    this.refreshLobbyOverlay();
+  }
+
+  private applyLobbyState(lobbyStateUpdate: NetworkLobbyStateUpdate): void {
+    const nextPhase = lobbyStateUpdate.phase === 'BATTLE' ? 'BATTLE' : 'LOBBY';
+    const previousPhase = this.matchPhase;
+
+    this.matchPhase = nextPhase;
+    this.localSessionId = lobbyStateUpdate.selfSessionId;
+    this.availableMapIds =
+      lobbyStateUpdate.availableMapIds.length > 0
+        ? [...lobbyStateUpdate.availableMapIds]
+        : [...GAMEPLAY_CONFIG.map.availableMapIds];
+    this.applySelectedLobbyMap(lobbyStateUpdate.mapId || this.selectedLobbyMapId);
+    this.lobbyPlayers = lobbyStateUpdate.players.map((player) => ({
+      sessionId: player.sessionId,
+      team: this.normalizeTeam(player.team),
+      ready: player.ready,
+    }));
+
+    const localLobbyPlayer = this.localSessionId
+      ? this.lobbyPlayers.find((player) => player.sessionId === this.localSessionId)
+      : undefined;
+    this.localLobbyReady = localLobbyPlayer?.ready ?? false;
+
+    if (previousPhase !== this.matchPhase) {
+      this.resetPointerInteractionState();
+      this.clearSelection();
+      this.plannedPathsByUnitId.clear();
+    }
+
+    this.refreshLobbyOverlay();
+  }
+
+  private refreshLobbyOverlay(): void {
+    if (
+      !this.lobbyPanel ||
+      !this.lobbyTeamText ||
+      !this.lobbyStatusText ||
+      !this.lobbyActionText ||
+      !this.lobbyMapText ||
+      !this.lobbyReadyButtonBg ||
+      !this.lobbyReadyButtonText
+    ) {
+      return;
+    }
+
+    const isLobby = this.matchPhase === 'LOBBY';
+    this.lobbyPanel.setVisible(isLobby);
+    if (!isLobby) {
+      return;
+    }
+
+    if (this.hasExitedBattle) {
+      this.lobbyTeamText.setText('Disconnected');
+      this.lobbyStatusText.setText('You exited the battle room.');
+      this.lobbyActionText.setText('Refresh the page to join again.');
+      this.lobbyMapText.setVisible(false);
+      this.lobbyReadyButtonBg.setVisible(false);
+      this.lobbyReadyButtonBg.disableInteractive();
+      this.lobbyReadyButtonText.setVisible(false);
+      return;
+    }
+
+    this.lobbyMapText.setVisible(true);
+    this.lobbyMapText.setText(
+      `Map: ${this.selectedLobbyMapId}  (click to cycle, shift+click back)`,
+    );
+    this.lobbyReadyButtonBg.setVisible(true);
+    this.lobbyReadyButtonBg.setInteractive({ useHandCursor: true });
+    this.lobbyReadyButtonText.setVisible(true);
+
+    const bluePlayers = this.lobbyPlayers.filter((player) => player.team === Team.BLUE);
+    const redPlayers = this.lobbyPlayers.filter((player) => player.team === Team.RED);
+    const rosterLines =
+      this.lobbyPlayers.length === 0
+        ? 'No players in lobby yet.'
+        : this.lobbyPlayers
+            .map((player, index) => {
+              const label =
+                player.sessionId === this.localSessionId
+                  ? 'You'
+                  : `Player ${index + 1}`;
+              return `${label}: ${player.team} ${player.ready ? '[READY]' : '[NOT READY]'}`;
+            })
+            .join('\n');
+
+    this.lobbyTeamText.setText(`Team: ${this.localPlayerTeam}`);
+    this.lobbyStatusText.setText(
+      `Blue: ${bluePlayers.length}   Red: ${redPlayers.length}\n${rosterLines}`,
+    );
+
+    const hasBothTeams = bluePlayers.length > 0 && redPlayers.length > 0;
+    const everyoneReady =
+      this.lobbyPlayers.length > 0 &&
+      this.lobbyPlayers.every((player) => player.ready);
+    if (!hasBothTeams) {
+      this.lobbyActionText.setText('Waiting for one player on each team.');
+    } else if (!everyoneReady) {
+      this.lobbyActionText.setText('Waiting for all players to ready up.');
+    } else {
+      this.lobbyActionText.setText('All players ready. Starting battle...');
+    }
+
+    const readyButtonColor = this.localLobbyReady ? 0x956a24 : 0x2f8f46;
+    this.lobbyReadyButtonBg.setFillStyle(readyButtonColor, 1);
+    this.lobbyReadyButtonText.setText(this.localLobbyReady ? 'UNREADY' : 'READY');
+  }
+
+  private isBattleActive(): boolean {
+    return this.matchPhase === 'BATTLE' && !this.hasExitedBattle;
+  }
+
+  private resetPointerInteractionState(): void {
+    this.suppressCommandOnPointerUp = false;
+    this.dragStart = null;
+    this.pathDragStart = null;
+    this.pathDragStartedOnUnit = false;
+    this.boxSelecting = false;
+    this.pathDrawing = false;
+    this.draggedPath = [];
+    this.selectionBox.clear();
+    this.pathPreview.clear();
+  }
+
+  private exitBattle(): void {
+    if (this.hasExitedBattle) {
+      return;
+    }
+
+    this.hasExitedBattle = true;
+    this.matchPhase = 'LOBBY';
+    this.localLobbyReady = false;
+    this.lobbyPlayers = [];
+    this.localSessionId = null;
+    this.resetPointerInteractionState();
+    this.clearSelection();
+    this.plannedPathsByUnitId.clear();
+
+    for (const unitId of Array.from(this.unitsById.keys())) {
+      this.removeNetworkUnit(unitId);
+    }
+
+    const networkManager = this.networkManager;
+    this.networkManager = null;
+    if (networkManager) {
+      void networkManager.disconnect().catch((error: unknown) => {
+        console.error('Failed to disconnect from battle room.', error);
+      });
+    }
+
+    this.refreshLobbyOverlay();
   }
 
   private applyRuntimeTuning(runtimeTuning: RuntimeTuning): void {
@@ -740,15 +1146,14 @@ class BattleScene extends Phaser.Scene {
   private applyAssignedTeam(teamValue: string): void {
     const assignedTeam =
       teamValue.toUpperCase() === Team.RED ? Team.RED : Team.BLUE;
-    if (assignedTeam === this.localPlayerTeam) {
-      return;
+    if (assignedTeam !== this.localPlayerTeam) {
+      this.clearSelection();
+      this.localPlayerTeam = assignedTeam;
+      this.plannedPathsByUnitId.clear();
+      this.rebuildRemotePositionTargets();
+      this.refreshFogOfWar();
     }
-
-    this.clearSelection();
-    this.localPlayerTeam = assignedTeam;
-    this.plannedPathsByUnitId.clear();
-    this.rebuildRemotePositionTargets();
-    this.refreshFogOfWar();
+    this.refreshLobbyOverlay();
   }
 
   private applyNetworkUnitPositionSnapshot(
@@ -960,7 +1365,7 @@ class BattleScene extends Phaser.Scene {
     targetY: number,
     shiftHeld = false,
   ): void {
-    if (this.selectedUnits.size === 0 || !this.networkManager) {
+    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !this.networkManager) {
       return;
     }
 
@@ -1011,7 +1416,12 @@ class BattleScene extends Phaser.Scene {
     path: Phaser.Math.Vector2[],
     shiftHeld = false,
   ): void {
-    if (this.selectedUnits.size === 0 || path.length === 0 || !this.networkManager) {
+    if (
+      !this.isBattleActive() ||
+      this.selectedUnits.size === 0 ||
+      path.length === 0 ||
+      !this.networkManager
+    ) {
       return;
     }
 
@@ -1078,7 +1488,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private cancelSelectedUnitMovement(): void {
-    if (!this.networkManager) {
+    if (!this.isBattleActive() || !this.networkManager) {
       return;
     }
 
@@ -1470,7 +1880,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private initializeMapTerrainSampling(): void {
-    const texture = this.textures.get(BattleScene.MAP_BACKGROUND_TEXTURE_KEY);
+    const texture = this.textures.get(this.mapTextureKey);
     const sourceImage = texture?.getSourceImage() as
       | {
           width?: number;
@@ -1528,7 +1938,7 @@ class BattleScene extends Phaser.Scene {
     const pixel = this.textures.getPixel(
       sampleX,
       sampleY,
-      BattleScene.MAP_BACKGROUND_TEXTURE_KEY,
+      this.mapTextureKey,
     );
     if (!pixel) {
       return null;

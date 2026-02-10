@@ -5,6 +5,7 @@
   "scripts": {
     "map:quantize16": "node ./scripts/convert-map-16.mjs",
     "map:generateTerrainGrid": "node ./scripts/generate-terrain-grid.mjs",
-    "map:sync": "node ./scripts/sync-maps.mjs"
+    "map:sync": "node ./scripts/sync-maps.mjs",
+    "map:random": "node ./scripts/generate-random-map.mjs"
   }
 }

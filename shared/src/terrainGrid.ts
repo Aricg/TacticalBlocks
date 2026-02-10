@@ -464,6 +464,51 @@ const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
     'gffffffffffffffgfffffgfgwggggggggggggggggggggggggggggggggwgggggggggggggggggggggg' +
     'gffgfgffffffffffffgffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
     'ggggghgggggggghggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
+  'random-frontier-01':
+    'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww' +
+    'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww' +
+    'wgggwwwwwwwwwwwwwwwwwwwwwgggggggwwwwwwgggggwwwwwwwwggwwwwwwwwwwwwwwwwwwwwwwwwwww' +
+    'gggggwwwwwwwwwwwwwwwwwwwggggggggggwwwgggggggggggggggggwwwwwwwwwwwwwwwwfggwwwwwww' +
+    'gggggwwwwwwwwwwwwwwwwwwgggggggggggggggggggggggggggggggggggggggwwwwwwgffgggwwwwww' +
+    'ggggwwwwwgggwgwwwwwwwwwggggggggggggggggggggggggggggggggggggfgggwwggffffggggwwwww' +
+    'ggwwwwwwgggggffwwwwwwwwgggggggggggggggggggggggggggggggggggffggggggggffgggggwwwww' +
+    'gwwwwwwggggggffwwwwwwwwggggggggffggggggggggggggggggggggggggfgggggggggggggggwwwww' +
+    'wwwwwwwgggggggfwwwwwwwwgggggggggfgggggggggggggggggggggggggggggggggggggfggggwwwww' +
+    'wwwwwwggggggggggggwwwwwgggggggggggggggggggggggggggggggggfggggggggggggfffggwwwwww' +
+    'wwwwwggggggggggggggwwwwwgggggggggggggggggggggggggggggggfffggggggggggffffwwwwwwww' +
+    'wwwwwgggggggggggggggggwwgggggggggggggggggggggggggggggggfffgggggggggggfffwwwwwwww' +
+    'wwwwwwgggggggggggggggggggggghhggggggggggggggggggggggggggggggggffggggggggwwwwwwww' +
+    'wwwwwwwgggggggggggggggggggggwhgggggggggghggggggggggggggggggggfffgggggggggwwwwwww' +
+    'wwwwwwwgggggggggggggggggggggggggggggggggggggggggggggggggggggggffggggggggfffffgww' +
+    'wwwwwwgggggggggggggggggffgggggggggggggggggggggggggggggggggggggggggggggggfffffgww' +
+    'wwwwwgggggggggggggggggffffgggggggggggggghgggggggggggggggggggggggggggggggffffggww' +
+    'wwwgggggggggggggggggggffffggggggggggggggwgggggggggggggggggggggggggggggggfffgggww' +
+    'wwggggggggggggggggggggffffggggggggggggggggggggggggggggggggggggggggggggggggggggww' +
+    'wwwggwwggggggggggggggggffggggggggggggggggggggggggggggggggggggggggggggggggggggggw' +
+    'wwwwwwwwgggggggggggggggggggggggggggggggffffgggggggwwwgggggggggggggggfffggggggggw' +
+    'wwwwwwwwgggggggggggggggggggggggggggggffffffgggggggwwwgggggfggggggfffffffggggggww' +
+    'wwwwwwwwggggghhgggggggggggggggggggggfffffggggggggggggggggfffggggfffhhfffggggwwww' +
+    'wwwwwwwwggggghhgggggggggggggggggggggffffggggggggggggggggwwwwgggggffhhfffggggwwww' +
+    'wwwwwwwwgggggggggggggggggggggggggggggfffgggggggggggggggggwwwwggggggffffggggggwww' +
+    'wwwwgggfgggggggggggggggggggggggggggggfffggggggggggggggggggwwwwggggggggggggggggww' +
+    'wwwgggffggggggggggggggggggggggggggggfffgggggggggffgggggggggwwwwggggggggggggggggg' +
+    'wwggggfffggggffffggggggggggggggggggggfggggggfffffffgggggggggwwgggwgggggggggggggg' +
+    'wwggggffffffffffffggggggggggggggggggggggggggffffggffgggggggggggwwwfggggggggggggg' +
+    'wwwggggffffffggffggggggggggggggggggggggggggggffggggggggggggggggwwffgggggggggwwww' +
+    'wwwgggggffffggggggggggggggggggggggggggggggggggggggggggggggggwggggffggggggggwwwww' +
+    'wwwggggggggggggggggggggggggggggggggggggghgggggggggggggggggwwwfggggggggggggwwwwww' +
+    'wwwwgggggggggggggggggggggggggffggggggggggggggggggggggggggwwwfffgggggggggggwwwwww' +
+    'wwwwwwggggggggggggggggggggggfffggggggggggggggggggggggggwwwwffffggggggggggggwwwww' +
+    'wwwwwwggggggggggggggggggggggfffggggggggggggggggggggggggwwffffffgggggggggggggwwwg' +
+    'wwwwwwgggggggggggggggggggggggggggggggggggggggggggggggggggffffffggggggwwggggggwww' +
+    'gwwwwwgggggggggggggggggggggggggggggggggggggggggggggggggggffffffgggggwwwwggggggww' +
+    'wwwwwwggggggwwgggggggggggggffgggggggggggggggggggggggggggffffffggggffwwwwwggggggw' +
+    'wwwwwwgggggwwwggggggggffggffffggggggggggggggggggggggfwwwfffffgggggffgwwwwggggggg' +
+    'wwwwwwgggggwwwggggggggffggffffgggggggggggggggggggggffwwwggggggggggfggwwwwwgggggg' +
+    'wwwwwwwggggwwwgggggggwwggggfffggwwwgggwgggggggggwwgffggggggggggggggwwwwwwwwggggf' +
+    'wwwwwwwwgffwwwggggggwwwwgggggwwwwwwwwwwwgggggggwwwwgggggggggggggggwwwwwwwwwwgggf' +
+    'wwwwwwwwwwwwwwwwgggwwwwwwggggwwwwwwwwwwwwgggggwwwwwwwgggggggggggggwwwwwwwwwwwggg' +
+    'wwwgwwwwwwwwwwwwwwwwwwwwwwgggwwwwwwwwwwwwgggwwwwwwwwwwggwwwwghhffwwwwwwwwwwwwgff',
 };
 
 const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
@@ -603,6 +648,9 @@ const MOUNTAIN_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
     1683, 1757, 1761, 1762, 1836, 1837, 1838, 1842, 1917, 1921, 1922, 1923, 2001, 2002, 2003, 2083,
     2242, 2322, 2481, 2561,
   ],
+  'random-frontier-01': [
+    
+  ],
 };
 
 const CITY_CELL_INDEXES_BY_MAP_ID: Record<
@@ -689,6 +737,14 @@ const CITY_CELL_INDEXES_BY_MAP_ID: Record<
       2839, 2840, 2919, 2920,
     ],
   },
+  'random-frontier-01': {
+    RED: [
+      1773, 1774, 1853, 1854,
+    ],
+    BLUE: [
+      1827, 1828, 1907, 1908,
+    ],
+  },
 };
 
 const NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
@@ -733,6 +789,9 @@ const NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
   'c927a143-9ad1-49d6-9e6f-35b2b7927b6d': [
     
   ],
+  'random-frontier-01': [
+    1080, 2520,
+  ],
 };
 
 const CITY_ANCHOR_BY_MAP_ID: Partial<Record<string, Record<Team, GridCoordinate>>> = {
@@ -746,6 +805,7 @@ const CITY_ANCHOR_BY_MAP_ID: Partial<Record<string, Record<Team, GridCoordinate>
   '9b90e0c7-a291-4aaa-8009-89e2b786e2c3': { RED: { col: 12, row: 31 }, BLUE: { col: 67, row: 11 } },
   'b94a7e47-8778-43d3-a3fa-d26f831233f6': { RED: { col: 8, row: 22 }, BLUE: { col: 72, row: 22 } },
   'c927a143-9ad1-49d6-9e6f-35b2b7927b6d': { RED: { col: 40, row: 19 }, BLUE: { col: 40, row: 36 } },
+  'random-frontier-01': { RED: { col: 14, row: 23 }, BLUE: { col: 68, row: 23 } },
 };
 
 const NEUTRAL_CITY_ANCHORS_BY_MAP_ID: Record<string, GridCoordinate[]> = {
@@ -804,6 +864,10 @@ const NEUTRAL_CITY_ANCHORS_BY_MAP_ID: Record<string, GridCoordinate[]> = {
   ],
   'c927a143-9ad1-49d6-9e6f-35b2b7927b6d': [
     
+  ],
+  'random-frontier-01': [
+    { col: 40, row: 13 },
+    { col: 40, row: 31 },
   ],
 };
 

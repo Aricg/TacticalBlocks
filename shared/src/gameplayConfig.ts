@@ -9,6 +9,7 @@ const MAP_IDS = [
   '92bc1e4e-fb8b-4621-ac4f-f92584224a0a',
   '9b90e0c7-a291-4aaa-8009-89e2b786e2c3',
   '3498110a-b6f5-41ee-89ec-67203559ed32',
+  'random-frontier-01',
 ] as const;
 
 const UNIT_BASE_MOVE_SPEED = 120;
@@ -17,7 +18,7 @@ export const GAMEPLAY_CONFIG = {
   map: {
     width: 1920,
     height: 1080,
-    activeMapId: MAP_IDS[9],
+    activeMapId: 'random-frontier-01',
     availableMapIds: MAP_IDS,
   },
   network: {
