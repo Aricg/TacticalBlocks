@@ -105,29 +105,53 @@ export const GAMEPLAY_CONFIG = {
   },
   runtimeTuning: {
     defaults: {
+      // Slider: Base Unit Health
       baseUnitHealth: 500,
+      // Slider: Health Influence Bonus
       healthInfluenceMultiplier: 0.5,
+      // Slider: Unit Speed
       unitMoveSpeed: 120,
+      // Slider: Base Contact DPS
       baseContactDps: 12,
+      // Slider: DPS Influence Bonus
       dpsInfluenceMultiplier: 0.5,
+      // Slider: Update Interval (frames)
       influenceUpdateIntervalFrames: 6,
+      // Slider: Decay Rate
       influenceDecayRate: 0.999,
+      // Slider: Decay Zero Epsilon
       influenceDecayZeroEpsilon: 2.00,
+      // Slider: City Source Radius
       citySourceCoreRadius: 27,
+      // Slider: Static Unit Cap Gate
       staticUnitCapGate: 0,
+      // Slider: Static City Cap Gate
       staticCityCapGate: 0,
+      // Slider: Unit Cap Threshold
       unitCapThreshold: 1.05,
+      // Slider: Unit Influence Power
       unitInfluenceMultiplier: 0.05,
+      // Slider: City Enemy Gate
       cityEnemyGateAlpha: 0.02,
+      // Slider: Isolated Unit Floor
       isolatedUnitInfluenceFloor: 0.4,
+      // Slider: Support Pressure Ref
       supportPressureReference: 0.05,
-      influenceEnemyPressureDebuffFloor: 0.05,
+      // Slider: Enemy Pressure Floor
+      influenceEnemyPressureDebuffFloor: 0.5,
+      // Slider: Core Min Influence
       influenceCoreMinInfluenceFactor: 0.13,
+      // Slider: Extra Decay @ Zero
       influenceMaxExtraDecayAtZero: 0.4,
+      // Slider: Vision Radius
       fogVisionRadius: 178,
+      // Slider: City Vision Radius
       cityVisionRadius: 240,
+      // Slider: Line Thickness
       lineThickness: 8,
+      // Slider: Line Alpha
       lineAlpha: 0.92,
+      // Slider: City Influence Power
       cityInfluenceUnitsEquivalent: 3,
     },
     bounds: {

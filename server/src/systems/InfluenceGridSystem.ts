@@ -24,9 +24,8 @@ type DominanceTarget = {
   weight: number;
 };
 
-const DEFAULT_ENEMY_PRESSURE_DEBUFF_FLOOR = 0.05;
-
 export class InfluenceGridSystem {
+  private static readonly MAX_MAGNITUDE_EXTRA_DECAY = 0.05;
   private readonly gridWidth: number;
   private readonly gridHeight: number;
   private readonly cellWidth: number;
@@ -118,7 +117,7 @@ export class InfluenceGridSystem {
     );
     this.dominanceMinFloor = Math.max(0, GAMEPLAY_CONFIG.influence.dominanceMinFloor);
     this.enemyPressureDebuffFloor = PhaserMath.clamp(
-      DEFAULT_ENEMY_PRESSURE_DEBUFF_FLOOR,
+      GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceEnemyPressureDebuffFloor,
       0,
       1,
     );
@@ -290,9 +289,8 @@ export class InfluenceGridSystem {
       const blueFloor = blueFloorByCell[index];
       const redFloor = redFloorByCell[index];
       if (blueFloor > 0 && redFloor > 0) {
-        continue;
-      }
-      if (blueFloor > 0) {
+        // No floor is forced in contested cells.
+      } else if (blueFloor > 0) {
         scores[index] = Math.max(scores[index], blueFloor);
       } else if (redFloor > 0) {
         scores[index] = Math.min(scores[index], -redFloor);
@@ -315,13 +313,27 @@ export class InfluenceGridSystem {
       1,
       InfluenceGridSystem.DOMINANCE_REFERENCE_POWER * this.dominancePowerMultiplier,
     );
-    const normalizedMagnitude = PhaserMath.clamp(
+    const normalizedSmallMagnitude = PhaserMath.clamp(
       Math.abs(value) / smallMagnitudeDecayReference,
       0,
       1,
     );
-    const extraDecay = (1 - normalizedMagnitude) * this.maxExtraDecayAtZero;
-    return PhaserMath.clamp(this.decayRate - extraDecay, 0, 1);
+    const extraDecayNearZero =
+      (1 - normalizedSmallMagnitude) * this.maxExtraDecayAtZero;
+    const normalizedMagnitudeToMax = PhaserMath.clamp(
+      Math.abs(value) / this.maxAbsTacticalScore,
+      0,
+      1,
+    );
+    // Prevent near-cap cells from appearing "stuck" by forcing additional decay
+    // that scales up as a score approaches the tactical hard cap.
+    const extraDecayNearMax =
+      normalizedMagnitudeToMax * InfluenceGridSystem.MAX_MAGNITUDE_EXTRA_DECAY;
+    return PhaserMath.clamp(
+      this.decayRate - extraDecayNearZero - extraDecayNearMax,
+      0,
+      1,
+    );
   }
 
   private getCityGateMultiplier(enemyPressure: number): number {
