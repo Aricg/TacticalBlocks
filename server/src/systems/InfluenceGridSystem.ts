@@ -41,6 +41,8 @@ export class InfluenceGridSystem {
   private unitCapThreshold: number;
   private unitInfluenceMultiplier: number;
   private cityEnemyGateAlpha: number;
+  private isolatedUnitInfluenceFloor: number;
+  private supportPressureReference: number;
   private staticVelocityEpsilon: number;
   private dominancePowerMultiplier: number;
   private dominanceMinFloor: number;
@@ -97,6 +99,15 @@ export class InfluenceGridSystem {
       0,
       GAMEPLAY_CONFIG.influence.cityEnemyGateAlpha,
     );
+    this.isolatedUnitInfluenceFloor = PhaserMath.clamp(
+      GAMEPLAY_CONFIG.influence.isolatedUnitInfluenceFloor,
+      0,
+      1,
+    );
+    this.supportPressureReference = Math.max(
+      0.0001,
+      GAMEPLAY_CONFIG.influence.supportPressureReference,
+    );
     this.staticVelocityEpsilon = Math.max(
       0,
       GAMEPLAY_CONFIG.influence.staticVelocityEpsilon,
@@ -135,6 +146,12 @@ export class InfluenceGridSystem {
     this.unitCapThreshold = Math.max(0.1, tuning.unitCapThreshold);
     this.unitInfluenceMultiplier = Math.max(0, tuning.unitInfluenceMultiplier);
     this.cityEnemyGateAlpha = Math.max(0, tuning.cityEnemyGateAlpha);
+    this.isolatedUnitInfluenceFloor = PhaserMath.clamp(
+      tuning.isolatedUnitInfluenceFloor,
+      0,
+      1,
+    );
+    this.supportPressureReference = Math.max(0.0001, tuning.supportPressureReference);
     this.enemyPressureDebuffFloor = PhaserMath.clamp(
       tuning.influenceEnemyPressureDebuffFloor,
       0,
@@ -434,15 +451,29 @@ export class InfluenceGridSystem {
     }
 
     const totalPressure = alliedPressure + enemyPressure;
-    if (totalPressure <= 0.00001) {
-      return 1;
-    }
-
-    const alliedShare = PhaserMath.clamp(alliedPressure / totalPressure, 0, 1);
+    const alliedShare =
+      totalPressure <= 0.00001
+        ? 1
+        : PhaserMath.clamp(alliedPressure / totalPressure, 0, 1);
     // Stronger contest debuff: isolated units under enemy pressure can fall well below full strength.
     // A low floor preserves a visible circle while allowing mid-scale values (~50 on a 100 cap).
     const minContestMultiplier = this.enemyPressureDebuffFloor;
-    return minContestMultiplier + alliedShare * (1 - minContestMultiplier);
+    const ratioMultiplier =
+      minContestMultiplier + alliedShare * (1 - minContestMultiplier);
+
+    // Isolation ceiling: a unit only regains full projection with nearby allied support.
+    // Enemy pressure can still reduce multiplier below this ceiling.
+    const supportStrength =
+      alliedPressure / (alliedPressure + this.supportPressureReference);
+    const supportCeiling =
+      this.isolatedUnitInfluenceFloor +
+      supportStrength * (1 - this.isolatedUnitInfluenceFloor);
+
+    return PhaserMath.clamp(
+      Math.min(ratioMultiplier, supportCeiling),
+      minContestMultiplier,
+      1,
+    );
   }
 
   private hasStaticUnitReachedCoreCap(

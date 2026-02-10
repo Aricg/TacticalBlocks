@@ -36,6 +36,10 @@ export const GAMEPLAY_CONFIG = {
     unitInfluenceMultiplier: 0.05,
     // Exponential damping strength for city influence under enemy unit pressure.
     cityEnemyGateAlpha: 0.02,
+    // Maximum unit influence multiplier when effectively isolated from allied support.
+    isolatedUnitInfluenceFloor: 0.4,
+    // Allied-pressure reference used to ease isolated units from floor back to full strength.
+    supportPressureReference: 0.05,
     // Never allow dominance/core floors below this absolute value.
     dominanceMinFloor: 1,
     // Guaranteed minimum core influence as a fraction of dominance strength.
@@ -115,6 +119,8 @@ export const GAMEPLAY_CONFIG = {
       unitCapThreshold: 1.05,
       unitInfluenceMultiplier: 0.05,
       cityEnemyGateAlpha: 0.02,
+      isolatedUnitInfluenceFloor: 0.4,
+      supportPressureReference: 0.05,
       influenceEnemyPressureDebuffFloor: 0.05,
       influenceCoreMinInfluenceFactor: 0.13,
       influenceMaxExtraDecayAtZero: 0.4,
@@ -139,6 +145,8 @@ export const GAMEPLAY_CONFIG = {
       unitCapThreshold: { min: 0.1, max: 2, step: 0.05 },
       unitInfluenceMultiplier: { min: 0, max: 0.1, step: 0.0025 },
       cityEnemyGateAlpha: { min: 0, max: 0.2, step: 0.002 },
+      isolatedUnitInfluenceFloor: { min: 0, max: 1, step: 0.01 },
+      supportPressureReference: { min: 0.001, max: 1, step: 0.005 },
       influenceEnemyPressureDebuffFloor: { min: 0, max: 1, step: 0.01 },
       influenceCoreMinInfluenceFactor: { min: 0, max: 1, step: 0.01 },
       influenceMaxExtraDecayAtZero: { min: 0, max: 0.9, step: 0.01 },

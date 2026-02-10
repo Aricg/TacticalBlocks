@@ -15,6 +15,8 @@ export type RuntimeTuning = {
   unitCapThreshold: number;
   unitInfluenceMultiplier: number;
   cityEnemyGateAlpha: number;
+  isolatedUnitInfluenceFloor: number;
+  supportPressureReference: number;
   influenceEnemyPressureDebuffFloor: number;
   influenceCoreMinInfluenceFactor: number;
   influenceMaxExtraDecayAtZero: number;
@@ -53,6 +55,10 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
   unitInfluenceMultiplier:
     GAMEPLAY_CONFIG.runtimeTuning.defaults.unitInfluenceMultiplier,
   cityEnemyGateAlpha: GAMEPLAY_CONFIG.runtimeTuning.defaults.cityEnemyGateAlpha,
+  isolatedUnitInfluenceFloor:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.isolatedUnitInfluenceFloor,
+  supportPressureReference:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.supportPressureReference,
   influenceEnemyPressureDebuffFloor:
     GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceEnemyPressureDebuffFloor,
   influenceCoreMinInfluenceFactor:
@@ -93,6 +99,12 @@ export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound>
   },
   cityEnemyGateAlpha: {
     ...GAMEPLAY_CONFIG.runtimeTuning.bounds.cityEnemyGateAlpha,
+  },
+  isolatedUnitInfluenceFloor: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.isolatedUnitInfluenceFloor,
+  },
+  supportPressureReference: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.supportPressureReference,
   },
   influenceEnemyPressureDebuffFloor: {
     ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceEnemyPressureDebuffFloor,

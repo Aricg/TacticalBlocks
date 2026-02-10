@@ -62,6 +62,16 @@ const SLIDERS: SliderDescriptor[] = [
     group: 'Influence',
   },
   {
+    key: 'isolatedUnitInfluenceFloor',
+    label: 'Isolated Unit Floor',
+    group: 'Influence',
+  },
+  {
+    key: 'supportPressureReference',
+    label: 'Support Pressure Ref',
+    group: 'Influence',
+  },
+  {
     key: 'influenceEnemyPressureDebuffFloor',
     label: 'Enemy Pressure Floor',
     group: 'Influence',
