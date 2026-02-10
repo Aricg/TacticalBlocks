@@ -292,7 +292,7 @@ export class InfluenceRenderer {
       : this.getDebugColor(sampledScore);
     const primaryText = this.debugCellValueTexts[0];
     primaryText.setText(
-      hasScoreOverride ? `${Math.round(sampledScore)}` : sampledScore.toFixed(2),
+      hasScoreOverride ? sampledScore.toFixed(1) : sampledScore.toFixed(2),
     );
     primaryText.setColor(this.toCssColor(color));
     primaryText.setPosition(

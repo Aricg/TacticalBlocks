@@ -182,7 +182,7 @@ export class NetworkManager {
               : 0,
             moraleScore: Number.isFinite(serverUnit.moraleScore)
               ? serverUnit.moraleScore
-              : 100,
+              : 0,
           });
 
           const detachX = $(serverUnit).listen('x', (x: number) => {
@@ -232,7 +232,7 @@ export class NetworkManager {
                 unitId,
                 moraleScore: Number.isFinite(moraleScore)
                   ? moraleScore
-                  : 100,
+                  : 0,
               });
             },
           );
