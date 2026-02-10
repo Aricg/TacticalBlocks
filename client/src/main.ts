@@ -11,7 +11,10 @@ import {
   type NetworkUnitMoraleUpdate,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
-import { isGridCellImpassable } from '../../shared/src/terrainGrid.js';
+import {
+  getTeamCityGridCoordinate,
+  isGridCellImpassable,
+} from '../../shared/src/terrainGrid.js';
 import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
@@ -119,8 +122,6 @@ class BattleScene extends Phaser.Scene {
   private static readonly ENEMY_VISIBILITY_PADDING =
     GAMEPLAY_CONFIG.visibility.enemyVisibilityPadding;
   private static readonly FOG_DEPTH = GAMEPLAY_CONFIG.visibility.fogDepth;
-  private static readonly CITY_BACKLINE_OFFSET =
-    GAMEPLAY_CONFIG.cities.backlineOffset;
   private static readonly DRAG_THRESHOLD = GAMEPLAY_CONFIG.input.dragThreshold;
   private static readonly PREVIEW_PATH_POINT_SPACING =
     GAMEPLAY_CONFIG.input.previewPathPointSpacing;
@@ -1184,12 +1185,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private getCityWorldPosition(team: Team): Phaser.Math.Vector2 {
-    const spawn = team === Team.RED ? GAMEPLAY_CONFIG.spawn.red : GAMEPLAY_CONFIG.spawn.blue;
-    const rawX =
-      team === Team.RED
-        ? spawn.x - BattleScene.CITY_BACKLINE_OFFSET
-        : spawn.x + BattleScene.CITY_BACKLINE_OFFSET;
-    return this.snapPointToGrid(rawX, spawn.y);
+    return this.gridToWorldCenter(getTeamCityGridCoordinate(team));
   }
 
   private getOwnedCityPositions(ownerTeam: Team): Phaser.Math.Vector2[] {

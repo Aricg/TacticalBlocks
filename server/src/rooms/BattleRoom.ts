@@ -3,7 +3,10 @@ import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
-import { isGridCellImpassable } from "../../../shared/src/terrainGrid.js";
+import {
+  getTeamCityGridCoordinate,
+  isGridCellImpassable,
+} from "../../../shared/src/terrainGrid.js";
 import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
@@ -499,13 +502,8 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getCityWorldPosition(team: PlayerTeam): Vector2 {
-    const spawn = team === "RED" ? GAMEPLAY_CONFIG.spawn.red : GAMEPLAY_CONFIG.spawn.blue;
-    const rawX =
-      team === "RED"
-        ? spawn.x - GAMEPLAY_CONFIG.cities.backlineOffset
-        : spawn.x + GAMEPLAY_CONFIG.cities.backlineOffset;
-    const snappedCell = this.worldToGridCoordinate(rawX, spawn.y);
-    return this.gridToWorldCenter(snappedCell);
+    const cityCell = getTeamCityGridCoordinate(team);
+    return this.gridToWorldCenter(cityCell);
   }
 
   private normalizeTeam(teamValue: string): PlayerTeam {
@@ -637,35 +635,47 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private spawnTestUnits(): void {
-    const redSpawn = GAMEPLAY_CONFIG.spawn.red;
-    const blueSpawn = GAMEPLAY_CONFIG.spawn.blue;
+    const redSpawn = this.getCityWorldPosition("RED");
+    const blueSpawn = this.getCityWorldPosition("BLUE");
     const unitsPerSide = GAMEPLAY_CONFIG.spawn.unitsPerSide;
     const lineWidth = Math.max(1, GAMEPLAY_CONFIG.spawn.lineWidth);
     const spacingAcross = GAMEPLAY_CONFIG.spawn.spacingAcross;
     const spacingDepth = GAMEPLAY_CONFIG.spawn.spacingDepth;
     const centeredAcrossOffset = ((lineWidth - 1) * spacingAcross) / 2;
+    const axisX = blueSpawn.x - redSpawn.x;
+    const axisY = blueSpawn.y - redSpawn.y;
+    const axisLength = Math.hypot(axisX, axisY);
+    const redForwardX = axisLength > 0.0001 ? axisX / axisLength : 1;
+    const redForwardY = axisLength > 0.0001 ? axisY / axisLength : 0;
+    const blueForwardX = -redForwardX;
+    const blueForwardY = -redForwardY;
+    const lateralX = -redForwardY;
+    const lateralY = redForwardX;
+    const redRotation =
+      Math.atan2(redForwardY, redForwardX) - BattleRoom.UNIT_FORWARD_OFFSET;
+    const blueRotation =
+      Math.atan2(blueForwardY, blueForwardX) - BattleRoom.UNIT_FORWARD_OFFSET;
 
     for (let i = 0; i < unitsPerSide; i += 1) {
       const file = i % lineWidth;
       const rank = Math.floor(i / lineWidth);
-      const offsetY = file * spacingAcross - centeredAcrossOffset;
-      const redDepthOffsetX = -rank * spacingDepth;
-      const blueDepthOffsetX = rank * spacingDepth;
+      const acrossOffset = file * spacingAcross - centeredAcrossOffset;
+      const depthOffset = rank * spacingDepth;
 
       const redUnit = new Unit(
         `red-${i + 1}`,
         "red",
-        redSpawn.x + redDepthOffsetX,
-        redSpawn.y + offsetY,
-        redSpawn.rotation,
+        redSpawn.x - redForwardX * depthOffset + lateralX * acrossOffset,
+        redSpawn.y - redForwardY * depthOffset + lateralY * acrossOffset,
+        redRotation,
         this.runtimeTuning.baseUnitHealth,
       );
       const blueUnit = new Unit(
         `blue-${i + 1}`,
         "blue",
-        blueSpawn.x + blueDepthOffsetX,
-        blueSpawn.y + offsetY,
-        blueSpawn.rotation,
+        blueSpawn.x - blueForwardX * depthOffset + lateralX * acrossOffset,
+        blueSpawn.y - blueForwardY * depthOffset + lateralY * acrossOffset,
+        blueRotation,
         this.runtimeTuning.baseUnitHealth,
       );
 

@@ -99,8 +99,11 @@ const SLIDERS: SliderDescriptor[] = [
 
 export class RuntimeTuningPanel {
   private readonly root: HTMLDivElement;
+  private readonly content: HTMLDivElement;
+  private readonly toggleButton: HTMLButtonElement;
   private readonly inputByKey = new Map<RuntimeTuningKey, HTMLInputElement>();
   private readonly valueByKey = new Map<RuntimeTuningKey, HTMLSpanElement>();
+  private isMinimized = false;
   private suppressInputEvents = false;
 
   constructor(
@@ -130,17 +133,43 @@ export class RuntimeTuningPanel {
     this.root.style.zIndex = '9999';
     this.root.style.backdropFilter = 'blur(2px)';
 
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.alignItems = 'center';
+    header.style.justifyContent = 'space-between';
+    header.style.gap = '8px';
+    header.style.marginBottom = '4px';
+    this.root.appendChild(header);
+
     const title = document.createElement('div');
     title.textContent = 'Runtime Tuning';
     title.style.fontWeight = '700';
-    title.style.marginBottom = '4px';
-    this.root.appendChild(title);
+    header.appendChild(title);
+
+    this.toggleButton = document.createElement('button');
+    this.toggleButton.type = 'button';
+    this.toggleButton.textContent = 'Minimize';
+    this.toggleButton.style.padding = '2px 8px';
+    this.toggleButton.style.border = '1px solid rgba(255,255,255,0.24)';
+    this.toggleButton.style.borderRadius = '4px';
+    this.toggleButton.style.background = 'rgba(255,255,255,0.08)';
+    this.toggleButton.style.color = '#ececec';
+    this.toggleButton.style.fontFamily = 'inherit';
+    this.toggleButton.style.fontSize = '11px';
+    this.toggleButton.style.cursor = 'pointer';
+    this.toggleButton.addEventListener('click', () => {
+      this.setMinimized(!this.isMinimized);
+    });
+    header.appendChild(this.toggleButton);
+
+    this.content = document.createElement('div');
+    this.root.appendChild(this.content);
 
     const subtitle = document.createElement('div');
     subtitle.textContent = 'City sliders affect city-only influence/vision, not unit stats.';
     subtitle.style.opacity = '0.75';
     subtitle.style.marginBottom = '8px';
-    this.root.appendChild(subtitle);
+    this.content.appendChild(subtitle);
 
     const groupContainerByName = new Map<string, HTMLDivElement>();
     for (const slider of SLIDERS) {
@@ -149,7 +178,7 @@ export class RuntimeTuningPanel {
         groupContainer = document.createElement('div');
         groupContainer.style.marginBottom = '10px';
         groupContainerByName.set(slider.group, groupContainer);
-        this.root.appendChild(groupContainer);
+        this.content.appendChild(groupContainer);
 
         const groupTitle = document.createElement('div');
         groupTitle.textContent = slider.group;
@@ -203,6 +232,7 @@ export class RuntimeTuningPanel {
     }
 
     document.body.appendChild(this.root);
+    this.setMinimized(true);
     this.setValues(initialValues);
   }
 
@@ -224,6 +254,17 @@ export class RuntimeTuningPanel {
     this.root.remove();
     this.inputByKey.clear();
     this.valueByKey.clear();
+  }
+
+  private setMinimized(minimized: boolean): void {
+    this.isMinimized = minimized;
+    this.content.style.display = minimized ? 'none' : 'block';
+    this.root.style.maxHeight = minimized ? 'none' : '70vh';
+    this.toggleButton.textContent = minimized ? 'Expand' : 'Minimize';
+    this.toggleButton.setAttribute(
+      'aria-label',
+      minimized ? 'Expand runtime tuning panel' : 'Minimize runtime tuning panel',
+    );
   }
 
   private setDisplayedValue(key: RuntimeTuningKey, value: number): void {
