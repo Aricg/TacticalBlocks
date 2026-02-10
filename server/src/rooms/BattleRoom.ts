@@ -71,6 +71,14 @@ export class BattleRoom extends Room<BattleState> {
     unknown: 1.0,
     mountains: 0,
   };
+  private static readonly TERRAIN_MORALE_MULTIPLIER: Record<TerrainType, number> = {
+    water: 0.3,
+    forest: 0.7,
+    hills: 0.5,
+    grass: 1.0,
+    unknown: 1.0,
+    mountains: 1.0,
+  };
   private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
   private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
   private static readonly CELL_WIDTH =
@@ -331,7 +339,11 @@ export class BattleRoom extends Room<BattleState> {
       return 0;
     }
 
-    const moraleScore = (friendlyDots / sampledCells) * BattleRoom.MORALE_MAX_SCORE;
+    const baseMoraleScore =
+      (friendlyDots / sampledCells) * BattleRoom.MORALE_MAX_SCORE;
+    const terrainMoraleMultiplier =
+      this.getTerrainMoraleMultiplierAtCell(sampleCenter);
+    const moraleScore = baseMoraleScore * terrainMoraleMultiplier;
     return this.clamp(moraleScore, 0, BattleRoom.MORALE_MAX_SCORE);
   }
 
@@ -448,6 +460,11 @@ export class BattleRoom extends Room<BattleState> {
   private getTerrainSpeedMultiplierAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
     return BattleRoom.TERRAIN_SPEED_MULTIPLIER[terrainType] ?? 1.0;
+  }
+
+  private getTerrainMoraleMultiplierAtCell(cell: GridCoordinate): number {
+    const terrainType = this.getTerrainTypeAtCell(cell);
+    return BattleRoom.TERRAIN_MORALE_MULTIPLIER[terrainType] ?? 1.0;
   }
 
   private traceGridLine(

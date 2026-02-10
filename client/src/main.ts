@@ -41,11 +41,54 @@ const MAP_IMAGE_BY_PATH = import.meta.glob('../../shared/*-16c.png', {
   import: 'default',
 }) as Record<string, string>;
 
+function resolveMapImageById(mapId: string): string | undefined {
+  const exactPath = `../../shared/${mapId}-16c.png`;
+  const exactMatch = MAP_IMAGE_BY_PATH[exactPath];
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const suffix = `/${mapId}-16c.png`;
+  for (const [path, image] of Object.entries(MAP_IMAGE_BY_PATH)) {
+    if (path.endsWith(suffix)) {
+      return image;
+    }
+  }
+
+  return undefined;
+}
+
 function resolveActiveMapImage(): string {
-  const activeMapPath = `../../shared/${GAMEPLAY_CONFIG.map.activeMapId}-16c.png`;
+  const activeMapId = GAMEPLAY_CONFIG.map.activeMapId;
+  const activeMapImage = resolveMapImageById(activeMapId);
+  if (activeMapImage) {
+    return activeMapImage;
+  }
+
   const fallbackMapId = GAMEPLAY_CONFIG.map.availableMapIds[0];
-  const fallbackMapPath = `../../shared/${fallbackMapId}-16c.png`;
-  return MAP_IMAGE_BY_PATH[activeMapPath] ?? MAP_IMAGE_BY_PATH[fallbackMapPath];
+  const fallbackImage = resolveMapImageById(fallbackMapId);
+  if (fallbackImage) {
+    const availableMapImages = Object.keys(MAP_IMAGE_BY_PATH)
+      .map((path) => path.replace('../../shared/', '').replace('-16c.png', ''))
+      .sort()
+      .join(', ');
+    console.warn(
+      `Active map "${activeMapId}" was not found in bundled map images. ` +
+        `Falling back to "${fallbackMapId}". ` +
+        `If you just added maps, restart the client dev server. ` +
+        `Available bundled map IDs: [${availableMapImages}]`,
+    );
+    return fallbackImage;
+  }
+
+  const firstImage = Object.values(MAP_IMAGE_BY_PATH)[0];
+  if (firstImage) {
+    return firstImage;
+  }
+
+  throw new Error(
+    'No map images were bundled. Expected files matching "../../shared/*-16c.png".',
+  );
 }
 
 class BattleScene extends Phaser.Scene {
@@ -105,6 +148,7 @@ class BattleScene extends Phaser.Scene {
   private selectionBox!: Phaser.GameObjects.Graphics;
   private pathPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
+  private impassableOverlay!: Phaser.GameObjects.Graphics;
   private influenceRenderer: InfluenceRenderer | null = null;
   private fogOfWarLayer!: Phaser.GameObjects.RenderTexture;
   private visionBrush!: Phaser.GameObjects.Arc;
@@ -141,6 +185,12 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
   private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
+  private static readonly SHOW_IMPASSABLE_OVERLAY = true;
+  private static readonly IMPASSABLE_OVERLAY_DEPTH = 930;
+  private static readonly IMPASSABLE_OVERLAY_FILL_COLOR = 0xff1f1f;
+  private static readonly IMPASSABLE_OVERLAY_FILL_ALPHA = 0.28;
+  private static readonly IMPASSABLE_OVERLAY_STROKE_COLOR = 0xb30000;
+  private static readonly IMPASSABLE_OVERLAY_STROKE_ALPHA = 0.55;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -174,6 +224,9 @@ class BattleScene extends Phaser.Scene {
     this.pathPreview.setDepth(950);
     this.movementLines = this.add.graphics();
     this.movementLines.setDepth(900);
+    this.impassableOverlay = this.add.graphics();
+    this.impassableOverlay.setDepth(BattleScene.IMPASSABLE_OVERLAY_DEPTH);
+    this.drawImpassableOverlay();
     this.influenceRenderer = new InfluenceRenderer(this);
     this.fogOfWarLayer = this.add.renderTexture(
       0,
@@ -777,6 +830,46 @@ class BattleScene extends Phaser.Scene {
 
   private clearSelectionBox(): void {
     this.selectionBox.clear();
+  }
+
+  private drawImpassableOverlay(): void {
+    this.impassableOverlay.clear();
+    if (!BattleScene.SHOW_IMPASSABLE_OVERLAY) {
+      return;
+    }
+
+    this.impassableOverlay.fillStyle(
+      BattleScene.IMPASSABLE_OVERLAY_FILL_COLOR,
+      BattleScene.IMPASSABLE_OVERLAY_FILL_ALPHA,
+    );
+    this.impassableOverlay.lineStyle(
+      1,
+      BattleScene.IMPASSABLE_OVERLAY_STROKE_COLOR,
+      BattleScene.IMPASSABLE_OVERLAY_STROKE_ALPHA,
+    );
+
+    for (let row = 0; row < BattleScene.GRID_HEIGHT; row += 1) {
+      for (let col = 0; col < BattleScene.GRID_WIDTH; col += 1) {
+        if (!isGridCellImpassable(col, row)) {
+          continue;
+        }
+
+        const x = col * BattleScene.GRID_CELL_WIDTH;
+        const y = row * BattleScene.GRID_CELL_HEIGHT;
+        this.impassableOverlay.fillRect(
+          x,
+          y,
+          BattleScene.GRID_CELL_WIDTH,
+          BattleScene.GRID_CELL_HEIGHT,
+        );
+        this.impassableOverlay.strokeRect(
+          x,
+          y,
+          BattleScene.GRID_CELL_WIDTH,
+          BattleScene.GRID_CELL_HEIGHT,
+        );
+      }
+    }
   }
 
   private selectOnlyUnit(unit: Unit): void {

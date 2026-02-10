@@ -175,6 +175,51 @@ function getMountainIndexes(pixels, gridWidth) {
   return mountainIndexes;
 }
 
+function pruneIsolatedMountainIndexes(indexes, gridWidth, gridHeight) {
+  const indexSet = new Set(indexes);
+  const pruned = [];
+
+  for (const index of indexes) {
+    const col = index % gridWidth;
+    const row = Math.floor(index / gridWidth);
+    let hasMountainNeighbor = false;
+
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+      for (let colOffset = -1; colOffset <= 1; colOffset += 1) {
+        if (colOffset === 0 && rowOffset === 0) {
+          continue;
+        }
+
+        const neighborCol = col + colOffset;
+        const neighborRow = row + rowOffset;
+        if (
+          neighborCol < 0 ||
+          neighborRow < 0 ||
+          neighborCol >= gridWidth ||
+          neighborRow >= gridHeight
+        ) {
+          continue;
+        }
+
+        const neighborIndex = neighborRow * gridWidth + neighborCol;
+        if (indexSet.has(neighborIndex)) {
+          hasMountainNeighbor = true;
+          break;
+        }
+      }
+      if (hasMountainNeighbor) {
+        break;
+      }
+    }
+
+    if (hasMountainNeighbor) {
+      pruned.push(index);
+    }
+  }
+
+  return pruned;
+}
+
 function classifyTerrainType(red, green, blue) {
   const color = (red << 16) | (green << 8) | blue;
   const hex = color.toString(16).padStart(6, '0');
@@ -433,7 +478,12 @@ for (const mapFile of mapFiles) {
     mapId,
     getTerrainCodeGrid(quantizedPixels, gridWidth, gridHeight),
   );
-  const mountainIndexes = getMountainIndexes(quantizedPixels, gridWidth);
+  const rawMountainIndexes = getMountainIndexes(quantizedPixels, gridWidth);
+  const mountainIndexes = pruneIsolatedMountainIndexes(
+    rawMountainIndexes,
+    gridWidth,
+    gridHeight,
+  );
   mountainIndexesByMapId.set(mapId, mountainIndexes);
 
   const sourcePath = resolveSourceImagePath(inputDir, mapId);

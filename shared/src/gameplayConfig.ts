@@ -6,13 +6,17 @@ const MAP_IDS = [
   '8b3c0e4a-7a4a-41db-b036-cdee835944b1',
   'c927a143-9ad1-49d6-9e6f-35b2b7927b6d',
   '280acd50-3c01-4784-8dc1-bb7beafdfb87',
+  '92bc1e4e-fb8b-4621-ac4f-f92584224a0a',
+  '9b90e0c7-a291-4aaa-8009-89e2b786e2c3',
 ] as const;
+
+const UNIT_BASE_MOVE_SPEED = 120;
 
 export const GAMEPLAY_CONFIG = {
   map: {
     width: 1920,
     height: 1080,
-    activeMapId: MAP_IDS[0],
+    activeMapId: MAP_IDS[8],
     availableMapIds: MAP_IDS,
   },
   network: {
@@ -84,7 +88,7 @@ export const GAMEPLAY_CONFIG = {
   },
   movement: {
     // Baseline unit locomotion tuning.
-    unitMoveSpeed: 120,
+    unitMoveSpeed: UNIT_BASE_MOVE_SPEED,
     unitTurnSpeedRadians: Math.PI,
     unitForwardOffsetRadians: -Math.PI / 2,
     refaceAngleThresholdRadians: (Math.PI / 180) * 3,
@@ -102,6 +106,7 @@ export const GAMEPLAY_CONFIG = {
     contactDamagePerSecond: 12,
   },
   unit: {
+    baseSpeed: UNIT_BASE_MOVE_SPEED,
     bodyWidth: 24,
     bodyHeight: 14,
     healthMax: 100,
@@ -122,7 +127,7 @@ export const GAMEPLAY_CONFIG = {
       // Slider: Health Influence Bonus
       healthInfluenceMultiplier: 0.5,
       // Slider: Unit Speed
-      unitMoveSpeed: 120,
+      unitMoveSpeed: UNIT_BASE_MOVE_SPEED,
       // Slider: Base Contact DPS
       baseContactDps: 12,
       // Slider: DPS Influence Bonus
