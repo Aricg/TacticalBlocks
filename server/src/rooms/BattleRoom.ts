@@ -63,6 +63,14 @@ export class BattleRoom extends Room<BattleState> {
     speedMultiplier: 1,
     rotateToFace: true,
   };
+  private static readonly TERRAIN_SPEED_MULTIPLIER: Record<TerrainType, number> = {
+    water: 0.3,
+    forest: 0.7,
+    hills: 0.5,
+    grass: 1.0,
+    unknown: 1.0,
+    mountains: 0,
+  };
   private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
   private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
   private static readonly CELL_WIDTH =
@@ -435,6 +443,11 @@ export class BattleRoom extends Room<BattleState> {
 
   private getTerrainTypeAtCell(cell: GridCoordinate): TerrainType {
     return getGridCellTerrainType(cell.col, cell.row);
+  }
+
+  private getTerrainSpeedMultiplierAtCell(cell: GridCoordinate): number {
+    const terrainType = this.getTerrainTypeAtCell(cell);
+    return BattleRoom.TERRAIN_SPEED_MULTIPLIER[terrainType] ?? 1.0;
   }
 
   private traceGridLine(
@@ -842,9 +855,14 @@ export class BattleRoom extends Room<BattleState> {
         continue;
       }
 
+      const currentCell =
+        cellByUnitId.get(unit.unitId) ?? this.worldToGridCoordinate(unit.x, unit.y);
+      const terrainSpeedMultiplier =
+        this.getTerrainSpeedMultiplierAtCell(currentCell);
       const perSecondSpeed =
         this.runtimeTuning.unitMoveSpeed *
-        movementState.movementCommandMode.speedMultiplier;
+        movementState.movementCommandMode.speedMultiplier *
+        terrainSpeedMultiplier;
       if (perSecondSpeed <= 0 || !Number.isFinite(perSecondSpeed)) {
         continue;
       }
