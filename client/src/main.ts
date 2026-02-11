@@ -25,6 +25,7 @@ import {
   type RuntimeTuning,
 } from '../../shared/src/runtimeTuning.js';
 import { City, type CityOwner } from './City';
+import { BattleInputController } from './BattleInputController';
 import { InfluenceRenderer } from './InfluenceRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
@@ -166,13 +167,7 @@ class BattleScene extends Phaser.Scene {
   private localLobbyReady = false;
   private hasExitedBattle = false;
   private lobbyPlayers: LobbyPlayerView[] = [];
-  private suppressCommandOnPointerUp = false;
-  private dragStart: Phaser.Math.Vector2 | null = null;
-  private pathDragStart: Phaser.Math.Vector2 | null = null;
-  private pathDragStartedOnUnit = false;
-  private boxSelecting = false;
-  private pathDrawing = false;
-  private draggedPath: Phaser.Math.Vector2[] = [];
+  private inputController: BattleInputController | null = null;
   private selectionBox!: Phaser.GameObjects.Graphics;
   private pathPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
@@ -316,217 +311,62 @@ class BattleScene extends Phaser.Scene {
     this.createLobbyOverlay();
     this.refreshLobbyOverlay();
 
-    this.input.on(
-      'gameobjectdown',
-      (
-        pointer: Phaser.Input.Pointer,
-        gameObject: Phaser.GameObjects.GameObject,
-        event: Phaser.Types.Input.EventData,
-      ) => {
-        if (!this.isBattleActive()) {
-          return;
-        }
-
-        if (pointer.button !== 0) {
-          return;
-        }
-
-        const clickedUnit = Unit.fromGameObject(gameObject);
-        if (!clickedUnit) {
-          return;
-        }
-        if (clickedUnit.team !== this.localPlayerTeam) {
-          return;
-        }
-
-        // If unit is already selected, this might be the start of a path drag.
-        if (this.selectedUnits.has(clickedUnit)) {
-          this.pathDragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-          this.pathDragStartedOnUnit = true;
-          this.pathDrawing = false;
-          this.draggedPath = [this.pathDragStart.clone()];
-          this.pathPreview.clear();
-        } else {
-          this.selectOnlyUnit(clickedUnit);
-          this.suppressCommandOnPointerUp = true;
-          this.pathDragStart = null;
-          this.pathDragStartedOnUnit = false;
-          this.pathDrawing = false;
-          this.draggedPath = [];
-          this.pathPreview.clear();
-        }
-
-        // Prevent this same click from also firing a terrain move command.
-        event.stopPropagation();
+    this.inputController = new BattleInputController(
+      this,
+      {
+        isBattleActive: () => this.isBattleActive(),
+        resolveOwnedUnit: (gameObject: Phaser.GameObjects.GameObject) => {
+          const clickedUnit = Unit.fromGameObject(gameObject);
+          if (!clickedUnit || clickedUnit.team !== this.localPlayerTeam) {
+            return null;
+          }
+          return clickedUnit;
+        },
+        isUnitSelected: (unit: Unit) => this.selectedUnits.has(unit),
+        hasSelectedUnits: () => this.selectedUnits.size > 0,
+        selectOnlyUnit: (unit: Unit) => this.selectOnlyUnit(unit),
+        clearSelection: () => this.clearSelection(),
+        commandSelectedUnits: (
+          targetX: number,
+          targetY: number,
+          shiftHeld: boolean,
+        ) => this.commandSelectedUnits(targetX, targetY, shiftHeld),
+        commandSelectedUnitsAlongPath: (
+          path: Phaser.Math.Vector2[],
+          shiftHeld: boolean,
+        ) => this.commandSelectedUnitsAlongPath(path, shiftHeld),
+        selectUnitsInBox: (
+          startX: number,
+          startY: number,
+          endX: number,
+          endY: number,
+        ) => this.selectUnitsInBox(startX, startY, endX, endY),
+        drawSelectionBox: (
+          startX: number,
+          startY: number,
+          currentX: number,
+          currentY: number,
+        ) => this.drawSelectionBox(startX, startY, currentX, currentY),
+        clearSelectionBox: () => this.clearSelectionBox(),
+        appendDraggedPathPoint: (
+          draggedPath: Phaser.Math.Vector2[],
+          x: number,
+          y: number,
+          forceAppend?: boolean,
+        ) => this.appendDraggedPathPoint(draggedPath, x, y, forceAppend),
+        drawPathPreview: (draggedPath: Phaser.Math.Vector2[]) =>
+          this.drawPathPreview(draggedPath),
+        clearPathPreview: () => this.pathPreview.clear(),
+        buildCommandPath: (path: Phaser.Math.Vector2[]) =>
+          this.buildCommandPath(path),
+        cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
+        isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
+        exitBattle: () => this.exitBattle(),
+      },
+      {
+        dragThreshold: BattleScene.DRAG_THRESHOLD,
       },
     );
-
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (!this.isBattleActive()) {
-        return;
-      }
-
-      if (pointer.button === 2) {
-        this.commandSelectedUnits(
-          pointer.worldX,
-          pointer.worldY,
-          this.isShiftHeld(pointer),
-        );
-        return;
-      }
-
-      if (pointer.button !== 0) {
-        return;
-      }
-
-      if (this.suppressCommandOnPointerUp) {
-        return;
-      }
-
-      // If units are selected, dragging anywhere draws a path.
-      if (this.selectedUnits.size > 0) {
-        if (!this.pathDragStart) {
-          this.pathDragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-          this.pathDragStartedOnUnit = false;
-          this.pathDrawing = false;
-          this.draggedPath = [this.pathDragStart.clone()];
-          this.pathPreview.clear();
-        }
-        return;
-      }
-
-      // Otherwise, we allow Box Selection or Move Command (if something was just selected but not by this click).
-      this.dragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-      this.boxSelecting = false;
-    });
-
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!this.isBattleActive()) {
-        return;
-      }
-
-      // 1. Handle Path Drawing (Dragging from a Unit)
-      if (this.pathDragStart) {
-        if (!pointer.leftButtonDown()) {
-          return;
-        }
-
-        if (!this.pathDrawing) {
-          const dragDistance = Phaser.Math.Distance.Between(
-            this.pathDragStart.x,
-            this.pathDragStart.y,
-            pointer.worldX,
-            pointer.worldY,
-          );
-          if (dragDistance >= BattleScene.DRAG_THRESHOLD) {
-            this.pathDrawing = true;
-            this.appendDraggedPathPoint(pointer.worldX, pointer.worldY, true);
-          }
-        }
-
-        if (this.pathDrawing) {
-          this.appendDraggedPathPoint(pointer.worldX, pointer.worldY);
-          this.drawPathPreview();
-        }
-        return;
-      }
-
-      // 2. Handle Box Selection (Dragging from Terrain)
-      if (this.dragStart && pointer.leftButtonDown()) {
-        const dragDistance = Phaser.Math.Distance.Between(
-          this.dragStart.x,
-          this.dragStart.y,
-          pointer.worldX,
-          pointer.worldY,
-        );
-        if (!this.boxSelecting && dragDistance >= BattleScene.DRAG_THRESHOLD) {
-          this.boxSelecting = true;
-        }
-
-        if (this.boxSelecting) {
-          this.drawSelectionBox(pointer.worldX, pointer.worldY);
-        }
-      }
-    });
-
-    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
-      if (!this.isBattleActive()) {
-        return;
-      }
-
-      if (pointer.button !== 0) {
-        return;
-      }
-
-      // Handle End of Path Drawing
-      if (this.pathDragStart) {
-        this.pathDragStart = null;
-
-        if (this.pathDrawing) {
-          this.appendDraggedPathPoint(pointer.worldX, pointer.worldY);
-          const commandPath = this.buildCommandPath(this.draggedPath);
-          if (commandPath.length > 1) {
-            this.commandSelectedUnitsAlongPath(
-              commandPath,
-              this.isShiftHeld(pointer),
-            );
-          } else {
-            // Path was too short, do nothing?
-          }
-        } else {
-          // Short click started on map deselects; short click started on a selected unit does nothing.
-          if (!this.pathDragStartedOnUnit) {
-            this.clearSelection();
-          }
-        }
-
-        this.pathDragStartedOnUnit = false;
-        this.pathDrawing = false;
-        this.draggedPath = [];
-        this.pathPreview.clear();
-        return;
-      }
-
-      if (this.suppressCommandOnPointerUp) {
-        this.suppressCommandOnPointerUp = false;
-        this.pathDragStartedOnUnit = false;
-        return;
-      }
-
-      // Handle End of Box Selection
-      if (this.boxSelecting && this.dragStart) {
-        this.selectUnitsInBox(
-          this.dragStart.x,
-          this.dragStart.y,
-          pointer.worldX,
-          pointer.worldY,
-        );
-        this.clearSelectionBox();
-        this.dragStart = null;
-        this.boxSelecting = false;
-        return;
-      }
-
-      // Handle Simple Click on Terrain
-      if (this.dragStart) {
-        this.clearSelectionBox();
-        this.dragStart = null;
-        this.boxSelecting = false;
-        
-        // Short click on map -> Deselect
-        this.clearSelection();
-      }
-    });
-
-    this.input.keyboard?.on('keydown-SPACE', () => {
-      if (!this.isBattleActive()) {
-        return;
-      }
-      this.cancelSelectedUnitMovement();
-    });
-    this.input.keyboard?.on('keydown-ESC', () => {
-      this.exitBattle();
-    });
 
     this.networkManager = new NetworkManager(
       (networkUnit) => {
@@ -582,6 +422,8 @@ class BattleScene extends Phaser.Scene {
       });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.inputController?.destroy();
+      this.inputController = null;
       const networkManager = this.networkManager;
       this.networkManager = null;
       if (networkManager) {
@@ -1130,15 +972,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private resetPointerInteractionState(): void {
-    this.suppressCommandOnPointerUp = false;
-    this.dragStart = null;
-    this.pathDragStart = null;
-    this.pathDragStartedOnUnit = false;
-    this.boxSelecting = false;
-    this.pathDrawing = false;
-    this.draggedPath = [];
-    this.selectionBox.clear();
-    this.pathPreview.clear();
+    this.inputController?.reset();
   }
 
   private exitBattle(): void {
@@ -1464,15 +1298,16 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  private drawSelectionBox(currentX: number, currentY: number): void {
-    if (!this.dragStart) {
-      return;
-    }
-
-    const minX = Math.min(this.dragStart.x, currentX);
-    const minY = Math.min(this.dragStart.y, currentY);
-    const width = Math.abs(currentX - this.dragStart.x);
-    const height = Math.abs(currentY - this.dragStart.y);
+  private drawSelectionBox(
+    startX: number,
+    startY: number,
+    currentX: number,
+    currentY: number,
+  ): void {
+    const minX = Math.min(startX, currentX);
+    const minY = Math.min(startY, currentY);
+    const width = Math.abs(currentX - startX);
+    const height = Math.abs(currentY - startY);
 
     this.selectionBox.clear();
     this.selectionBox.fillStyle(0xffffff, 0.12);
@@ -1742,17 +1577,22 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  private appendDraggedPathPoint(x: number, y: number, forceAppend = false): void {
+  private appendDraggedPathPoint(
+    draggedPath: Phaser.Math.Vector2[],
+    x: number,
+    y: number,
+    forceAppend = false,
+  ): void {
     const nextPoint = new Phaser.Math.Vector2(x, y);
-    const lastPoint = this.draggedPath[this.draggedPath.length - 1];
-    if (!lastPoint || forceAppend || this.draggedPath.length === 1) {
-      this.draggedPath.push(nextPoint);
+    const lastPoint = draggedPath[draggedPath.length - 1];
+    if (!lastPoint || forceAppend || draggedPath.length === 1) {
+      draggedPath.push(nextPoint);
       return;
     }
 
     const distance = Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, x, y);
     if (distance < BattleScene.PREVIEW_PATH_POINT_SPACING) {
-      this.draggedPath[this.draggedPath.length - 1] = nextPoint;
+      draggedPath[draggedPath.length - 1] = nextPoint;
       return;
     }
 
@@ -1765,7 +1605,7 @@ class BattleScene extends Phaser.Scene {
       if (t >= 1) {
         break;
       }
-      this.draggedPath.push(
+      draggedPath.push(
         new Phaser.Math.Vector2(
           Phaser.Math.Linear(lastPoint.x, x, t),
           Phaser.Math.Linear(lastPoint.y, y, t),
@@ -1773,7 +1613,7 @@ class BattleScene extends Phaser.Scene {
       );
     }
 
-    this.draggedPath.push(nextPoint);
+    draggedPath.push(nextPoint);
   }
 
   private buildCommandPath(path: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
@@ -1978,9 +1818,9 @@ class BattleScene extends Phaser.Scene {
     return compactedPath;
   }
 
-  private drawPathPreview(): void {
+  private drawPathPreview(draggedPath: Phaser.Math.Vector2[]): void {
     this.pathPreview.clear();
-    const previewPath = this.buildCommandPath(this.draggedPath);
+    const previewPath = this.buildCommandPath(draggedPath);
     if (previewPath.length < 2) {
       return;
     }
