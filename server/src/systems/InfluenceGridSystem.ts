@@ -2,27 +2,18 @@ import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import { RuntimeTuning } from "../../../shared/src/runtimeTuning.js";
 import { InfluenceGridState } from "../schema/InfluenceGridState.js";
 import { Unit } from "../schema/Unit.js";
-
-type TeamSign = 1 | -1;
-type UnitContributionSource = {
-  unitId: string;
-  x: number;
-  y: number;
-  teamSign: TeamSign;
-  power: number;
-  isStatic: boolean;
-};
-type StaticInfluenceSource = {
-  x: number;
-  y: number;
-  teamSign: TeamSign;
-  power: number;
-};
-
-type DominanceTarget = {
-  index: number;
-  weight: number;
-};
+import {
+  accumulateCellInfluence,
+  selectContributingSources,
+} from "./influenceGrid/cellAccumulation.js";
+import { buildContestMultiplierByUnitId } from "./influenceGrid/contestMultipliers.js";
+import {
+  createDecayedScores,
+  writeClampedScoresToStateGrid,
+} from "./influenceGrid/decayPostProcess.js";
+import { applyTeamFloors } from "./influenceGrid/floorEnforcement.js";
+import { collectActiveUnits } from "./influenceGrid/sourceCollection.js";
+import { StaticInfluenceSource } from "./influenceGrid/types.js";
 
 export class InfluenceGridSystem {
   private static readonly MAX_MAGNITUDE_EXTRA_DECAY = 0.05;
@@ -190,560 +181,93 @@ export class InfluenceGridSystem {
     stateGrid: InfluenceGridState,
     units: Iterable<Unit>,
   ): void {
-    const activeUnits = this.collectActiveUnits(units);
-    const cellCount = this.gridWidth * this.gridHeight;
-    const scores = new Float32Array(cellCount);
-    const balanceNeutralizationFactorByCell = new Float32Array(cellCount);
-    const blueFloorByCell = new Float32Array(cellCount);
-    const redFloorByCell = new Float32Array(cellCount);
-
-    // Persistent field: start from previous frame and decay toward neutral.
-    for (let index = 0; index < cellCount; index += 1) {
-      const previousScore = stateGrid.cells[index] ?? 0;
-      const decayedScore =
-        previousScore * this.getDecayRateForMagnitude(previousScore);
-      scores[index] =
-        Math.abs(decayedScore) < this.decayZeroEpsilon
-          ? 0
-          : decayedScore;
-    }
-
-    const contributingUnits = activeUnits.filter((unit) => {
-      if (this.staticUnitCapGate < 0.5 || !unit.isStatic) {
-        return true;
-      }
-
-      return !this.hasStaticUnitReachedCoreCap(scores, unit);
+    const { activeUnits, nextPreviousUnitPositionById } = collectActiveUnits({
+      units,
+      previousUnitPositionById: this.previousUnitPositionById,
+      staticVelocityEpsilon: this.staticVelocityEpsilon,
+      unitInfluenceMultiplier: this.unitInfluenceMultiplier,
     });
-    const contributingStaticSources = this.staticInfluenceSources.filter(
-      (source) =>
-        this.staticCityCapGate < 0.5 ||
-        !this.hasStaticSourceReachedCoreCap(scores, source),
-    );
-    const contestMultiplierByUnitId = this.buildContestMultiplierByUnitId(
-      activeUnits,
-      contributingStaticSources,
-    );
 
-    for (let index = 0; index < cellCount; index += 1) {
-      const cellX = index % this.gridWidth;
-      const cellY = Math.floor(index / this.gridWidth);
-      const worldX = (cellX + 0.5) * this.cellWidth;
-      const worldY = (cellY + 0.5) * this.cellHeight;
-      let blueUnitPressure = 0;
-      let redUnitPressure = 0;
-      let blueTotalPressure = 0;
-      let redTotalPressure = 0;
-
-      for (const unit of contributingUnits) {
-        const distance = Math.hypot(worldX - unit.x, worldY - unit.y);
-        const contestMultiplier = contestMultiplierByUnitId.get(unit.unitId) ?? 1;
-        const localInfluence =
-          (unit.power * contestMultiplier) / (distance * distance + 1);
-        scores[index] += localInfluence * unit.teamSign;
-        if (unit.teamSign > 0) {
-          blueUnitPressure += localInfluence;
-          blueTotalPressure += localInfluence;
-        } else {
-          redUnitPressure += localInfluence;
-          redTotalPressure += localInfluence;
-        }
-      }
-
-      for (const source of contributingStaticSources) {
-        const distance = Math.hypot(worldX - source.x, worldY - source.y);
-        const localInfluence = source.power / (distance * distance + 1);
-        const enemyPressure = source.teamSign > 0 ? redUnitPressure : blueUnitPressure;
-        const gateMultiplier = this.getCityGateMultiplier(enemyPressure);
-        const effectiveInfluence = localInfluence * gateMultiplier;
-        scores[index] += effectiveInfluence * source.teamSign;
-        if (source.teamSign > 0) {
-          blueTotalPressure += effectiveInfluence;
-        } else {
-          redTotalPressure += effectiveInfluence;
-        }
-      }
-
-      // Near 50/50 pressure should render as neutral instead of retaining tiny bias.
-      const balanceNeutralizationFactor = this.getBalanceNeutralizationFactor(
-        blueTotalPressure,
-        redTotalPressure,
-      );
-      balanceNeutralizationFactorByCell[index] = balanceNeutralizationFactor;
-      scores[index] *= balanceNeutralizationFactor;
+    this.previousUnitPositionById.clear();
+    for (const [unitId, position] of nextPreviousUnitPositionById) {
+      this.previousUnitPositionById.set(unitId, position);
     }
 
-    for (const unit of contributingUnits) {
-      const targets = this.getDominanceTargets(unit.x, unit.y);
-      if (targets.length === 0) {
-        continue;
-      }
+    const cellCount = this.gridWidth * this.gridHeight;
+    const scores = createDecayedScores({
+      previousScores: stateGrid.cells,
+      cellCount,
+      decayRate: this.decayRate,
+      decayZeroEpsilon: this.decayZeroEpsilon,
+      dominanceReferencePower: InfluenceGridSystem.DOMINANCE_REFERENCE_POWER,
+      dominancePowerMultiplier: this.dominancePowerMultiplier,
+      maxExtraDecayAtZero: this.maxExtraDecayAtZero,
+      maxAbsTacticalScore: this.maxAbsTacticalScore,
+      maxMagnitudeExtraDecay: InfluenceGridSystem.MAX_MAGNITUDE_EXTRA_DECAY,
+    });
 
-      const contestMultiplier = contestMultiplierByUnitId.get(unit.unitId) ?? 1;
-      const absoluteDominance = this.getAbsoluteDominance(
-        unit.power * contestMultiplier,
-      );
-      for (const target of targets) {
-        const weightedFloor = absoluteDominance * target.weight;
-        this.setTeamFloorAtIndex(
-          blueFloorByCell,
-          redFloorByCell,
-          target.index,
-          unit.teamSign,
-          weightedFloor,
-        );
-      }
-    }
-
-    for (const unit of activeUnits) {
-      const contestMultiplier = contestMultiplierByUnitId.get(unit.unitId) ?? 1;
-      this.enforceCoreMinimumInfluence(
-        blueFloorByCell,
-        redFloorByCell,
-        unit,
-        unit.power * contestMultiplier,
-      );
-    }
-
-    // Resolve floors order-independently. In contested cells, avoid forcing either
-    // side's floor so small numerical asymmetries can't accumulate into side bias.
-    for (let index = 0; index < cellCount; index += 1) {
-      const balanceNeutralizationFactor = balanceNeutralizationFactorByCell[index] ?? 1;
-      const floorDamping = balanceNeutralizationFactor * balanceNeutralizationFactor;
-      const blueFloor = blueFloorByCell[index] * floorDamping;
-      const redFloor = redFloorByCell[index] * floorDamping;
-      if (blueFloor > 0 && redFloor > 0) {
-        // No floor is forced in contested cells.
-      } else if (blueFloor > 0) {
-        scores[index] = Math.max(scores[index], blueFloor);
-      } else if (redFloor > 0) {
-        scores[index] = Math.min(scores[index], -redFloor);
-      }
-    }
-
-    for (let index = 0; index < cellCount; index += 1) {
-      stateGrid.cells[index] = PhaserMath.clamp(
-        scores[index],
-        -this.maxAbsTacticalScore,
-        this.maxAbsTacticalScore,
-      );
-    }
-
-    stateGrid.revision += 1;
-  }
-
-  private getDecayRateForMagnitude(value: number): number {
-    const smallMagnitudeDecayReference = Math.max(
-      1,
-      InfluenceGridSystem.DOMINANCE_REFERENCE_POWER * this.dominancePowerMultiplier,
-    );
-    const normalizedSmallMagnitude = PhaserMath.clamp(
-      Math.abs(value) / smallMagnitudeDecayReference,
-      0,
-      1,
-    );
-    const extraDecayNearZero =
-      (1 - normalizedSmallMagnitude) * this.maxExtraDecayAtZero;
-    const normalizedMagnitudeToMax = PhaserMath.clamp(
-      Math.abs(value) / this.maxAbsTacticalScore,
-      0,
-      1,
-    );
-    // Prevent near-cap cells from appearing "stuck" by forcing additional decay
-    // that scales up as a score approaches the tactical hard cap.
-    const extraDecayNearMax =
-      normalizedMagnitudeToMax * InfluenceGridSystem.MAX_MAGNITUDE_EXTRA_DECAY;
-    return PhaserMath.clamp(
-      this.decayRate - extraDecayNearZero - extraDecayNearMax,
-      0,
-      1,
-    );
-  }
-
-  private getCityGateMultiplier(enemyPressure: number): number {
-    if (this.cityEnemyGateAlpha <= 0) {
-      return 1;
-    }
-    return Math.exp(-this.cityEnemyGateAlpha * Math.max(0, enemyPressure));
-  }
-
-  private getBalanceNeutralizationFactor(
-    bluePressure: number,
-    redPressure: number,
-  ): number {
-    const totalPressure = bluePressure + redPressure;
-    if (totalPressure <= InfluenceGridSystem.BALANCE_NEUTRAL_MIN_TOTAL_PRESSURE) {
-      return 0;
-    }
-
-    const dominance = Math.abs(bluePressure - redPressure) / totalPressure;
-    if (dominance <= InfluenceGridSystem.BALANCE_NEUTRAL_SNAP_DOMINANCE) {
-      return 0;
-    }
-    if (dominance >= InfluenceGridSystem.BALANCE_NEUTRAL_FADE_DOMINANCE) {
-      return 1;
-    }
-
-    const t =
-      (dominance - InfluenceGridSystem.BALANCE_NEUTRAL_SNAP_DOMINANCE) /
-      (InfluenceGridSystem.BALANCE_NEUTRAL_FADE_DOMINANCE -
-        InfluenceGridSystem.BALANCE_NEUTRAL_SNAP_DOMINANCE);
-    return t * t * (3 - 2 * t);
-  }
-
-  private enforceCoreMinimumInfluence(
-    blueFloorByCell: Float32Array,
-    redFloorByCell: Float32Array,
-    unit: UnitContributionSource,
-    effectivePower: number,
-  ): void {
-    const coreRadiusSquared = this.coreRadius * this.coreRadius;
-    const minCol = PhaserMath.floorClamp(
-      (unit.x - this.coreRadius) / this.cellWidth - 0.5,
-      0,
-      this.gridWidth - 1,
-    );
-    const maxCol = PhaserMath.floorClamp(
-      (unit.x + this.coreRadius) / this.cellWidth - 0.5,
-      0,
-      this.gridWidth - 1,
-    );
-    const minRow = PhaserMath.floorClamp(
-      (unit.y - this.coreRadius) / this.cellHeight - 0.5,
-      0,
-      this.gridHeight - 1,
-    );
-    const maxRow = PhaserMath.floorClamp(
-      (unit.y + this.coreRadius) / this.cellHeight - 0.5,
-      0,
-      this.gridHeight - 1,
-    );
-    const minimumInfluence = Math.max(
-      this.dominanceMinFloor,
-      this.getAbsoluteDominance(effectivePower) * this.coreMinInfluenceFactor,
-    );
-
-    for (let row = minRow; row <= maxRow; row += 1) {
-      for (let col = minCol; col <= maxCol; col += 1) {
-        const cellCenterX = (col + 0.5) * this.cellWidth;
-        const cellCenterY = (row + 0.5) * this.cellHeight;
-        const deltaX = cellCenterX - unit.x;
-        const deltaY = cellCenterY - unit.y;
-        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
-        if (distanceSquared > coreRadiusSquared) {
-          continue;
-        }
-
-        const index = row * this.gridWidth + col;
-        this.setTeamFloorAtIndex(
-          blueFloorByCell,
-          redFloorByCell,
-          index,
-          unit.teamSign,
-          minimumInfluence,
-        );
-      }
-    }
-  }
-
-  private setTeamFloorAtIndex(
-    blueFloorByCell: Float32Array,
-    redFloorByCell: Float32Array,
-    index: number,
-    teamSign: TeamSign,
-    floorMagnitude: number,
-  ): void {
-    if (floorMagnitude <= 0) {
-      return;
-    }
-
-    if (teamSign > 0) {
-      blueFloorByCell[index] = Math.max(blueFloorByCell[index], floorMagnitude);
-    } else {
-      redFloorByCell[index] = Math.max(redFloorByCell[index], floorMagnitude);
-    }
-  }
-
-  private buildContestMultiplierByUnitId(
-    activeUnits: UnitContributionSource[],
-    staticSources: StaticInfluenceSource[],
-  ): Map<string, number> {
-    const multiplierByUnitId = new Map<string, number>();
-    for (const unit of activeUnits) {
-      multiplierByUnitId.set(
-        unit.unitId,
-        this.getContestMultiplier(unit, activeUnits, staticSources),
-      );
-    }
-    return multiplierByUnitId;
-  }
-
-  private getContestMultiplier(
-    focusUnit: UnitContributionSource,
-    allUnits: UnitContributionSource[],
-    staticSources: StaticInfluenceSource[],
-  ): number {
-    let alliedPressure = 0;
-    let enemyPressure = 0;
-
-    for (const unit of allUnits) {
-      if (unit.unitId === focusUnit.unitId) {
-        continue;
-      }
-
-      const distance = Math.hypot(focusUnit.x - unit.x, focusUnit.y - unit.y);
-      const pressure = unit.power / (distance * distance + 1);
-      if (unit.teamSign === focusUnit.teamSign) {
-        alliedPressure += pressure;
-      } else {
-        enemyPressure += pressure;
-      }
-    }
-
-    for (const source of staticSources) {
-      const distance = Math.hypot(focusUnit.x - source.x, focusUnit.y - source.y);
-      const pressure = source.power / (distance * distance + 1);
-      if (source.teamSign === focusUnit.teamSign) {
-        alliedPressure += pressure;
-      } else {
-        enemyPressure += pressure;
-      }
-    }
-
-    const totalPressure = alliedPressure + enemyPressure;
-    const alliedShare =
-      totalPressure <= 0.00001
-        ? 1
-        : PhaserMath.clamp(alliedPressure / totalPressure, 0, 1);
-    // Stronger contest debuff: isolated units under enemy pressure can fall well below full strength.
-    // A low floor preserves a visible circle while allowing mid-scale values (~50 on a 100 cap).
-    const minContestMultiplier = this.enemyPressureDebuffFloor;
-    const ratioMultiplier =
-      minContestMultiplier + alliedShare * (1 - minContestMultiplier);
-
-    // Isolation ceiling: a unit only regains full projection with nearby allied support.
-    // Enemy pressure can still reduce multiplier below this ceiling.
-    const supportStrength =
-      alliedPressure / (alliedPressure + this.supportPressureReference);
-    const supportCeiling =
-      this.isolatedUnitInfluenceFloor +
-      supportStrength * (1 - this.isolatedUnitInfluenceFloor);
-
-    return PhaserMath.clamp(
-      Math.min(ratioMultiplier, supportCeiling),
-      minContestMultiplier,
-      1,
-    );
-  }
-
-  private hasStaticUnitReachedCoreCap(
-    scores: Float32Array,
-    unit: UnitContributionSource,
-  ): boolean {
-    const coreRadiusSquared = this.coreRadius * this.coreRadius;
-    const minCol = PhaserMath.floorClamp(
-      (unit.x - this.coreRadius) / this.cellWidth - 0.5,
-      0,
-      this.gridWidth - 1,
-    );
-    const maxCol = PhaserMath.floorClamp(
-      (unit.x + this.coreRadius) / this.cellWidth - 0.5,
-      0,
-      this.gridWidth - 1,
-    );
-    const minRow = PhaserMath.floorClamp(
-      (unit.y - this.coreRadius) / this.cellHeight - 0.5,
-      0,
-      this.gridHeight - 1,
-    );
-    const maxRow = PhaserMath.floorClamp(
-      (unit.y + this.coreRadius) / this.cellHeight - 0.5,
-      0,
-      this.gridHeight - 1,
-    );
-
-    const maxInfluence = Math.max(1, unit.power * this.unitCapThreshold);
-    let hasCoreCell = false;
-
-    for (let row = minRow; row <= maxRow; row += 1) {
-      for (let col = minCol; col <= maxCol; col += 1) {
-        const cellCenterX = (col + 0.5) * this.cellWidth;
-        const cellCenterY = (row + 0.5) * this.cellHeight;
-        const deltaX = cellCenterX - unit.x;
-        const deltaY = cellCenterY - unit.y;
-        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
-        if (distanceSquared > coreRadiusSquared) {
-          continue;
-        }
-
-        hasCoreCell = true;
-        const score = scores[row * this.gridWidth + col];
-        if (unit.teamSign > 0) {
-          if (score < maxInfluence) {
-            return false;
-          }
-        } else if (score > -maxInfluence) {
-          return false;
-        }
-      }
-    }
-
-    return hasCoreCell;
-  }
-
-  private hasStaticSourceReachedCoreCap(
-    scores: Float32Array,
-    source: StaticInfluenceSource,
-  ): boolean {
-    const coreRadiusSquared = this.citySourceCoreRadius * this.citySourceCoreRadius;
-    const minCol = PhaserMath.floorClamp(
-      (source.x - this.citySourceCoreRadius) / this.cellWidth - 0.5,
-      0,
-      this.gridWidth - 1,
-    );
-    const maxCol = PhaserMath.floorClamp(
-      (source.x + this.citySourceCoreRadius) / this.cellWidth - 0.5,
-      0,
-      this.gridWidth - 1,
-    );
-    const minRow = PhaserMath.floorClamp(
-      (source.y - this.citySourceCoreRadius) / this.cellHeight - 0.5,
-      0,
-      this.gridHeight - 1,
-    );
-    const maxRow = PhaserMath.floorClamp(
-      (source.y + this.citySourceCoreRadius) / this.cellHeight - 0.5,
-      0,
-      this.gridHeight - 1,
-    );
-
-    const maxInfluence = Math.max(1, source.power);
-    let hasCoreCell = false;
-
-    for (let row = minRow; row <= maxRow; row += 1) {
-      for (let col = minCol; col <= maxCol; col += 1) {
-        const cellCenterX = (col + 0.5) * this.cellWidth;
-        const cellCenterY = (row + 0.5) * this.cellHeight;
-        const deltaX = cellCenterX - source.x;
-        const deltaY = cellCenterY - source.y;
-        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
-        if (distanceSquared > coreRadiusSquared) {
-          continue;
-        }
-
-        hasCoreCell = true;
-        const score = scores[row * this.gridWidth + col];
-        if (source.teamSign > 0) {
-          if (score < maxInfluence) {
-            return false;
-          }
-        } else if (score > -maxInfluence) {
-          return false;
-        }
-      }
-    }
-
-    return hasCoreCell;
-  }
-
-  private getAbsoluteDominance(power: number): number {
-    const dominancePower = Math.max(
-      power,
-      InfluenceGridSystem.DOMINANCE_REFERENCE_POWER,
-    );
-    return Math.max(
-      this.dominanceMinFloor,
-      dominancePower * this.dominancePowerMultiplier,
-    );
-  }
-
-  private getDominanceTargets(x: number, y: number): DominanceTarget[] {
-    const colBasis = x / this.cellWidth - 0.5;
-    const rowBasis = y / this.cellHeight - 0.5;
-    const baseCol = PhaserMath.floorClamp(colBasis, 0, this.gridWidth - 1);
-    const baseRow = PhaserMath.floorClamp(rowBasis, 0, this.gridHeight - 1);
-    const nextCol = PhaserMath.clamp(baseCol + 1, 0, this.gridWidth - 1);
-    const nextRow = PhaserMath.clamp(baseRow + 1, 0, this.gridHeight - 1);
-
-    const candidateCoords = [
-      { col: baseCol, row: baseRow },
-      { col: nextCol, row: baseRow },
-      { col: baseCol, row: nextRow },
-      { col: nextCol, row: nextRow },
-    ];
-
-    const uniqueCoords = new Map<string, { col: number; row: number }>();
-    for (const coord of candidateCoords) {
-      uniqueCoords.set(`${coord.col}:${coord.row}`, coord);
-    }
-
-    const weightedTargets: Array<{ index: number; rawWeight: number }> = [];
-    let totalWeight = 0;
-    for (const coord of uniqueCoords.values()) {
-      const cellCenterX = (coord.col + 0.5) * this.cellWidth;
-      const cellCenterY = (coord.row + 0.5) * this.cellHeight;
-      const distance = Math.hypot(x - cellCenterX, y - cellCenterY);
-      const normalizedDistance = this.cellDiagonal > 0 ? distance / this.cellDiagonal : 0;
-      const rawWeight = Math.max(0, 1 - normalizedDistance);
-      if (rawWeight <= 0) {
-        continue;
-      }
-
-      const index = coord.row * this.gridWidth + coord.col;
-      weightedTargets.push({ index, rawWeight });
-      totalWeight += rawWeight;
-    }
-
-    if (weightedTargets.length === 0 || totalWeight <= 0) {
-      return [];
-    }
-
-    return weightedTargets.map((target) => ({
-      index: target.index,
-      weight: target.rawWeight / totalWeight,
-    }));
-  }
-
-  private collectActiveUnits(units: Iterable<Unit>): UnitContributionSource[] {
-    const activeUnits: UnitContributionSource[] = [];
-    const activeUnitIds = new Set<string>();
-
-    for (const unit of units) {
-      if (unit.health <= 0) {
-        continue;
-      }
-
-      activeUnitIds.add(unit.unitId);
-      const normalizedTeam = unit.team.toUpperCase();
-      const teamSign: TeamSign = normalizedTeam === "BLUE" ? 1 : -1;
-      const power = Math.max(0, unit.health * this.unitInfluenceMultiplier);
-      const previousPosition = this.previousUnitPositionById.get(unit.unitId);
-      const isStatic =
-        previousPosition !== undefined &&
-        Math.hypot(unit.x - previousPosition.x, unit.y - previousPosition.y) <=
-          this.staticVelocityEpsilon;
-
-      activeUnits.push({
-        unitId: unit.unitId,
-        x: unit.x,
-        y: unit.y,
-        teamSign,
-        power,
-        isStatic,
+    const { contributingUnits, contributingStaticSources } =
+      selectContributingSources({
+        scores,
+        activeUnits,
+        staticInfluenceSources: this.staticInfluenceSources,
+        staticUnitCapGate: this.staticUnitCapGate,
+        staticCityCapGate: this.staticCityCapGate,
+        coreRadius: this.coreRadius,
+        citySourceCoreRadius: this.citySourceCoreRadius,
+        unitCapThreshold: this.unitCapThreshold,
+        gridWidth: this.gridWidth,
+        gridHeight: this.gridHeight,
+        cellWidth: this.cellWidth,
+        cellHeight: this.cellHeight,
       });
-    }
 
-    for (const unitId of this.previousUnitPositionById.keys()) {
-      if (!activeUnitIds.has(unitId)) {
-        this.previousUnitPositionById.delete(unitId);
-      }
-    }
+    const contestMultiplierByUnitId = buildContestMultiplierByUnitId({
+      activeUnits,
+      staticSources: contributingStaticSources,
+      enemyPressureDebuffFloor: this.enemyPressureDebuffFloor,
+      isolatedUnitInfluenceFloor: this.isolatedUnitInfluenceFloor,
+      supportPressureReference: this.supportPressureReference,
+    });
 
-    for (const unit of activeUnits) {
-      this.previousUnitPositionById.set(unit.unitId, { x: unit.x, y: unit.y });
-    }
+    const { balanceNeutralizationFactorByCell } = accumulateCellInfluence({
+      scores,
+      contributingUnits,
+      contributingStaticSources,
+      contestMultiplierByUnitId,
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      cellWidth: this.cellWidth,
+      cellHeight: this.cellHeight,
+      cityEnemyGateAlpha: this.cityEnemyGateAlpha,
+      balanceNeutralMinTotalPressure:
+        InfluenceGridSystem.BALANCE_NEUTRAL_MIN_TOTAL_PRESSURE,
+      balanceNeutralSnapDominance:
+        InfluenceGridSystem.BALANCE_NEUTRAL_SNAP_DOMINANCE,
+      balanceNeutralFadeDominance:
+        InfluenceGridSystem.BALANCE_NEUTRAL_FADE_DOMINANCE,
+    });
 
-    return activeUnits;
+    applyTeamFloors({
+      scores,
+      balanceNeutralizationFactorByCell,
+      activeUnits,
+      contributingUnits,
+      contestMultiplierByUnitId,
+      gridWidth: this.gridWidth,
+      gridHeight: this.gridHeight,
+      cellWidth: this.cellWidth,
+      cellHeight: this.cellHeight,
+      cellDiagonal: this.cellDiagonal,
+      coreRadius: this.coreRadius,
+      dominanceReferencePower: InfluenceGridSystem.DOMINANCE_REFERENCE_POWER,
+      dominancePowerMultiplier: this.dominancePowerMultiplier,
+      dominanceMinFloor: this.dominanceMinFloor,
+      coreMinInfluenceFactor: this.coreMinInfluenceFactor,
+    });
+
+    writeClampedScoresToStateGrid(stateGrid, scores, this.maxAbsTacticalScore);
+    stateGrid.revision += 1;
   }
 }
 
@@ -756,8 +280,5 @@ const PhaserMath = {
       return max;
     }
     return value;
-  },
-  floorClamp(value: number, min: number, max: number): number {
-    return PhaserMath.clamp(Math.floor(value), min, max);
   },
 };
