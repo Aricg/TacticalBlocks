@@ -28,6 +28,10 @@ import { City, type CityOwner } from './City';
 import { BattleInputController } from './BattleInputController';
 import { FogOfWarController } from './FogOfWarController';
 import { InfluenceRenderer } from './InfluenceRenderer';
+import {
+  LobbyOverlayController,
+  type LobbyOverlayPlayerView,
+} from './LobbyOverlayController';
 import { PathPreviewRenderer } from './PathPreviewRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
@@ -41,12 +45,6 @@ type TerrainSwatch = {
 type GridCoordinate = {
   col: number;
   row: number;
-};
-
-type LobbyPlayerView = {
-  sessionId: string;
-  team: Team;
-  ready: boolean;
 };
 
 const MAP_IMAGE_BY_PATH = import.meta.glob('../../shared/*-16c.png', {
@@ -168,10 +166,11 @@ class BattleScene extends Phaser.Scene {
   private localSessionId: string | null = null;
   private localLobbyReady = false;
   private hasExitedBattle = false;
-  private lobbyPlayers: LobbyPlayerView[] = [];
+  private lobbyPlayers: LobbyOverlayPlayerView[] = [];
   private inputController: BattleInputController | null = null;
   private pathPreviewRenderer: PathPreviewRenderer | null = null;
   private fogOfWarController: FogOfWarController | null = null;
+  private lobbyOverlayController: LobbyOverlayController | null = null;
   private selectionBox!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
   private impassableOverlay!: Phaser.GameObjects.Graphics;
@@ -179,17 +178,6 @@ class BattleScene extends Phaser.Scene {
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
-  private lobbyPanel: Phaser.GameObjects.Container | null = null;
-  private lobbyTeamText: Phaser.GameObjects.Text | null = null;
-  private lobbyStatusText: Phaser.GameObjects.Text | null = null;
-  private lobbyActionText: Phaser.GameObjects.Text | null = null;
-  private lobbyMapText: Phaser.GameObjects.Text | null = null;
-  private lobbyRandomMapButtonBg: Phaser.GameObjects.Rectangle | null = null;
-  private lobbyRandomMapButtonText: Phaser.GameObjects.Text | null = null;
-  private lobbyGenerateMapButtonBg: Phaser.GameObjects.Rectangle | null = null;
-  private lobbyGenerateMapButtonText: Phaser.GameObjects.Text | null = null;
-  private lobbyReadyButtonBg: Phaser.GameObjects.Rectangle | null = null;
-  private lobbyReadyButtonText: Phaser.GameObjects.Text | null = null;
   private mapSamplingWidth = 0;
   private mapSamplingHeight = 0;
 
@@ -418,6 +406,8 @@ class BattleScene extends Phaser.Scene {
       this.pathPreviewRenderer = null;
       this.fogOfWarController?.destroy();
       this.fogOfWarController = null;
+      this.lobbyOverlayController?.destroy();
+      this.lobbyOverlayController = null;
       const networkManager = this.networkManager;
       this.networkManager = null;
       if (networkManager) {
@@ -442,18 +432,6 @@ class BattleScene extends Phaser.Scene {
       this.moraleScoreByUnitId.clear();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
-      this.lobbyPanel?.destroy();
-      this.lobbyPanel = null;
-      this.lobbyTeamText = null;
-      this.lobbyStatusText = null;
-      this.lobbyActionText = null;
-      this.lobbyMapText = null;
-      this.lobbyRandomMapButtonBg = null;
-      this.lobbyRandomMapButtonText = null;
-      this.lobbyGenerateMapButtonBg = null;
-      this.lobbyGenerateMapButtonText = null;
-      this.lobbyReadyButtonBg = null;
-      this.lobbyReadyButtonText = null;
       this.mapBackground = null;
     });
   }
@@ -640,133 +618,22 @@ class BattleScene extends Phaser.Scene {
   }
 
   private createLobbyOverlay(): void {
-    const panel = this.add.container(
-      BattleScene.MAP_WIDTH * 0.5,
-      BattleScene.MAP_HEIGHT * 0.5,
+    this.lobbyOverlayController = new LobbyOverlayController(
+      this,
+      {
+        onCycleMap: (step: number) => this.requestLobbyMapStep(step),
+        onRandomMap: () => this.requestRandomLobbyMap(),
+        onGenerateMap: () => this.requestGenerateLobbyMap(),
+        onToggleReady: () => this.toggleLobbyReady(),
+        isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
+        canUseMapId: (mapId: string) => Boolean(resolveMapImageById(mapId)),
+      },
+      {
+        mapWidth: BattleScene.MAP_WIDTH,
+        mapHeight: BattleScene.MAP_HEIGHT,
+        depth: BattleScene.LOBBY_OVERLAY_DEPTH,
+      },
     );
-    panel.setDepth(BattleScene.LOBBY_OVERLAY_DEPTH);
-    panel.setScrollFactor(0);
-
-    const panelBackground = this.add.rectangle(0, 0, 680, 360, 0x121212, 0.9);
-    panelBackground.setStrokeStyle(2, 0xffffff, 0.35);
-
-    const titleText = this.add.text(0, -145, 'Battle Lobby', {
-      fontFamily: 'monospace',
-      fontSize: '34px',
-      color: '#f1f1f1',
-    });
-    titleText.setOrigin(0.5, 0.5);
-
-    this.lobbyTeamText = this.add.text(0, -95, 'Team: BLUE', {
-      fontFamily: 'monospace',
-      fontSize: '22px',
-      color: '#d7d7d7',
-    });
-    this.lobbyTeamText.setOrigin(0.5, 0.5);
-
-    this.lobbyStatusText = this.add.text(0, -15, '', {
-      fontFamily: 'monospace',
-      fontSize: '18px',
-      color: '#e0e0e0',
-      align: 'center',
-      wordWrap: { width: 620, useAdvancedWrap: true },
-    });
-    this.lobbyStatusText.setOrigin(0.5, 0.5);
-
-    this.lobbyMapText = this.add.text(0, 55, '', {
-      fontFamily: 'monospace',
-      fontSize: '18px',
-      color: '#b9d9ff',
-      align: 'center',
-    });
-    this.lobbyMapText.setOrigin(0.5, 0.5);
-    this.lobbyMapText.setInteractive({ useHandCursor: true });
-    this.lobbyMapText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.button !== 0) {
-        return;
-      }
-      this.requestLobbyMapStep(this.isShiftHeld(pointer) ? -1 : 1);
-    });
-
-    this.lobbyActionText = this.add.text(0, 92, '', {
-      fontFamily: 'monospace',
-      fontSize: '17px',
-      color: '#f4e7b2',
-      align: 'center',
-      wordWrap: { width: 620, useAdvancedWrap: true },
-    });
-    this.lobbyActionText.setOrigin(0.5, 0.5);
-
-    this.lobbyRandomMapButtonBg = this.add.rectangle(-220, 140, 180, 46, 0x47627a, 1);
-    this.lobbyRandomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
-    this.lobbyRandomMapButtonBg.setInteractive({ useHandCursor: true });
-    this.lobbyRandomMapButtonBg.on('pointerdown', () => {
-      this.requestRandomLobbyMap();
-    });
-
-    this.lobbyRandomMapButtonText = this.add.text(-220, 140, 'RANDOM MAP', {
-      fontFamily: 'monospace',
-      fontSize: '16px',
-      color: '#ffffff',
-    });
-    this.lobbyRandomMapButtonText.setOrigin(0.5, 0.5);
-    this.lobbyRandomMapButtonText.setInteractive({ useHandCursor: true });
-    this.lobbyRandomMapButtonText.on('pointerdown', () => {
-      this.requestRandomLobbyMap();
-    });
-
-    this.lobbyGenerateMapButtonBg = this.add.rectangle(0, 140, 180, 46, 0x66573a, 1);
-    this.lobbyGenerateMapButtonBg.setStrokeStyle(2, 0xffe7bd, 0.45);
-    this.lobbyGenerateMapButtonBg.setInteractive({ useHandCursor: true });
-    this.lobbyGenerateMapButtonBg.on('pointerdown', () => {
-      this.requestGenerateLobbyMap();
-    });
-
-    this.lobbyGenerateMapButtonText = this.add.text(0, 140, 'GENERATE MAP', {
-      fontFamily: 'monospace',
-      fontSize: '16px',
-      color: '#ffffff',
-    });
-    this.lobbyGenerateMapButtonText.setOrigin(0.5, 0.5);
-    this.lobbyGenerateMapButtonText.setInteractive({ useHandCursor: true });
-    this.lobbyGenerateMapButtonText.on('pointerdown', () => {
-      this.requestGenerateLobbyMap();
-    });
-
-    this.lobbyReadyButtonBg = this.add.rectangle(220, 140, 180, 46, 0x2f8f46, 1);
-    this.lobbyReadyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
-    this.lobbyReadyButtonBg.setInteractive({ useHandCursor: true });
-    this.lobbyReadyButtonBg.on('pointerdown', () => {
-      this.toggleLobbyReady();
-    });
-
-    this.lobbyReadyButtonText = this.add.text(220, 140, 'READY', {
-      fontFamily: 'monospace',
-      fontSize: '21px',
-      color: '#ffffff',
-    });
-    this.lobbyReadyButtonText.setOrigin(0.5, 0.5);
-    this.lobbyReadyButtonText.setInteractive({ useHandCursor: true });
-    this.lobbyReadyButtonText.on('pointerdown', () => {
-      this.toggleLobbyReady();
-    });
-
-    panel.add([
-      panelBackground,
-      titleText,
-      this.lobbyTeamText,
-      this.lobbyStatusText,
-      this.lobbyMapText,
-      this.lobbyActionText,
-      this.lobbyRandomMapButtonBg,
-      this.lobbyRandomMapButtonText,
-      this.lobbyGenerateMapButtonBg,
-      this.lobbyGenerateMapButtonText,
-      this.lobbyReadyButtonBg,
-      this.lobbyReadyButtonText,
-    ]);
-
-    this.lobbyPanel = panel;
   }
 
   private toggleLobbyReady(): void {
@@ -842,123 +709,18 @@ class BattleScene extends Phaser.Scene {
   }
 
   private refreshLobbyOverlay(): void {
-    if (
-      !this.lobbyPanel ||
-      !this.lobbyTeamText ||
-      !this.lobbyStatusText ||
-      !this.lobbyActionText ||
-      !this.lobbyMapText ||
-      !this.lobbyRandomMapButtonBg ||
-      !this.lobbyRandomMapButtonText ||
-      !this.lobbyGenerateMapButtonBg ||
-      !this.lobbyGenerateMapButtonText ||
-      !this.lobbyReadyButtonBg ||
-      !this.lobbyReadyButtonText
-    ) {
-      return;
-    }
-
-    const isLobby = this.matchPhase === 'LOBBY';
-    this.lobbyPanel.setVisible(isLobby);
-    if (!isLobby) {
-      return;
-    }
-
-    if (this.hasExitedBattle) {
-      this.lobbyTeamText.setText('Disconnected');
-      this.lobbyStatusText.setText('You exited the battle room.');
-      this.lobbyActionText.setText('Refresh the page to join again.');
-      this.lobbyMapText.setVisible(false);
-      this.lobbyRandomMapButtonBg.setVisible(false);
-      this.lobbyRandomMapButtonBg.disableInteractive();
-      this.lobbyRandomMapButtonText.setVisible(false);
-      this.lobbyGenerateMapButtonBg.setVisible(false);
-      this.lobbyGenerateMapButtonBg.disableInteractive();
-      this.lobbyGenerateMapButtonText.setVisible(false);
-      this.lobbyReadyButtonBg.setVisible(false);
-      this.lobbyReadyButtonBg.disableInteractive();
-      this.lobbyReadyButtonText.setVisible(false);
-      return;
-    }
-
-    this.lobbyMapText.setVisible(true);
-    this.lobbyMapText.setText(
-      `Map: ${this.selectedLobbyMapId}  (click to cycle, shift+click back)`,
-    );
-
-    const selectableMapIds = this.availableMapIds.filter((mapId) =>
-      Boolean(resolveMapImageById(mapId)),
-    );
-    const canRandomizeMap = selectableMapIds.length > 1;
-    this.lobbyRandomMapButtonBg.setVisible(true);
-    this.lobbyRandomMapButtonText.setVisible(true);
-    this.lobbyRandomMapButtonBg.setFillStyle(canRandomizeMap ? 0x47627a : 0x3d3d3d, 1);
-    this.lobbyRandomMapButtonText.setText('RANDOM MAP');
-    if (canRandomizeMap) {
-      this.lobbyRandomMapButtonBg.setInteractive({ useHandCursor: true });
-      this.lobbyRandomMapButtonText.setInteractive({ useHandCursor: true });
-    } else {
-      this.lobbyRandomMapButtonBg.disableInteractive();
-      this.lobbyRandomMapButtonText.disableInteractive();
-    }
-
-    this.lobbyGenerateMapButtonBg.setVisible(true);
-    this.lobbyGenerateMapButtonText.setVisible(true);
-    if (this.isLobbyGeneratingMap) {
-      this.lobbyGenerateMapButtonBg.setFillStyle(0x5a503e, 1);
-      this.lobbyGenerateMapButtonText.setText('GENERATING...');
-      this.lobbyGenerateMapButtonBg.disableInteractive();
-      this.lobbyGenerateMapButtonText.disableInteractive();
-    } else {
-      this.lobbyGenerateMapButtonBg.setFillStyle(0x66573a, 1);
-      this.lobbyGenerateMapButtonText.setText('GENERATE MAP');
-      this.lobbyGenerateMapButtonBg.setInteractive({ useHandCursor: true });
-      this.lobbyGenerateMapButtonText.setInteractive({ useHandCursor: true });
-    }
-
-    this.lobbyReadyButtonBg.setVisible(true);
-    this.lobbyReadyButtonBg.setInteractive({ useHandCursor: true });
-    this.lobbyReadyButtonText.setVisible(true);
-
-    const bluePlayers = this.lobbyPlayers.filter((player) => player.team === Team.BLUE);
-    const redPlayers = this.lobbyPlayers.filter((player) => player.team === Team.RED);
-    const rosterLines =
-      this.lobbyPlayers.length === 0
-        ? 'No players in lobby yet.'
-        : this.lobbyPlayers
-            .map((player, index) => {
-              const label =
-                player.sessionId === this.localSessionId
-                  ? 'You'
-                  : `Player ${index + 1}`;
-              return `${label}: ${player.team} ${player.ready ? '[READY]' : '[NOT READY]'}`;
-            })
-            .join('\n');
-
-    this.lobbyTeamText.setText(`Team: ${this.localPlayerTeam}`);
-    this.lobbyStatusText.setText(
-      `Blue: ${bluePlayers.length}   Red: ${redPlayers.length}\n${rosterLines}`,
-    );
-
-    const hasBothTeams = bluePlayers.length > 0 && redPlayers.length > 0;
-    const everyoneReady =
-      this.lobbyPlayers.length > 0 &&
-      this.lobbyPlayers.every((player) => player.ready);
-    if (this.isLobbyGeneratingMap) {
-      this.lobbyActionText.setText('Generating new terrain map...');
-    } else if (this.lastBattleAnnouncement) {
-      this.lobbyActionText.setText(this.lastBattleAnnouncement);
-    } else if (!hasBothTeams) {
-      this.lobbyActionText.setText('Waiting for one player on each team.');
-    } else if (!everyoneReady) {
-      this.lobbyActionText.setText('Waiting for all players to ready up.');
-    } else {
-      this.lobbyActionText.setText('All players ready. Starting battle...');
-    }
-
-    const readyButtonColor = this.localLobbyReady ? 0x956a24 : 0x2f8f46;
-    this.lobbyReadyButtonBg.setFillStyle(readyButtonColor, 1);
-    this.lobbyReadyButtonText.setText(this.localLobbyReady ? 'UNREADY' : 'READY');
+    this.lobbyOverlayController?.render({
+      matchPhase: this.matchPhase,
+      hasExitedBattle: this.hasExitedBattle,
+      localPlayerTeam: this.localPlayerTeam,
+      lobbyPlayers: this.lobbyPlayers,
+      localSessionId: this.localSessionId,
+      selectedLobbyMapId: this.selectedLobbyMapId,
+      availableMapIds: this.availableMapIds,
+      isLobbyGeneratingMap: this.isLobbyGeneratingMap,
+      localLobbyReady: this.localLobbyReady,
+      lastBattleAnnouncement: this.lastBattleAnnouncement,
+    });
   }
 
   private isBattleActive(): boolean {
