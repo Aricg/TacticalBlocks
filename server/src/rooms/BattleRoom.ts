@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
@@ -45,6 +49,7 @@ type LobbyReadyMessage = {
 type LobbySelectMapMessage = {
   mapId: string;
 };
+type LobbyGenerateMapMessage = Record<string, never>;
 type LobbyRandomMapMessage = Record<string, never>;
 type LobbyPlayerSnapshot = {
   sessionId: string;
@@ -56,6 +61,8 @@ type LobbyStateMessage = {
   players: LobbyPlayerSnapshot[];
   mapId: string;
   availableMapIds: string[];
+  mapRevision: number;
+  isGeneratingMap: boolean;
 };
 type UnitMovementState = {
   destinationCell: GridCoordinate | null;
@@ -75,6 +82,8 @@ export class BattleRoom extends Room<BattleState> {
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private neutralCityCells: GridCoordinate[] = [];
   private matchPhase: MatchPhase = "LOBBY";
+  private mapRevision = 0;
+  private isGeneratingMap = false;
   private simulationFrame = 0;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
 
@@ -158,6 +167,12 @@ export class BattleRoom extends Room<BattleState> {
       "lobbyRandomMap",
       (client, _message: LobbyRandomMapMessage) => {
         this.handleLobbyRandomMapMessage(client);
+      },
+    );
+    this.onMessage(
+      "lobbyGenerateMap",
+      (client, _message: LobbyGenerateMapMessage) => {
+        this.handleLobbyGenerateMapMessage(client);
       },
     );
   }
@@ -837,6 +852,84 @@ export class BattleRoom extends Room<BattleState> {
     this.broadcastLobbyState();
   }
 
+  private handleLobbyGenerateMapMessage(client: Client): void {
+    if (this.matchPhase !== "LOBBY") {
+      return;
+    }
+
+    if (!this.sessionTeamById.has(client.sessionId)) {
+      return;
+    }
+
+    if (this.isGeneratingMap) {
+      return;
+    }
+
+    const mapId = this.getGeneratedMapId();
+    const sharedDir = this.resolveSharedDirectory();
+    if (!sharedDir) {
+      console.error("Could not resolve shared directory for map generation.");
+      return;
+    }
+
+    const generatorScriptPath = path.join(
+      sharedDir,
+      "scripts",
+      "generate-random-map.mjs",
+    );
+    if (!existsSync(generatorScriptPath)) {
+      console.error(`Map generator script not found: ${generatorScriptPath}`);
+      return;
+    }
+
+    const seed = `lobby-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    this.isGeneratingMap = true;
+    this.broadcastLobbyState();
+
+    try {
+      const commandResult = spawnSync(
+        process.execPath,
+        [
+          generatorScriptPath,
+          "--map-id",
+          mapId,
+          "--seed",
+          seed,
+          "--output-dir",
+          sharedDir,
+        ],
+        {
+          cwd: sharedDir,
+          encoding: "utf8",
+        },
+      );
+
+      if (commandResult.status !== 0) {
+        const stderr = (commandResult.stderr ?? "").trim();
+        const stdout = (commandResult.stdout ?? "").trim();
+        console.error(
+          `Map generation failed (status ${commandResult.status ?? "unknown"}).`,
+        );
+        if (stderr.length > 0) {
+          console.error(stderr);
+        }
+        if (stdout.length > 0) {
+          console.error(stdout);
+        }
+        return;
+      }
+
+      if (!this.availableMapIds.includes(mapId)) {
+        this.availableMapIds.push(mapId);
+      }
+      this.applyLobbyMapSelection(mapId);
+      console.log(`Generated new lobby map: ${mapId} (seed ${seed})`);
+    } finally {
+      this.isGeneratingMap = false;
+      this.broadcastLobbyState();
+    }
+  }
+
   private rescaleUnitHealthForNewBase(
     previousBaseUnitHealth: number,
     nextBaseUnitHealth: number,
@@ -914,6 +1007,42 @@ export class BattleRoom extends Room<BattleState> {
     this.clearInfluenceGrid();
     this.updateInfluenceGrid(true);
     this.simulationFrame = 0;
+    this.mapRevision += 1;
+  }
+
+  private getGeneratedMapId(): string {
+    const existingGeneratedMapId = this.availableMapIds.find((mapId) =>
+      mapId.startsWith("random-"),
+    );
+    if (existingGeneratedMapId) {
+      return existingGeneratedMapId;
+    }
+    return "random-frontier-01";
+  }
+
+  private resolveSharedDirectory(): string | null {
+    const roomDir = path.dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      path.resolve(process.cwd(), "../shared"),
+      path.resolve(process.cwd(), "shared"),
+      path.resolve(roomDir, "../../../shared"),
+      path.resolve(roomDir, "../../../../shared"),
+      path.resolve(roomDir, "../../../../../shared"),
+      path.resolve(roomDir, "../../../../../../shared"),
+    ];
+
+    for (const candidate of candidates) {
+      const generatorScriptPath = path.join(
+        candidate,
+        "scripts",
+        "generate-random-map.mjs",
+      );
+      if (existsSync(generatorScriptPath)) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   private spawnTestUnits(): void {
@@ -1434,6 +1563,8 @@ export class BattleRoom extends Room<BattleState> {
       players: this.getLobbyPlayersSnapshot(),
       mapId: this.state.mapId,
       availableMapIds: this.availableMapIds,
+      mapRevision: this.mapRevision,
+      isGeneratingMap: this.isGeneratingMap,
     };
   }
 

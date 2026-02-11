@@ -155,6 +155,8 @@ class BattleScene extends Phaser.Scene {
   private activeMapId = resolveInitialMapId();
   private availableMapIds: string[] = [...GAMEPLAY_CONFIG.map.availableMapIds];
   private selectedLobbyMapId = this.activeMapId;
+  private lobbyMapRevision = 0;
+  private isLobbyGeneratingMap = false;
   private mapTextureKey = getTextureKeyForMapId(this.activeMapId);
   private localPlayerTeam: Team = Team.BLUE;
   private matchPhase: NetworkMatchPhase = 'LOBBY';
@@ -187,6 +189,8 @@ class BattleScene extends Phaser.Scene {
   private lobbyMapText: Phaser.GameObjects.Text | null = null;
   private lobbyRandomMapButtonBg: Phaser.GameObjects.Rectangle | null = null;
   private lobbyRandomMapButtonText: Phaser.GameObjects.Text | null = null;
+  private lobbyGenerateMapButtonBg: Phaser.GameObjects.Rectangle | null = null;
+  private lobbyGenerateMapButtonText: Phaser.GameObjects.Text | null = null;
   private lobbyReadyButtonBg: Phaser.GameObjects.Rectangle | null = null;
   private lobbyReadyButtonText: Phaser.GameObjects.Text | null = null;
   private mapSamplingWidth = 0;
@@ -605,6 +609,8 @@ class BattleScene extends Phaser.Scene {
       this.lobbyMapText = null;
       this.lobbyRandomMapButtonBg = null;
       this.lobbyRandomMapButtonText = null;
+      this.lobbyGenerateMapButtonBg = null;
+      this.lobbyGenerateMapButtonText = null;
       this.lobbyReadyButtonBg = null;
       this.lobbyReadyButtonText = null;
       this.mapBackground = null;
@@ -679,10 +685,44 @@ class BattleScene extends Phaser.Scene {
     return resolveInitialMapId();
   }
 
-  private applySelectedLobbyMap(requestedMapId: string): void {
+  private reloadMapTexture(mapId: string, revision: number): void {
+    const imagePath = resolveMapImageById(mapId);
+    if (!imagePath) {
+      return;
+    }
+
+    const textureKey = getTextureKeyForMapId(mapId);
+    const cacheBustedPath = `${imagePath}${imagePath.includes('?') ? '&' : '?'}rev=${revision}`;
+    if (this.textures.exists(textureKey)) {
+      this.textures.remove(textureKey);
+    }
+
+    this.load.once('complete', () => {
+      if (!this.mapBackground || this.activeMapId !== mapId) {
+        return;
+      }
+      this.mapBackground.setTexture(textureKey);
+      this.initializeMapTerrainSampling();
+      this.refreshFogOfWar();
+    });
+    this.load.image(textureKey, cacheBustedPath);
+    if (!this.load.isLoading()) {
+      this.load.start();
+    }
+  }
+
+  private applySelectedLobbyMap(
+    requestedMapId: string,
+    forceTextureReload = false,
+  ): void {
     const nextMapId = this.getResolvedLobbyMapId(requestedMapId);
     this.selectedLobbyMapId = nextMapId;
-    if (nextMapId === this.activeMapId) {
+    if (nextMapId === this.activeMapId && !forceTextureReload) {
+      return;
+    }
+
+    if (nextMapId === this.activeMapId && forceTextureReload) {
+      this.reloadMapTexture(nextMapId, this.lobbyMapRevision);
       return;
     }
 
@@ -737,6 +777,19 @@ class BattleScene extends Phaser.Scene {
     }
 
     this.networkManager.sendLobbyRandomMap();
+  }
+
+  private requestGenerateLobbyMap(): void {
+    if (
+      !this.networkManager ||
+      this.matchPhase !== 'LOBBY' ||
+      this.hasExitedBattle ||
+      this.isLobbyGeneratingMap
+    ) {
+      return;
+    }
+
+    this.networkManager.sendLobbyGenerateMap();
   }
 
   private createLobbyOverlay(): void {
@@ -797,16 +850,16 @@ class BattleScene extends Phaser.Scene {
     });
     this.lobbyActionText.setOrigin(0.5, 0.5);
 
-    this.lobbyRandomMapButtonBg = this.add.rectangle(-130, 140, 240, 46, 0x47627a, 1);
+    this.lobbyRandomMapButtonBg = this.add.rectangle(-220, 140, 180, 46, 0x47627a, 1);
     this.lobbyRandomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
     this.lobbyRandomMapButtonBg.setInteractive({ useHandCursor: true });
     this.lobbyRandomMapButtonBg.on('pointerdown', () => {
       this.requestRandomLobbyMap();
     });
 
-    this.lobbyRandomMapButtonText = this.add.text(-130, 140, 'RANDOM MAP', {
+    this.lobbyRandomMapButtonText = this.add.text(-220, 140, 'RANDOM MAP', {
       fontFamily: 'monospace',
-      fontSize: '18px',
+      fontSize: '16px',
       color: '#ffffff',
     });
     this.lobbyRandomMapButtonText.setOrigin(0.5, 0.5);
@@ -815,14 +868,32 @@ class BattleScene extends Phaser.Scene {
       this.requestRandomLobbyMap();
     });
 
-    this.lobbyReadyButtonBg = this.add.rectangle(130, 140, 240, 46, 0x2f8f46, 1);
+    this.lobbyGenerateMapButtonBg = this.add.rectangle(0, 140, 180, 46, 0x66573a, 1);
+    this.lobbyGenerateMapButtonBg.setStrokeStyle(2, 0xffe7bd, 0.45);
+    this.lobbyGenerateMapButtonBg.setInteractive({ useHandCursor: true });
+    this.lobbyGenerateMapButtonBg.on('pointerdown', () => {
+      this.requestGenerateLobbyMap();
+    });
+
+    this.lobbyGenerateMapButtonText = this.add.text(0, 140, 'GENERATE MAP', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#ffffff',
+    });
+    this.lobbyGenerateMapButtonText.setOrigin(0.5, 0.5);
+    this.lobbyGenerateMapButtonText.setInteractive({ useHandCursor: true });
+    this.lobbyGenerateMapButtonText.on('pointerdown', () => {
+      this.requestGenerateLobbyMap();
+    });
+
+    this.lobbyReadyButtonBg = this.add.rectangle(220, 140, 180, 46, 0x2f8f46, 1);
     this.lobbyReadyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
     this.lobbyReadyButtonBg.setInteractive({ useHandCursor: true });
     this.lobbyReadyButtonBg.on('pointerdown', () => {
       this.toggleLobbyReady();
     });
 
-    this.lobbyReadyButtonText = this.add.text(130, 140, 'READY', {
+    this.lobbyReadyButtonText = this.add.text(220, 140, 'READY', {
       fontFamily: 'monospace',
       fontSize: '21px',
       color: '#ffffff',
@@ -842,6 +913,8 @@ class BattleScene extends Phaser.Scene {
       this.lobbyActionText,
       this.lobbyRandomMapButtonBg,
       this.lobbyRandomMapButtonText,
+      this.lobbyGenerateMapButtonBg,
+      this.lobbyGenerateMapButtonText,
       this.lobbyReadyButtonBg,
       this.lobbyReadyButtonText,
     ]);
@@ -865,11 +938,20 @@ class BattleScene extends Phaser.Scene {
 
     this.matchPhase = nextPhase;
     this.localSessionId = lobbyStateUpdate.selfSessionId;
+    const previousMapRevision = this.lobbyMapRevision;
+    this.lobbyMapRevision = lobbyStateUpdate.mapRevision;
+    this.isLobbyGeneratingMap = lobbyStateUpdate.isGeneratingMap;
     this.availableMapIds =
       lobbyStateUpdate.availableMapIds.length > 0
         ? [...lobbyStateUpdate.availableMapIds]
         : [...GAMEPLAY_CONFIG.map.availableMapIds];
-    this.applySelectedLobbyMap(lobbyStateUpdate.mapId || this.selectedLobbyMapId);
+    const forceTextureReload =
+      this.lobbyMapRevision !== previousMapRevision &&
+      lobbyStateUpdate.mapId === this.activeMapId;
+    this.applySelectedLobbyMap(
+      lobbyStateUpdate.mapId || this.selectedLobbyMapId,
+      forceTextureReload,
+    );
     this.lobbyPlayers = lobbyStateUpdate.players.map((player) => ({
       sessionId: player.sessionId,
       team: this.normalizeTeam(player.team),
@@ -899,6 +981,8 @@ class BattleScene extends Phaser.Scene {
       !this.lobbyMapText ||
       !this.lobbyRandomMapButtonBg ||
       !this.lobbyRandomMapButtonText ||
+      !this.lobbyGenerateMapButtonBg ||
+      !this.lobbyGenerateMapButtonText ||
       !this.lobbyReadyButtonBg ||
       !this.lobbyReadyButtonText
     ) {
@@ -919,6 +1003,9 @@ class BattleScene extends Phaser.Scene {
       this.lobbyRandomMapButtonBg.setVisible(false);
       this.lobbyRandomMapButtonBg.disableInteractive();
       this.lobbyRandomMapButtonText.setVisible(false);
+      this.lobbyGenerateMapButtonBg.setVisible(false);
+      this.lobbyGenerateMapButtonBg.disableInteractive();
+      this.lobbyGenerateMapButtonText.setVisible(false);
       this.lobbyReadyButtonBg.setVisible(false);
       this.lobbyReadyButtonBg.disableInteractive();
       this.lobbyReadyButtonText.setVisible(false);
@@ -944,6 +1031,20 @@ class BattleScene extends Phaser.Scene {
     } else {
       this.lobbyRandomMapButtonBg.disableInteractive();
       this.lobbyRandomMapButtonText.disableInteractive();
+    }
+
+    this.lobbyGenerateMapButtonBg.setVisible(true);
+    this.lobbyGenerateMapButtonText.setVisible(true);
+    if (this.isLobbyGeneratingMap) {
+      this.lobbyGenerateMapButtonBg.setFillStyle(0x5a503e, 1);
+      this.lobbyGenerateMapButtonText.setText('GENERATING...');
+      this.lobbyGenerateMapButtonBg.disableInteractive();
+      this.lobbyGenerateMapButtonText.disableInteractive();
+    } else {
+      this.lobbyGenerateMapButtonBg.setFillStyle(0x66573a, 1);
+      this.lobbyGenerateMapButtonText.setText('GENERATE MAP');
+      this.lobbyGenerateMapButtonBg.setInteractive({ useHandCursor: true });
+      this.lobbyGenerateMapButtonText.setInteractive({ useHandCursor: true });
     }
 
     this.lobbyReadyButtonBg.setVisible(true);
@@ -974,7 +1075,9 @@ class BattleScene extends Phaser.Scene {
     const everyoneReady =
       this.lobbyPlayers.length > 0 &&
       this.lobbyPlayers.every((player) => player.ready);
-    if (!hasBothTeams) {
+    if (this.isLobbyGeneratingMap) {
+      this.lobbyActionText.setText('Generating new terrain map...');
+    } else if (!hasBothTeams) {
       this.lobbyActionText.setText('Waiting for one player on each team.');
     } else if (!everyoneReady) {
       this.lobbyActionText.setText('Waiting for all players to ready up.');
@@ -1011,6 +1114,7 @@ class BattleScene extends Phaser.Scene {
     this.hasExitedBattle = true;
     this.matchPhase = 'LOBBY';
     this.localLobbyReady = false;
+    this.isLobbyGeneratingMap = false;
     this.lobbyPlayers = [];
     this.localSessionId = null;
     this.resetPointerInteractionState();

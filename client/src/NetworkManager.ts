@@ -88,6 +88,8 @@ export type NetworkLobbyStateUpdate = {
   players: NetworkLobbyPlayer[];
   mapId: string;
   availableMapIds: string[];
+  mapRevision: number;
+  isGeneratingMap: boolean;
   selfSessionId: string;
 };
 
@@ -135,6 +137,8 @@ type LobbyStateMessage = {
   players: LobbyPlayerMessage[];
   mapId: string;
   availableMapIds: string[];
+  mapRevision: number;
+  isGeneratingMap: boolean;
 };
 
 export class NetworkManager {
@@ -360,6 +364,14 @@ export class NetworkManager {
     this.room.send('lobbyRandomMap', {});
   }
 
+  public sendLobbyGenerateMap(): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.room.send('lobbyGenerateMap', {});
+  }
+
   public async disconnect(): Promise<void> {
     if (!this.room) {
       return;
@@ -405,6 +417,12 @@ export class NetworkManager {
             (mapId): mapId is string => typeof mapId === 'string',
           )
         : [],
+      mapRevision:
+        typeof message?.mapRevision === 'number' &&
+        Number.isFinite(message.mapRevision)
+          ? message.mapRevision
+          : 0,
+      isGeneratingMap: message?.isGeneratingMap === true,
       selfSessionId,
     };
   }
