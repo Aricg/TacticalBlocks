@@ -26,7 +26,9 @@ import {
 } from '../../shared/src/runtimeTuning.js';
 import { City, type CityOwner } from './City';
 import { BattleInputController } from './BattleInputController';
+import { FogOfWarController } from './FogOfWarController';
 import { InfluenceRenderer } from './InfluenceRenderer';
+import { PathPreviewRenderer } from './PathPreviewRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
 import { type TerrainType, Unit } from './Unit';
@@ -168,14 +170,12 @@ class BattleScene extends Phaser.Scene {
   private hasExitedBattle = false;
   private lobbyPlayers: LobbyPlayerView[] = [];
   private inputController: BattleInputController | null = null;
+  private pathPreviewRenderer: PathPreviewRenderer | null = null;
+  private fogOfWarController: FogOfWarController | null = null;
   private selectionBox!: Phaser.GameObjects.Graphics;
-  private pathPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
   private impassableOverlay!: Phaser.GameObjects.Graphics;
   private influenceRenderer: InfluenceRenderer | null = null;
-  private fogOfWarLayer!: Phaser.GameObjects.RenderTexture;
-  private visionBrush!: Phaser.GameObjects.Arc;
-  private cityVisionBrush!: Phaser.GameObjects.Arc;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
@@ -262,38 +262,28 @@ class BattleScene extends Phaser.Scene {
 
     this.selectionBox = this.add.graphics();
     this.selectionBox.setDepth(1000);
-    this.pathPreview = this.add.graphics();
-    this.pathPreview.setDepth(950);
+    this.pathPreviewRenderer = new PathPreviewRenderer(this, {
+      depth: 950,
+      previewPointSpacing: BattleScene.PREVIEW_PATH_POINT_SPACING,
+      commandPointSpacing: BattleScene.COMMAND_PATH_POINT_SPACING,
+      lineThickness: 2,
+      lineColor: 0xbad7f7,
+      lineAlpha: 0.9,
+    });
     this.movementLines = this.add.graphics();
     this.movementLines.setDepth(900);
     this.impassableOverlay = this.add.graphics();
     this.impassableOverlay.setDepth(BattleScene.IMPASSABLE_OVERLAY_DEPTH);
     this.drawImpassableOverlay();
     this.influenceRenderer = new InfluenceRenderer(this);
-    this.fogOfWarLayer = this.add.renderTexture(
-      0,
-      0,
-      BattleScene.MAP_WIDTH,
-      BattleScene.MAP_HEIGHT,
-    );
-    this.fogOfWarLayer.setOrigin(0, 0);
-    this.fogOfWarLayer.setDepth(BattleScene.FOG_DEPTH);
-    this.visionBrush = this.add.circle(
-      0,
-      0,
-      this.runtimeTuning.fogVisionRadius,
-      0xffffff,
-      1,
-    );
-    this.visionBrush.setVisible(false);
-    this.cityVisionBrush = this.add.circle(
-      0,
-      0,
-      this.runtimeTuning.cityVisionRadius,
-      0xffffff,
-      1,
-    );
-    this.cityVisionBrush.setVisible(false);
+    this.fogOfWarController = new FogOfWarController(this, {
+      mapWidth: BattleScene.MAP_WIDTH,
+      mapHeight: BattleScene.MAP_HEIGHT,
+      depth: BattleScene.FOG_DEPTH,
+      shroudColor: BattleScene.SHROUD_COLOR,
+      shroudAlpha: BattleScene.SHROUD_ALPHA,
+      enemyVisibilityPadding: BattleScene.ENEMY_VISIBILITY_PADDING,
+    });
     this.tuningPanel = new RuntimeTuningPanel(
       this.runtimeTuning,
       (update) => {
@@ -356,7 +346,7 @@ class BattleScene extends Phaser.Scene {
         ) => this.appendDraggedPathPoint(draggedPath, x, y, forceAppend),
         drawPathPreview: (draggedPath: Phaser.Math.Vector2[]) =>
           this.drawPathPreview(draggedPath),
-        clearPathPreview: () => this.pathPreview.clear(),
+        clearPathPreview: () => this.pathPreviewRenderer?.clear(),
         buildCommandPath: (path: Phaser.Math.Vector2[]) =>
           this.buildCommandPath(path),
         cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
@@ -424,6 +414,10 @@ class BattleScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.inputController?.destroy();
       this.inputController = null;
+      this.pathPreviewRenderer?.destroy();
+      this.pathPreviewRenderer = null;
+      this.fogOfWarController?.destroy();
+      this.fogOfWarController = null;
       const networkManager = this.networkManager;
       this.networkManager = null;
       if (networkManager) {
@@ -1009,8 +1003,10 @@ class BattleScene extends Phaser.Scene {
   private applyRuntimeTuning(runtimeTuning: RuntimeTuning): void {
     this.runtimeTuning = runtimeTuning;
     this.tuningPanel?.setValues(runtimeTuning);
-    this.visionBrush?.setRadius(this.runtimeTuning.fogVisionRadius);
-    this.cityVisionBrush?.setRadius(this.runtimeTuning.cityVisionRadius);
+    this.fogOfWarController?.setVisionRadii(
+      this.runtimeTuning.fogVisionRadius,
+      this.runtimeTuning.cityVisionRadius,
+    );
     for (const unit of this.unitsById.values()) {
       unit.setHealthMax(this.runtimeTuning.baseUnitHealth);
     }
@@ -1583,77 +1579,16 @@ class BattleScene extends Phaser.Scene {
     y: number,
     forceAppend = false,
   ): void {
-    const nextPoint = new Phaser.Math.Vector2(x, y);
-    const lastPoint = draggedPath[draggedPath.length - 1];
-    if (!lastPoint || forceAppend || draggedPath.length === 1) {
-      draggedPath.push(nextPoint);
-      return;
-    }
-
-    const distance = Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, x, y);
-    if (distance < BattleScene.PREVIEW_PATH_POINT_SPACING) {
-      draggedPath[draggedPath.length - 1] = nextPoint;
-      return;
-    }
-
-    const segmentCount = Math.floor(
-      distance / BattleScene.PREVIEW_PATH_POINT_SPACING,
+    this.pathPreviewRenderer?.appendDraggedPathPoint(
+      draggedPath,
+      x,
+      y,
+      forceAppend,
     );
-    for (let i = 1; i <= segmentCount; i += 1) {
-      const t =
-        (i * BattleScene.PREVIEW_PATH_POINT_SPACING) / distance;
-      if (t >= 1) {
-        break;
-      }
-      draggedPath.push(
-        new Phaser.Math.Vector2(
-          Phaser.Math.Linear(lastPoint.x, x, t),
-          Phaser.Math.Linear(lastPoint.y, y, t),
-        ),
-      );
-    }
-
-    draggedPath.push(nextPoint);
   }
 
   private buildCommandPath(path: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
-    if (path.length === 0) {
-      return [];
-    }
-
-    if (path.length === 1) {
-      return [path[0].clone()];
-    }
-
-    const commandPath: Phaser.Math.Vector2[] = [path[0].clone()];
-    for (let i = 1; i < path.length - 1; i += 1) {
-      const lastKeptPoint = commandPath[commandPath.length - 1];
-      const candidatePoint = path[i];
-      if (
-        Phaser.Math.Distance.Between(
-          lastKeptPoint.x,
-          lastKeptPoint.y,
-          candidatePoint.x,
-          candidatePoint.y,
-        ) >= BattleScene.COMMAND_PATH_POINT_SPACING
-      ) {
-        commandPath.push(candidatePoint.clone());
-      }
-    }
-
-    const finalPoint = path[path.length - 1];
-    const lastKeptPoint = commandPath[commandPath.length - 1];
-    if (
-      Phaser.Math.Distance.Between(
-        finalPoint.x,
-        finalPoint.y,
-        lastKeptPoint.x,
-        lastKeptPoint.y,
-      ) > 0
-    ) {
-      commandPath.push(finalPoint.clone());
-    }
-
+    const commandPath = this.pathPreviewRenderer?.buildCommandPath(path) ?? [];
     return this.snapAndCompactPath(commandPath);
   }
 
@@ -1819,19 +1754,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private drawPathPreview(draggedPath: Phaser.Math.Vector2[]): void {
-    this.pathPreview.clear();
-    const previewPath = this.buildCommandPath(draggedPath);
-    if (previewPath.length < 2) {
-      return;
-    }
-
-    this.pathPreview.lineStyle(2, 0xbad7f7, 0.9);
-    this.pathPreview.beginPath();
-    this.pathPreview.moveTo(previewPath[0].x, previewPath[0].y);
-    for (let i = 1; i < previewPath.length; i += 1) {
-      this.pathPreview.lineTo(previewPath[i].x, previewPath[i].y);
-    }
-    this.pathPreview.strokePath();
+    this.pathPreviewRenderer?.drawPathPreview(this.buildCommandPath(draggedPath));
   }
 
   private clearSelection(): void {
@@ -1843,57 +1766,11 @@ class BattleScene extends Phaser.Scene {
   }
 
   private refreshFogOfWar(): void {
-    this.fogOfWarLayer.clear();
-    this.fogOfWarLayer.fill(
-      BattleScene.SHROUD_COLOR,
-      BattleScene.SHROUD_ALPHA,
+    this.fogOfWarController?.refresh(
+      this.localPlayerTeam,
+      this.units,
+      this.getOwnedCityPositions(this.localPlayerTeam),
     );
-
-    const allyVisionSources = this.units.filter(
-      (unit) => unit.team === this.localPlayerTeam && unit.isAlive(),
-    );
-
-    for (const unit of allyVisionSources) {
-      this.fogOfWarLayer.erase(this.visionBrush, unit.x, unit.y);
-    }
-
-    const allyCityPositions = this.getOwnedCityPositions(this.localPlayerTeam);
-    for (const cityPosition of allyCityPositions) {
-      this.fogOfWarLayer.erase(this.cityVisionBrush, cityPosition.x, cityPosition.y);
-    }
-
-    const visibilitySources: Array<{ x: number; y: number; radius: number }> = [
-      ...allyVisionSources.map((unit) => ({
-        x: unit.x,
-        y: unit.y,
-        radius: this.runtimeTuning.fogVisionRadius,
-      })),
-      ...allyCityPositions.map((cityPosition) => ({
-        x: cityPosition.x,
-        y: cityPosition.y,
-        radius: this.runtimeTuning.cityVisionRadius,
-      })),
-    ];
-
-    for (const unit of this.units) {
-      if (unit.team === this.localPlayerTeam) {
-        unit.setVisible(true);
-        continue;
-      }
-
-      let isVisibleToPlayer = false;
-      for (const source of visibilitySources) {
-        const dx = unit.x - source.x;
-        const dy = unit.y - source.y;
-        const revealRadius =
-          source.radius + BattleScene.ENEMY_VISIBILITY_PADDING;
-        if (dx * dx + dy * dy <= revealRadius * revealRadius) {
-          isVisibleToPlayer = true;
-          break;
-        }
-      }
-      unit.setVisible(isVisibleToPlayer);
-    }
   }
 
   private renderMovementLines(): void {
