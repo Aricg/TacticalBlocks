@@ -95,6 +95,11 @@ const SLIDERS: SliderDescriptor[] = [
     label: 'City Influence Power',
     group: 'Cities',
   },
+  {
+    key: 'cityUnitGenerationIntervalSeconds',
+    label: 'City Unit Generation (s)',
+    group: 'Cities',
+  },
 ];
 
 export class RuntimeTuningPanel {
@@ -166,7 +171,7 @@ export class RuntimeTuningPanel {
     this.root.appendChild(this.content);
 
     const subtitle = document.createElement('div');
-    subtitle.textContent = 'City sliders affect city-only influence/vision, not unit stats.';
+    subtitle.textContent = 'City sliders affect city influence, vision, and production.';
     subtitle.style.opacity = '0.75';
     subtitle.style.marginBottom = '8px';
     this.content.appendChild(subtitle);

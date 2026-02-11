@@ -71,6 +71,11 @@ type UnitMovementState = {
   movementCommandMode: MovementCommandMode;
   movementBudget: number;
 };
+type CitySpawnSource = {
+  sourceId: string;
+  owner: CityOwner;
+  cityCell: GridCoordinate;
+};
 
 export class BattleRoom extends Room<BattleState> {
   private readonly availableMapIds: string[] = [
@@ -85,6 +90,14 @@ export class BattleRoom extends Room<BattleState> {
   private mapRevision = 0;
   private isGeneratingMap = false;
   private simulationFrame = 0;
+  private readonly cityGenerationElapsedSecondsBySourceId = new Map<
+    string,
+    number
+  >();
+  private generatedUnitSequenceByTeam: Record<PlayerTeam, number> = {
+    BLUE: 1,
+    RED: 1,
+  };
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
 
   private static readonly UNIT_TURN_SPEED =
@@ -113,6 +126,7 @@ export class BattleRoom extends Room<BattleState> {
     Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 100;
+  private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
@@ -121,6 +135,7 @@ export class BattleRoom extends Room<BattleState> {
     this.applyMapIdToRuntimeTerrain(this.state.mapId);
     this.refreshNeutralCityCells();
     this.initializeNeutralCityOwnership();
+    this.resetCityUnitGenerationState();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
     this.spawnTestUnits();
@@ -137,9 +152,10 @@ export class BattleRoom extends Room<BattleState> {
       if (cityOwnershipChanged) {
         this.syncCityInfluenceSources();
       }
+      const generatedCityUnits = this.updateCityUnitGeneration(deltaSeconds);
       const engagements = this.updateUnitInteractions(deltaSeconds);
       this.updateCombatRotation(deltaSeconds, engagements);
-      this.updateInfluenceGrid(cityOwnershipChanged);
+      this.updateInfluenceGrid(cityOwnershipChanged || generatedCityUnits > 0);
     }, GAMEPLAY_CONFIG.network.positionSyncIntervalMs);
 
     this.onMessage("unitPath", (client, message: UnitPathMessage) => {
@@ -203,6 +219,7 @@ export class BattleRoom extends Room<BattleState> {
     this.sessionTeamById.clear();
     this.readyBySessionId.clear();
     this.simulationFrame = 0;
+    this.resetCityUnitGenerationState();
   }
 
   private createMovementState(): UnitMovementState {
@@ -702,6 +719,221 @@ export class BattleRoom extends Room<BattleState> {
     return changed;
   }
 
+  private resetCityUnitGenerationState(): void {
+    this.cityGenerationElapsedSecondsBySourceId.clear();
+    this.syncCityGenerationTimers();
+    this.generatedUnitSequenceByTeam = {
+      BLUE: 1,
+      RED: 1,
+    };
+  }
+
+  private resetCityGenerationTimersForAllSources(): void {
+    this.cityGenerationElapsedSecondsBySourceId.clear();
+    this.syncCityGenerationTimers();
+  }
+
+  private getHomeCitySpawnSourceId(homeCity: PlayerTeam): string {
+    return `home:${homeCity}`;
+  }
+
+  private getNeutralCitySpawnSourceId(index: number): string {
+    return `neutral:${index}`;
+  }
+
+  private getCitySpawnSources(): CitySpawnSource[] {
+    const sources: CitySpawnSource[] = [];
+    const homeCities: PlayerTeam[] = ["RED", "BLUE"];
+    for (const homeCity of homeCities) {
+      sources.push({
+        sourceId: this.getHomeCitySpawnSourceId(homeCity),
+        owner: this.getCityOwner(homeCity),
+        cityCell: this.getCityCell(homeCity),
+      });
+    }
+
+    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
+      const owner = this.getNeutralCityOwner(index);
+      const cityCell = this.getNeutralCityCell(index);
+      if (!cityCell) {
+        continue;
+      }
+
+      sources.push({
+        sourceId: this.getNeutralCitySpawnSourceId(index),
+        owner,
+        cityCell,
+      });
+    }
+
+    return sources;
+  }
+
+  private syncCityGenerationTimers(): void {
+    const sources = this.getCitySpawnSources();
+    const validSourceIds = new Set<string>();
+    for (const source of sources) {
+      validSourceIds.add(source.sourceId);
+      if (!this.cityGenerationElapsedSecondsBySourceId.has(source.sourceId)) {
+        this.cityGenerationElapsedSecondsBySourceId.set(source.sourceId, 0);
+      }
+    }
+
+    for (const sourceId of this.cityGenerationElapsedSecondsBySourceId.keys()) {
+      if (!validSourceIds.has(sourceId)) {
+        this.cityGenerationElapsedSecondsBySourceId.delete(sourceId);
+      }
+    }
+  }
+
+  private isCellOccupiedByActiveUnit(targetCell: GridCoordinate): boolean {
+    for (const unit of this.state.units.values()) {
+      if (unit.health <= 0) {
+        continue;
+      }
+
+      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+      if (unitCell.col === targetCell.col && unitCell.row === targetCell.row) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private isCitySpawnCellOpen(targetCell: GridCoordinate): boolean {
+    if (this.isTerrainBlocked(targetCell)) {
+      return false;
+    }
+    return !this.isCellOccupiedByActiveUnit(targetCell);
+  }
+
+  private findOpenSpawnCellNearCity(cityCell: GridCoordinate): GridCoordinate | null {
+    const visitedCellKeys = new Set<string>();
+    for (
+      let radius = 0;
+      radius <= BattleRoom.CITY_SPAWN_SEARCH_RADIUS;
+      radius += 1
+    ) {
+      for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
+        for (let colOffset = -radius; colOffset <= radius; colOffset += 1) {
+          if (
+            radius > 0 &&
+            Math.max(Math.abs(colOffset), Math.abs(rowOffset)) !== radius
+          ) {
+            continue;
+          }
+
+          const candidateCell: GridCoordinate = {
+            col: this.clamp(
+              cityCell.col + colOffset,
+              0,
+              BattleRoom.GRID_WIDTH - 1,
+            ),
+            row: this.clamp(
+              cityCell.row + rowOffset,
+              0,
+              BattleRoom.GRID_HEIGHT - 1,
+            ),
+          };
+          const candidateKey = this.gridKey(candidateCell);
+          if (visitedCellKeys.has(candidateKey)) {
+            continue;
+          }
+          visitedCellKeys.add(candidateKey);
+
+          if (!this.isCitySpawnCellOpen(candidateCell)) {
+            continue;
+          }
+
+          return candidateCell;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private allocateGeneratedCityUnitId(team: PlayerTeam): string {
+    const teamPrefix = team.toLowerCase();
+    let unitId = "";
+    while (unitId.length === 0 || this.state.units.has(unitId)) {
+      const nextSequence = this.generatedUnitSequenceByTeam[team];
+      unitId = `city-${teamPrefix}-${nextSequence}`;
+      this.generatedUnitSequenceByTeam[team] = nextSequence + 1;
+    }
+    return unitId;
+  }
+
+  private getSpawnRotationForTeam(team: PlayerTeam, spawnPosition: Vector2): number {
+    const enemyHomeCity: PlayerTeam = team === "BLUE" ? "RED" : "BLUE";
+    const enemyCityPosition = this.getCityWorldPosition(enemyHomeCity);
+    const angleToEnemyHomeCity = Math.atan2(
+      enemyCityPosition.y - spawnPosition.y,
+      enemyCityPosition.x - spawnPosition.x,
+    );
+    return angleToEnemyHomeCity - BattleRoom.UNIT_FORWARD_OFFSET;
+  }
+
+  private spawnCityUnit(team: PlayerTeam, spawnCell: GridCoordinate): void {
+    const spawnPosition = this.gridToWorldCenter(spawnCell);
+    const unitId = this.allocateGeneratedCityUnitId(team);
+    const spawnedUnit = new Unit(
+      unitId,
+      team.toLowerCase(),
+      spawnPosition.x,
+      spawnPosition.y,
+      this.getSpawnRotationForTeam(team, spawnPosition),
+      this.runtimeTuning.baseUnitHealth,
+    );
+    this.state.units.set(spawnedUnit.unitId, spawnedUnit);
+    this.movementStateByUnitId.set(
+      spawnedUnit.unitId,
+      this.createMovementState(),
+    );
+  }
+
+  private updateCityUnitGeneration(deltaSeconds: number): number {
+    if (deltaSeconds <= 0) {
+      return 0;
+    }
+
+    const generationIntervalSeconds = Math.max(
+      1,
+      this.runtimeTuning.cityUnitGenerationIntervalSeconds,
+    );
+    this.syncCityGenerationTimers();
+    const spawnSources = this.getCitySpawnSources();
+    let totalSpawnedUnits = 0;
+    for (const source of spawnSources) {
+      let elapsedSeconds =
+        this.cityGenerationElapsedSecondsBySourceId.get(source.sourceId) ?? 0;
+      elapsedSeconds += deltaSeconds;
+
+      while (elapsedSeconds >= generationIntervalSeconds) {
+        elapsedSeconds -= generationIntervalSeconds;
+        if (source.owner === "NEUTRAL") {
+          continue;
+        }
+
+        const spawnCell = this.findOpenSpawnCellNearCity(source.cityCell);
+        if (!spawnCell) {
+          continue;
+        }
+
+        this.spawnCityUnit(source.owner, spawnCell);
+        totalSpawnedUnits += 1;
+      }
+
+      this.cityGenerationElapsedSecondsBySourceId.set(
+        source.sourceId,
+        elapsedSeconds,
+      );
+    }
+
+    return totalSpawnedUnits;
+  }
+
   private syncCityInfluenceSources(): void {
     const redCityPosition = this.getCityWorldPosition("RED");
     const blueCityPosition = this.getCityWorldPosition("BLUE");
@@ -1000,6 +1232,7 @@ export class BattleRoom extends Room<BattleState> {
     this.state.redCityOwner = "RED";
     this.state.blueCityOwner = "BLUE";
     this.resetNeutralCityOwnership();
+    this.resetCityUnitGenerationState();
     this.resetLobbyReadyStates();
     this.clearUnits();
     this.syncCityInfluenceSources();
@@ -1593,6 +1826,7 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
+    this.resetCityGenerationTimersForAllSources();
     this.matchPhase = "BATTLE";
     this.broadcastLobbyState();
     console.log("Battle started: all lobby players ready.");

@@ -25,6 +25,7 @@ export type RuntimeTuning = {
   lineThickness: number;
   lineAlpha: number;
   cityInfluenceUnitsEquivalent: number;
+  cityUnitGenerationIntervalSeconds: number;
 };
 
 export type RuntimeTuningKey = keyof RuntimeTuning;
@@ -71,6 +72,8 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
   lineAlpha: GAMEPLAY_CONFIG.runtimeTuning.defaults.lineAlpha,
   cityInfluenceUnitsEquivalent:
     GAMEPLAY_CONFIG.runtimeTuning.defaults.cityInfluenceUnitsEquivalent,
+  cityUnitGenerationIntervalSeconds:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.cityUnitGenerationIntervalSeconds,
 };
 
 export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound> = {
@@ -122,6 +125,9 @@ export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound>
   cityInfluenceUnitsEquivalent: {
     ...GAMEPLAY_CONFIG.runtimeTuning.bounds.cityInfluenceUnitsEquivalent,
   },
+  cityUnitGenerationIntervalSeconds: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.cityUnitGenerationIntervalSeconds,
+  },
 };
 
 export const RUNTIME_TUNING_KEYS = Object.keys(
@@ -146,7 +152,8 @@ export function sanitizeRuntimeTuningUpdate(
       key === "baseUnitHealth" ||
       key === "citySourceCoreRadius" ||
       key === "staticUnitCapGate" ||
-      key === "staticCityCapGate"
+      key === "staticCityCapGate" ||
+      key === "cityUnitGenerationIntervalSeconds"
         ? Math.round(clamped)
         : clamped;
     sanitized[key] = normalizedValue as RuntimeTuning[typeof key];

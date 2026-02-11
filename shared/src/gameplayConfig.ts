@@ -190,6 +190,8 @@ export const GAMEPLAY_CONFIG = {
       lineAlpha: 0.92,
       // Slider: City Influence Power
       cityInfluenceUnitsEquivalent: 1.0,
+      // Slider: City Unit Generation (seconds)
+      cityUnitGenerationIntervalSeconds: 60,
     },
     bounds: {
       baseUnitHealth: { min: 20, max: 200, step: 1 },
@@ -216,6 +218,7 @@ export const GAMEPLAY_CONFIG = {
       lineThickness: { min: 1, max: 24, step: 1 },
       lineAlpha: { min: 0.05, max: 1, step: 0.01 },
       cityInfluenceUnitsEquivalent: { min: 0, max: 40, step: 0.5 },
+      cityUnitGenerationIntervalSeconds: { min: 20, max: 180, step: 1 },
     },
   },
 } as const;
