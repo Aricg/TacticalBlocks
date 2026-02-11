@@ -3,6 +3,11 @@
 **Status:** MVP Implemented (Phase 1)
 **Version:** 0.1.0
 
+## Required Checks
+- For every code change/refactor slice, run:
+  - `npm run verify`
+- `npm run verify` must pass before commit/merge.
+
 ## 1. Project Overview
 - **Genre:** Multiplayer Top-down 2D real-time tactical simulation.
 - **Visual Style:** Minimalist "Animated Battle Map" (e.g., Historia Civilis style).
@@ -60,4 +65,3 @@ the units have an influece score and its displayed visually with a number, when 
 
 the calculation is a complicated field. I belive the field should stay the same so we can see each teams total influence, and the lines of influence can be drawn on the map. this part is working well.  but for an individual unit the score should be determined by the squares of influence surrounding it. for example if there are ajacent squares that are not of its color its strenght should never reach 100. 
 basically the influcen score should apply to the map as it does and a new concept the units moral should be derived from the strenght of the field surrounding it
-
