@@ -8,6 +8,7 @@ import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
+import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import {
   getGridCellTerrainType,
@@ -130,35 +131,35 @@ export class BattleRoom extends Room<BattleState> {
       this.updateInfluenceGrid(cityOwnershipChanged || generatedCityUnits > 0);
     }, GAMEPLAY_CONFIG.network.positionSyncIntervalMs);
 
-    this.onMessage("unitPath", (client, message: UnitPathMessage) => {
+    this.onMessage(NETWORK_MESSAGE_TYPES.unitPath, (client, message: UnitPathMessage) => {
       this.handleUnitPathMessage(client, message);
     });
     this.onMessage(
-      "unitCancelMovement",
+      NETWORK_MESSAGE_TYPES.unitCancelMovement,
       (client, message: UnitCancelMovementMessage) => {
         this.handleUnitCancelMovementMessage(client, message);
       },
     );
     this.onMessage(
-      "runtimeTuningUpdate",
+      NETWORK_MESSAGE_TYPES.runtimeTuningUpdate,
       (client, message: RuntimeTuningUpdateMessage) => {
         this.handleRuntimeTuningUpdate(client, message);
       },
     );
-    this.onMessage("lobbyReady", (client, message: LobbyReadyMessage) => {
+    this.onMessage(NETWORK_MESSAGE_TYPES.lobbyReady, (client, message: LobbyReadyMessage) => {
       this.handleLobbyReadyMessage(client, message);
     });
-    this.onMessage("lobbySelectMap", (client, message: LobbySelectMapMessage) => {
+    this.onMessage(NETWORK_MESSAGE_TYPES.lobbySelectMap, (client, message: LobbySelectMapMessage) => {
       this.handleLobbySelectMapMessage(client, message);
     });
     this.onMessage(
-      "lobbyRandomMap",
+      NETWORK_MESSAGE_TYPES.lobbyRandomMap,
       (client, _message: LobbyRandomMapMessage) => {
         this.handleLobbyRandomMapMessage(client);
       },
     );
     this.onMessage(
-      "lobbyGenerateMap",
+      NETWORK_MESSAGE_TYPES.lobbyGenerateMap,
       (client, _message: LobbyGenerateMapMessage) => {
         this.handleLobbyGenerateMapMessage(client);
       },
@@ -167,8 +168,8 @@ export class BattleRoom extends Room<BattleState> {
 
   onJoin(client: Client): void {
     const assignedTeam = this.lobbyService.registerJoin(client.sessionId);
-    client.send("teamAssigned", { team: assignedTeam });
-    client.send("runtimeTuningSnapshot", this.runtimeTuning);
+    client.send(NETWORK_MESSAGE_TYPES.teamAssigned, { team: assignedTeam });
+    client.send(NETWORK_MESSAGE_TYPES.runtimeTuningSnapshot, this.runtimeTuning);
     this.broadcastLobbyState();
     console.log(`Client joined battle room: ${client.sessionId} (${assignedTeam})`);
   }
@@ -972,7 +973,7 @@ export class BattleRoom extends Room<BattleState> {
     }
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
-    this.broadcast("runtimeTuningSnapshot", this.runtimeTuning);
+    this.broadcast(NETWORK_MESSAGE_TYPES.runtimeTuningSnapshot, this.runtimeTuning);
     this.updateInfluenceGrid(true);
   }
 
@@ -1715,7 +1716,7 @@ export class BattleRoom extends Room<BattleState> {
     this.battleLifecycleService.concludeBattle({
       outcome,
       broadcastBattleEnded: (nextOutcome) => {
-        this.broadcast("battleEnded", nextOutcome);
+        this.broadcast(NETWORK_MESSAGE_TYPES.battleEnded, nextOutcome);
       },
       setMatchPhase: (nextPhase) => {
         this.matchPhase = nextPhase;
@@ -1745,7 +1746,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private broadcastLobbyState(): void {
-    this.broadcast("lobbyState", this.getLobbyStateMessage());
+    this.broadcast(NETWORK_MESSAGE_TYPES.lobbyState, this.getLobbyStateMessage());
   }
 
   private tryStartBattle(): void {

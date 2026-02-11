@@ -1,5 +1,20 @@
 import { Client, Room, getStateCallbacks } from 'colyseus.js';
-import type { RuntimeTuning } from '../../shared/src/runtimeTuning.js';
+import {
+  NETWORK_MESSAGE_TYPES,
+  type BattleEndedMessage,
+  type LobbyGenerateMapMessage,
+  type LobbyRandomMapMessage,
+  type LobbyReadyMessage,
+  type LobbySelectMapMessage,
+  type LobbyStateMessage,
+  type MatchPhase,
+  type PlayerTeam,
+  type RuntimeTuningSnapshotMessage,
+  type RuntimeTuningUpdateMessage,
+  type TeamAssignedMessage,
+  type UnitCancelMovementMessage,
+  type UnitPathMessage,
+} from '../../shared/src/networkContracts.js';
 
 type ServerUnitState = {
   x: number;
@@ -75,7 +90,7 @@ export type NetworkCityOwnershipUpdate = {
   neutralCityOwners: string[];
 };
 
-export type NetworkMatchPhase = 'LOBBY' | 'BATTLE';
+export type NetworkMatchPhase = MatchPhase;
 
 export type NetworkLobbyPlayer = {
   sessionId: string;
@@ -93,28 +108,12 @@ export type NetworkLobbyStateUpdate = {
   selfSessionId: string;
 };
 
-export type NetworkBattleEndedUpdate = {
-  winner: 'BLUE' | 'RED' | 'DRAW';
-  loser: 'BLUE' | 'RED' | null;
-  reason: 'NO_UNITS' | 'NO_CITIES' | 'TIEBREAKER';
-  blueUnits: number;
-  redUnits: number;
-  blueCities: number;
-  redCities: number;
-};
-
-export type NetworkUnitPathCommand = {
-  unitId: string;
-  path: Array<{ x: number; y: number }>;
-  movementCommandMode?: {
-    speedMultiplier: number;
-    rotateToFace: boolean;
-  };
-};
+export type NetworkBattleEndedUpdate = BattleEndedMessage;
+export type NetworkUnitPathCommand = UnitPathMessage;
 
 type UnitAddedHandler = (unit: NetworkUnitSnapshot) => void;
 type UnitRemovedHandler = (unitId: string) => void;
-type TeamAssignedHandler = (team: string) => void;
+type TeamAssignedHandler = (team: PlayerTeam) => void;
 type UnitPositionChangedHandler = (position: NetworkUnitPositionUpdate) => void;
 type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
 type UnitRotationChangedHandler = (
@@ -129,39 +128,15 @@ type InfluenceGridChangedHandler = (
 type CityOwnershipChangedHandler = (
   cityOwnershipUpdate: NetworkCityOwnershipUpdate,
 ) => void;
-type RuntimeTuningChangedHandler = (runtimeTuning: RuntimeTuning) => void;
+type RuntimeTuningChangedHandler = (
+  runtimeTuning: RuntimeTuningSnapshotMessage,
+) => void;
 type LobbyStateChangedHandler = (
   lobbyStateUpdate: NetworkLobbyStateUpdate,
 ) => void;
 type BattleEndedHandler = (
   battleEndedUpdate: NetworkBattleEndedUpdate,
 ) => void;
-
-type TeamAssignedMessage = {
-  team: string;
-};
-type LobbyPlayerMessage = {
-  sessionId: string;
-  team: string;
-  ready: boolean;
-};
-type LobbyStateMessage = {
-  phase: string;
-  players: LobbyPlayerMessage[];
-  mapId: string;
-  availableMapIds: string[];
-  mapRevision: number;
-  isGeneratingMap: boolean;
-};
-type BattleEndedMessage = {
-  winner: string;
-  loser: string | null;
-  reason: string;
-  blueUnits: number;
-  redUnits: number;
-  blueCities: number;
-  redCities: number;
-};
 
 export class NetworkManager {
   private readonly client: Client;
@@ -197,20 +172,32 @@ export class NetworkManager {
     const room = await this.client.joinOrCreate<BattleRoomState>(this.roomName);
     this.room = room;
 
-    room.onMessage('teamAssigned', (message: TeamAssignedMessage) => {
-      this.onTeamAssigned(message.team);
-    });
-    room.onMessage('runtimeTuningSnapshot', (message: RuntimeTuning) => {
-      this.onRuntimeTuningChanged(message);
-    });
-    room.onMessage('lobbyState', (message: LobbyStateMessage) => {
-      this.onLobbyStateChanged(
-        this.normalizeLobbyStateUpdate(message, room.sessionId),
-      );
-    });
-    room.onMessage('battleEnded', (message: BattleEndedMessage) => {
-      this.onBattleEnded(this.normalizeBattleEndedUpdate(message));
-    });
+    room.onMessage(
+      NETWORK_MESSAGE_TYPES.teamAssigned,
+      (message: TeamAssignedMessage) => {
+        this.onTeamAssigned(message.team);
+      },
+    );
+    room.onMessage(
+      NETWORK_MESSAGE_TYPES.runtimeTuningSnapshot,
+      (message: RuntimeTuningSnapshotMessage) => {
+        this.onRuntimeTuningChanged(message);
+      },
+    );
+    room.onMessage(
+      NETWORK_MESSAGE_TYPES.lobbyState,
+      (message: LobbyStateMessage) => {
+        this.onLobbyStateChanged(
+          this.normalizeLobbyStateUpdate(message, room.sessionId),
+        );
+      },
+    );
+    room.onMessage(
+      NETWORK_MESSAGE_TYPES.battleEnded,
+      (message: BattleEndedMessage) => {
+        this.onBattleEnded(this.normalizeBattleEndedUpdate(message));
+      },
+    );
 
     const $ = getStateCallbacks(room);
     room.onStateChange.once((state) => {
@@ -347,7 +334,7 @@ export class NetworkManager {
       return;
     }
 
-    this.room.send('unitPath', command);
+    this.room.send(NETWORK_MESSAGE_TYPES.unitPath, command);
   }
 
   public sendUnitCancelMovement(unitId: string): void {
@@ -355,15 +342,16 @@ export class NetworkManager {
       return;
     }
 
-    this.room.send('unitCancelMovement', { unitId });
+    const message: UnitCancelMovementMessage = { unitId };
+    this.room.send(NETWORK_MESSAGE_TYPES.unitCancelMovement, message);
   }
 
-  public sendRuntimeTuningUpdate(update: Partial<RuntimeTuning>): void {
+  public sendRuntimeTuningUpdate(update: RuntimeTuningUpdateMessage): void {
     if (!this.room) {
       return;
     }
 
-    this.room.send('runtimeTuningUpdate', update);
+    this.room.send(NETWORK_MESSAGE_TYPES.runtimeTuningUpdate, update);
   }
 
   public sendLobbyReady(ready: boolean): void {
@@ -371,7 +359,8 @@ export class NetworkManager {
       return;
     }
 
-    this.room.send('lobbyReady', { ready });
+    const message: LobbyReadyMessage = { ready };
+    this.room.send(NETWORK_MESSAGE_TYPES.lobbyReady, message);
   }
 
   public sendLobbySelectMap(mapId: string): void {
@@ -379,7 +368,8 @@ export class NetworkManager {
       return;
     }
 
-    this.room.send('lobbySelectMap', { mapId });
+    const message: LobbySelectMapMessage = { mapId };
+    this.room.send(NETWORK_MESSAGE_TYPES.lobbySelectMap, message);
   }
 
   public sendLobbyRandomMap(): void {
@@ -387,7 +377,8 @@ export class NetworkManager {
       return;
     }
 
-    this.room.send('lobbyRandomMap', {});
+    const message: LobbyRandomMapMessage = {};
+    this.room.send(NETWORK_MESSAGE_TYPES.lobbyRandomMap, message);
   }
 
   public sendLobbyGenerateMap(): void {
@@ -395,7 +386,8 @@ export class NetworkManager {
       return;
     }
 
-    this.room.send('lobbyGenerateMap', {});
+    const message: LobbyGenerateMapMessage = {};
+    this.room.send(NETWORK_MESSAGE_TYPES.lobbyGenerateMap, message);
   }
 
   public async disconnect(): Promise<void> {
@@ -427,9 +419,9 @@ export class NetworkManager {
       phase,
       players: players
         .filter(
-          (player): player is LobbyPlayerMessage =>
+          (player) =>
             typeof player?.sessionId === 'string' &&
-            typeof player?.team === 'string' &&
+            (player?.team === 'BLUE' || player?.team === 'RED') &&
             typeof player?.ready === 'boolean',
         )
         .map((player) => ({
