@@ -6,6 +6,8 @@ import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
+import { LobbyService } from "./services/LobbyService.js";
+import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import {
   getGridCellTerrainType,
@@ -16,83 +18,33 @@ import {
 import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
-  RuntimeTuning,
+  type RuntimeTuning,
 } from "../../../shared/src/runtimeTuning.js";
-
-type PlayerTeam = "BLUE" | "RED";
-type CityOwner = PlayerTeam | "NEUTRAL";
-type MatchPhase = "LOBBY" | "BATTLE";
-type Vector2 = {
-  x: number;
-  y: number;
-};
-type GridCoordinate = {
-  col: number;
-  row: number;
-};
-type MovementCommandMode = {
-  speedMultiplier: number;
-  rotateToFace: boolean;
-};
-type UnitPathMessage = {
-  unitId: string;
-  path: Vector2[];
-  movementCommandMode?: Partial<MovementCommandMode>;
-};
-type UnitCancelMovementMessage = {
-  unitId: string;
-};
-type RuntimeTuningUpdateMessage = Partial<RuntimeTuning>;
-type LobbyReadyMessage = {
-  ready: boolean;
-};
-type LobbySelectMapMessage = {
-  mapId: string;
-};
-type LobbyGenerateMapMessage = Record<string, never>;
-type LobbyRandomMapMessage = Record<string, never>;
-type LobbyPlayerSnapshot = {
-  sessionId: string;
-  team: PlayerTeam;
-  ready: boolean;
-};
-type LobbyStateMessage = {
-  phase: MatchPhase;
-  players: LobbyPlayerSnapshot[];
-  mapId: string;
-  availableMapIds: string[];
-  mapRevision: number;
-  isGeneratingMap: boolean;
-};
-type BattleEndReason = "NO_UNITS" | "NO_CITIES" | "TIEBREAKER";
-type BattleEndedMessage = {
-  winner: PlayerTeam | "DRAW";
-  loser: PlayerTeam | null;
-  reason: BattleEndReason;
-  blueUnits: number;
-  redUnits: number;
-  blueCities: number;
-  redCities: number;
-};
-type UnitMovementState = {
-  destinationCell: GridCoordinate | null;
-  queuedCells: GridCoordinate[];
-  targetRotation: number | null;
-  movementCommandMode: MovementCommandMode;
-  movementBudget: number;
-};
-type CitySpawnSource = {
-  sourceId: string;
-  owner: CityOwner;
-  cityCell: GridCoordinate;
-};
+import type {
+  BattleEndedMessage,
+  CityOwner,
+  CitySpawnSource,
+  GridCoordinate,
+  LobbyGenerateMapMessage,
+  LobbyRandomMapMessage,
+  LobbyReadyMessage,
+  LobbySelectMapMessage,
+  LobbyStateMessage,
+  MatchPhase,
+  MovementCommandMode,
+  PlayerTeam,
+  RuntimeTuningUpdateMessage,
+  UnitCancelMovementMessage,
+  UnitMovementState,
+  UnitPathMessage,
+  Vector2,
+} from "./BattleRoomTypes.js";
 
 export class BattleRoom extends Room<BattleState> {
-  private readonly availableMapIds: string[] = [
-    ...GAMEPLAY_CONFIG.map.availableMapIds,
-  ];
-  private readonly sessionTeamById = new Map<string, PlayerTeam>();
-  private readonly readyBySessionId = new Map<string, boolean>();
+  private readonly lobbyService = new LobbyService(
+    GAMEPLAY_CONFIG.map.availableMapIds,
+  );
+  private readonly battleLifecycleService = new BattleLifecycleService();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private neutralCityCells: GridCoordinate[] = [];
@@ -141,7 +93,7 @@ export class BattleRoom extends Room<BattleState> {
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
-    this.state.mapId = this.getValidatedMapId(this.state.mapId);
+    this.state.mapId = this.lobbyService.getValidatedMapId(this.state.mapId);
     this.applyMapIdToRuntimeTerrain(this.state.mapId);
     this.refreshNeutralCityCells();
     this.initializeNeutralCityOwnership();
@@ -214,8 +166,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   onJoin(client: Client): void {
-    const assignedTeam = this.assignTeam(client.sessionId);
-    this.readyBySessionId.set(client.sessionId, false);
+    const assignedTeam = this.lobbyService.registerJoin(client.sessionId);
     client.send("teamAssigned", { team: assignedTeam });
     client.send("runtimeTuningSnapshot", this.runtimeTuning);
     this.broadcastLobbyState();
@@ -223,11 +174,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   onLeave(client: Client): void {
-    const team = this.sessionTeamById.get(client.sessionId);
-    if (team) {
-      this.sessionTeamById.delete(client.sessionId);
-    }
-    this.readyBySessionId.delete(client.sessionId);
+    const team = this.lobbyService.unregisterSession(client.sessionId);
     this.broadcastLobbyState();
     console.log(
       `Client left battle room: ${client.sessionId}${team ? ` (${team})` : ""}`,
@@ -236,8 +183,7 @@ export class BattleRoom extends Room<BattleState> {
 
   onDispose(): void {
     this.movementStateByUnitId.clear();
-    this.sessionTeamById.clear();
-    this.readyBySessionId.clear();
+    this.lobbyService.dispose();
     this.simulationFrame = 0;
     this.resetCityUnitGenerationState();
   }
@@ -1007,7 +953,7 @@ export class BattleRoom extends Room<BattleState> {
     client: Client,
     message: RuntimeTuningUpdateMessage,
   ): void {
-    if (!this.sessionTeamById.has(client.sessionId)) {
+    if (!this.lobbyService.hasSession(client.sessionId)) {
       return;
     }
 
@@ -1034,73 +980,50 @@ export class BattleRoom extends Room<BattleState> {
     client: Client,
     message: LobbyReadyMessage,
   ): void {
-    if (this.matchPhase !== "LOBBY") {
+    const result = this.lobbyService.handleReadyMessage({
+      sessionId: client.sessionId,
+      message,
+      matchPhase: this.matchPhase,
+    });
+    if (!result.updated) {
       return;
     }
 
-    if (!this.sessionTeamById.has(client.sessionId)) {
-      return;
-    }
-
-    const ready = message?.ready;
-    if (typeof ready !== "boolean") {
-      return;
-    }
-
-    this.readyBySessionId.set(client.sessionId, ready);
     this.broadcastLobbyState();
-    this.tryStartBattle();
+    if (result.shouldTryStart) {
+      this.tryStartBattle();
+    }
   }
 
   private handleLobbySelectMapMessage(
     client: Client,
     message: LobbySelectMapMessage,
   ): void {
-    if (this.matchPhase !== "LOBBY") {
+    const result = this.lobbyService.handleSelectMapMessage({
+      sessionId: client.sessionId,
+      message,
+      matchPhase: this.matchPhase,
+      currentMapId: this.state.mapId,
+    });
+    if (!result.nextMapId) {
       return;
     }
 
-    if (!this.sessionTeamById.has(client.sessionId)) {
-      return;
-    }
-
-    const requestedMapId = message?.mapId;
-    if (typeof requestedMapId !== "string") {
-      return;
-    }
-
-    const mapId = this.getValidatedMapId(requestedMapId);
-    if (mapId === this.state.mapId) {
-      return;
-    }
-
-    this.applyLobbyMapSelection(mapId);
+    this.applyLobbyMapSelection(result.nextMapId);
     this.broadcastLobbyState();
   }
 
   private handleLobbyRandomMapMessage(client: Client): void {
-    if (this.matchPhase !== "LOBBY") {
+    const result = this.lobbyService.handleRandomMapMessage({
+      sessionId: client.sessionId,
+      matchPhase: this.matchPhase,
+      currentMapId: this.state.mapId,
+    });
+    if (!result.nextMapId) {
       return;
     }
 
-    if (!this.sessionTeamById.has(client.sessionId)) {
-      return;
-    }
-
-    const candidateMapIds = this.availableMapIds.filter(
-      (mapId) => mapId !== this.state.mapId,
-    );
-    if (candidateMapIds.length === 0) {
-      return;
-    }
-
-    const randomIndex = Math.floor(Math.random() * candidateMapIds.length);
-    const randomMapId = candidateMapIds[randomIndex];
-    if (!randomMapId) {
-      return;
-    }
-
-    this.applyLobbyMapSelection(randomMapId);
+    this.applyLobbyMapSelection(result.nextMapId);
     this.broadcastLobbyState();
   }
 
@@ -1109,7 +1032,7 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    if (!this.sessionTeamById.has(client.sessionId)) {
+    if (!this.lobbyService.hasSession(client.sessionId)) {
       return;
     }
 
@@ -1117,7 +1040,7 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const mapId = this.getGeneratedMapId();
+    const mapId = this.lobbyService.getGeneratedMapId();
     const sharedDir = this.resolveSharedDirectory();
     if (!sharedDir) {
       console.error("Could not resolve shared directory for map generation.");
@@ -1171,9 +1094,7 @@ export class BattleRoom extends Room<BattleState> {
         return;
       }
 
-      if (!this.availableMapIds.includes(mapId)) {
-        this.availableMapIds.push(mapId);
-      }
+      this.lobbyService.addAvailableMapId(mapId);
       this.applyLobbyMapSelection(mapId);
       console.log(`Generated new lobby map: ${mapId} (seed ${seed})`);
     } finally {
@@ -1196,13 +1117,6 @@ export class BattleRoom extends Room<BattleState> {
       const healthRatio = this.clamp(unit.health / safePreviousBase, 0, 1);
       unit.health = healthRatio * safeNextBase;
     }
-  }
-
-  private getValidatedMapId(requestedMapId: string): string {
-    if (this.availableMapIds.includes(requestedMapId)) {
-      return requestedMapId;
-    }
-    return this.availableMapIds[0] ?? GAMEPLAY_CONFIG.map.activeMapId;
   }
 
   private applyMapIdToRuntimeTerrain(mapId: string): void {
@@ -1239,12 +1153,6 @@ export class BattleRoom extends Room<BattleState> {
     this.initializeNeutralCityOwnership();
   }
 
-  private resetLobbyReadyStates(): void {
-    for (const sessionId of this.readyBySessionId.keys()) {
-      this.readyBySessionId.set(sessionId, false);
-    }
-  }
-
   private applyLobbyMapSelection(
     mapId: string,
     options?: {
@@ -1262,7 +1170,7 @@ export class BattleRoom extends Room<BattleState> {
     this.resetNeutralCityOwnership();
     this.resetCityUnitGenerationState();
     if (resetReadyStates) {
-      this.resetLobbyReadyStates();
+      this.lobbyService.resetLobbyReadyStates();
     }
     this.clearUnits();
     this.syncCityInfluenceSources();
@@ -1273,16 +1181,6 @@ export class BattleRoom extends Room<BattleState> {
     if (incrementMapRevision) {
       this.mapRevision += 1;
     }
-  }
-
-  private getGeneratedMapId(): string {
-    const existingGeneratedMapId = this.availableMapIds.find((mapId) =>
-      mapId.startsWith("random-"),
-    );
-    if (existingGeneratedMapId) {
-      return existingGeneratedMapId;
-    }
-    return "random-frontier-01";
   }
 
   private resolveSharedDirectory(): string | null {
@@ -1365,28 +1263,12 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
-  private assignTeam(sessionId: string): PlayerTeam {
-    let blueCount = 0;
-    let redCount = 0;
-    for (const team of this.sessionTeamById.values()) {
-      if (team === "BLUE") {
-        blueCount += 1;
-      } else {
-        redCount += 1;
-      }
-    }
-
-    const team: PlayerTeam = blueCount <= redCount ? "BLUE" : "RED";
-    this.sessionTeamById.set(sessionId, team);
-    return team;
-  }
-
   private handleUnitPathMessage(client: Client, message: UnitPathMessage): void {
     if (this.matchPhase !== "BATTLE") {
       return;
     }
 
-    const assignedTeam = this.sessionTeamById.get(client.sessionId);
+    const assignedTeam = this.lobbyService.getAssignedTeam(client.sessionId);
     if (!assignedTeam) {
       return;
     }
@@ -1474,7 +1356,7 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const assignedTeam = this.sessionTeamById.get(client.sessionId);
+    const assignedTeam = this.lobbyService.getAssignedTeam(client.sessionId);
     if (!assignedTeam) {
       return;
     }
@@ -1805,19 +1687,6 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
-  private getAliveUnitCount(team: PlayerTeam): number {
-    let aliveUnits = 0;
-    for (const unit of this.state.units.values()) {
-      if (unit.health <= 0) {
-        continue;
-      }
-      if (unit.team.toUpperCase() === team) {
-        aliveUnits += 1;
-      }
-    }
-    return aliveUnits;
-  }
-
   private getOwnedCityCount(team: PlayerTeam): number {
     let ownedCities = 0;
     if (this.getCityOwner("RED") === team) {
@@ -1835,110 +1704,44 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getBattleOutcome(): BattleEndedMessage | null {
-    if (this.matchPhase !== "BATTLE") {
-      return null;
-    }
-
-    const blueUnits = this.getAliveUnitCount("BLUE");
-    const redUnits = this.getAliveUnitCount("RED");
-    const blueCities = this.getOwnedCityCount("BLUE");
-    const redCities = this.getOwnedCityCount("RED");
-
-    const blueDefeatedByUnits = blueUnits <= 0;
-    const redDefeatedByUnits = redUnits <= 0;
-    const blueDefeatedByCities = blueCities <= 0;
-    const redDefeatedByCities = redCities <= 0;
-    const blueDefeated = blueDefeatedByUnits || blueDefeatedByCities;
-    const redDefeated = redDefeatedByUnits || redDefeatedByCities;
-
-    if (!blueDefeated && !redDefeated) {
-      return null;
-    }
-
-    const createOutcome = (
-      winner: PlayerTeam | "DRAW",
-      loser: PlayerTeam | null,
-      reason: BattleEndReason,
-    ): BattleEndedMessage => ({
-      winner,
-      loser,
-      reason,
-      blueUnits,
-      redUnits,
-      blueCities,
-      redCities,
+    return this.battleLifecycleService.getBattleOutcome({
+      matchPhase: this.matchPhase,
+      units: this.state.units.values(),
+      getOwnedCityCount: (team) => this.getOwnedCityCount(team),
     });
-
-    if (blueDefeated && !redDefeated) {
-      return createOutcome(
-        "RED",
-        "BLUE",
-        blueDefeatedByUnits ? "NO_UNITS" : "NO_CITIES",
-      );
-    }
-
-    if (redDefeated && !blueDefeated) {
-      return createOutcome(
-        "BLUE",
-        "RED",
-        redDefeatedByUnits ? "NO_UNITS" : "NO_CITIES",
-      );
-    }
-
-    if (blueCities !== redCities) {
-      return blueCities > redCities
-        ? createOutcome("BLUE", "RED", "TIEBREAKER")
-        : createOutcome("RED", "BLUE", "TIEBREAKER");
-    }
-
-    if (blueUnits !== redUnits) {
-      return blueUnits > redUnits
-        ? createOutcome("BLUE", "RED", "TIEBREAKER")
-        : createOutcome("RED", "BLUE", "TIEBREAKER");
-    }
-
-    return createOutcome("DRAW", null, "TIEBREAKER");
   }
 
   private concludeBattle(outcome: BattleEndedMessage): void {
-    this.broadcast("battleEnded", outcome);
-    this.matchPhase = "LOBBY";
-    this.applyLobbyMapSelection(this.state.mapId, {
-      incrementMapRevision: false,
-      resetReadyStates: true,
+    this.battleLifecycleService.concludeBattle({
+      outcome,
+      broadcastBattleEnded: (nextOutcome) => {
+        this.broadcast("battleEnded", nextOutcome);
+      },
+      setMatchPhase: (nextPhase) => {
+        this.matchPhase = nextPhase;
+      },
+      resetLobbyStateAfterBattle: () => {
+        this.applyLobbyMapSelection(this.state.mapId, {
+          incrementMapRevision: false,
+          resetReadyStates: true,
+        });
+      },
+      broadcastLobbyState: () => {
+        this.broadcastLobbyState();
+      },
+      log: (message) => {
+        console.log(message);
+      },
     });
-    this.broadcastLobbyState();
-    console.log(
-      `Battle ended. Winner: ${outcome.winner} (reason: ${outcome.reason}).`,
-    );
-  }
-
-  private getLobbyPlayersSnapshot(): LobbyPlayerSnapshot[] {
-    const players = Array.from(this.sessionTeamById, ([sessionId, team]) => ({
-      sessionId,
-      team,
-      ready: this.readyBySessionId.get(sessionId) === true,
-    }));
-
-    players.sort((a, b) => {
-      if (a.team !== b.team) {
-        return a.team === "BLUE" ? -1 : 1;
-      }
-      return a.sessionId.localeCompare(b.sessionId);
-    });
-
-    return players;
   }
 
   private getLobbyStateMessage(): LobbyStateMessage {
-    return {
+    return this.lobbyService.getLobbyStateMessage({
       phase: this.matchPhase,
-      players: this.getLobbyPlayersSnapshot(),
       mapId: this.state.mapId,
-      availableMapIds: this.availableMapIds,
       mapRevision: this.mapRevision,
       isGeneratingMap: this.isGeneratingMap,
-    };
+    });
   }
 
   private broadcastLobbyState(): void {
@@ -1946,23 +1749,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private tryStartBattle(): void {
-    if (this.matchPhase !== "LOBBY") {
-      return;
-    }
-
-    const players = this.getLobbyPlayersSnapshot();
-    if (players.length < 2) {
-      return;
-    }
-
-    const hasBlue = players.some((player) => player.team === "BLUE");
-    const hasRed = players.some((player) => player.team === "RED");
-    if (!hasBlue || !hasRed) {
-      return;
-    }
-
-    const allReady = players.every((player) => player.ready);
-    if (!allReady) {
+    if (!this.lobbyService.canStartBattle(this.matchPhase)) {
       return;
     }
 
