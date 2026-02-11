@@ -93,6 +93,16 @@ export type NetworkLobbyStateUpdate = {
   selfSessionId: string;
 };
 
+export type NetworkBattleEndedUpdate = {
+  winner: 'BLUE' | 'RED' | 'DRAW';
+  loser: 'BLUE' | 'RED' | null;
+  reason: 'NO_UNITS' | 'NO_CITIES' | 'TIEBREAKER';
+  blueUnits: number;
+  redUnits: number;
+  blueCities: number;
+  redCities: number;
+};
+
 export type NetworkUnitPathCommand = {
   unitId: string;
   path: Array<{ x: number; y: number }>;
@@ -123,6 +133,9 @@ type RuntimeTuningChangedHandler = (runtimeTuning: RuntimeTuning) => void;
 type LobbyStateChangedHandler = (
   lobbyStateUpdate: NetworkLobbyStateUpdate,
 ) => void;
+type BattleEndedHandler = (
+  battleEndedUpdate: NetworkBattleEndedUpdate,
+) => void;
 
 type TeamAssignedMessage = {
   team: string;
@@ -140,6 +153,15 @@ type LobbyStateMessage = {
   mapRevision: number;
   isGeneratingMap: boolean;
 };
+type BattleEndedMessage = {
+  winner: string;
+  loser: string | null;
+  reason: string;
+  blueUnits: number;
+  redUnits: number;
+  blueCities: number;
+  redCities: number;
+};
 
 export class NetworkManager {
   private readonly client: Client;
@@ -152,6 +174,7 @@ export class NetworkManager {
     private readonly onUnitRemoved: UnitRemovedHandler,
     private readonly onTeamAssigned: TeamAssignedHandler,
     private readonly onLobbyStateChanged: LobbyStateChangedHandler,
+    private readonly onBattleEnded: BattleEndedHandler,
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
@@ -184,6 +207,9 @@ export class NetworkManager {
       this.onLobbyStateChanged(
         this.normalizeLobbyStateUpdate(message, room.sessionId),
       );
+    });
+    room.onMessage('battleEnded', (message: BattleEndedMessage) => {
+      this.onBattleEnded(this.normalizeBattleEndedUpdate(message));
     });
 
     const $ = getStateCallbacks(room);
@@ -424,6 +450,39 @@ export class NetworkManager {
           : 0,
       isGeneratingMap: message?.isGeneratingMap === true,
       selfSessionId,
+    };
+  }
+
+  private normalizeBattleEndedUpdate(
+    message: BattleEndedMessage,
+  ): NetworkBattleEndedUpdate {
+    const winner =
+      message?.winner === 'BLUE' || message?.winner === 'RED'
+        ? message.winner
+        : 'DRAW';
+    const loser =
+      message?.loser === 'BLUE' || message?.loser === 'RED'
+        ? message.loser
+        : null;
+    const reason =
+      message?.reason === 'NO_UNITS' ||
+      message?.reason === 'NO_CITIES' ||
+      message?.reason === 'TIEBREAKER'
+        ? message.reason
+        : 'TIEBREAKER';
+    const safeCount = (value: number) =>
+      typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.round(value))
+        : 0;
+
+    return {
+      winner,
+      loser,
+      reason,
+      blueUnits: safeCount(message?.blueUnits),
+      redUnits: safeCount(message?.redUnits),
+      blueCities: safeCount(message?.blueCities),
+      redCities: safeCount(message?.redCities),
     };
   }
 }

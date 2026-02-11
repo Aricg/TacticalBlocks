@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  type NetworkBattleEndedUpdate,
   type NetworkCityOwnershipUpdate,
   type NetworkInfluenceGridUpdate,
   type NetworkLobbyStateUpdate,
@@ -157,6 +158,7 @@ class BattleScene extends Phaser.Scene {
   private selectedLobbyMapId = this.activeMapId;
   private lobbyMapRevision = 0;
   private isLobbyGeneratingMap = false;
+  private lastBattleAnnouncement: string | null = null;
   private mapTextureKey = getTextureKeyForMapId(this.activeMapId);
   private localPlayerTeam: Team = Team.BLUE;
   private matchPhase: NetworkMatchPhase = 'LOBBY';
@@ -539,6 +541,9 @@ class BattleScene extends Phaser.Scene {
       (lobbyState) => {
         this.applyLobbyState(lobbyState);
       },
+      (battleEnded) => {
+        this.applyBattleEnded(battleEnded);
+      },
       (positionUpdate) => {
         this.applyNetworkUnitPosition(positionUpdate);
       },
@@ -722,7 +727,13 @@ class BattleScene extends Phaser.Scene {
     }
 
     if (nextMapId === this.activeMapId && forceTextureReload) {
+      this.applyMapIdToRuntimeTerrain(nextMapId);
+      this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+      this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
+      this.rebuildCitiesForCurrentMap();
+      this.drawImpassableOverlay();
       this.reloadMapTexture(nextMapId, this.lobbyMapRevision);
+      this.refreshFogOfWar();
       return;
     }
 
@@ -967,8 +978,30 @@ class BattleScene extends Phaser.Scene {
       this.resetPointerInteractionState();
       this.clearSelection();
       this.plannedPathsByUnitId.clear();
+      if (this.matchPhase === 'BATTLE') {
+        this.lastBattleAnnouncement = null;
+      }
     }
 
+    this.refreshLobbyOverlay();
+  }
+
+  private applyBattleEnded(battleEndedUpdate: NetworkBattleEndedUpdate): void {
+    const reasonText =
+      battleEndedUpdate.reason === 'NO_UNITS'
+        ? 'enemy had no units'
+        : battleEndedUpdate.reason === 'NO_CITIES'
+          ? 'enemy had no cities'
+          : 'tiebreaker';
+    const summaryText =
+      battleEndedUpdate.winner === 'DRAW'
+        ? 'Battle ended in a draw.'
+        : `Winner: ${battleEndedUpdate.winner} (${reasonText}).`;
+    this.lastBattleAnnouncement =
+      `${summaryText} ` +
+      `Cities B:${battleEndedUpdate.blueCities} R:${battleEndedUpdate.redCities} | ` +
+      `Units B:${battleEndedUpdate.blueUnits} R:${battleEndedUpdate.redUnits}`;
+    this.matchPhase = 'LOBBY';
     this.refreshLobbyOverlay();
   }
 
@@ -1077,6 +1110,8 @@ class BattleScene extends Phaser.Scene {
       this.lobbyPlayers.every((player) => player.ready);
     if (this.isLobbyGeneratingMap) {
       this.lobbyActionText.setText('Generating new terrain map...');
+    } else if (this.lastBattleAnnouncement) {
+      this.lobbyActionText.setText(this.lastBattleAnnouncement);
     } else if (!hasBothTeams) {
       this.lobbyActionText.setText('Waiting for one player on each team.');
     } else if (!everyoneReady) {
@@ -1115,6 +1150,7 @@ class BattleScene extends Phaser.Scene {
     this.matchPhase = 'LOBBY';
     this.localLobbyReady = false;
     this.isLobbyGeneratingMap = false;
+    this.lastBattleAnnouncement = null;
     this.lobbyPlayers = [];
     this.localSessionId = null;
     this.resetPointerInteractionState();

@@ -64,6 +64,16 @@ type LobbyStateMessage = {
   mapRevision: number;
   isGeneratingMap: boolean;
 };
+type BattleEndReason = "NO_UNITS" | "NO_CITIES" | "TIEBREAKER";
+type BattleEndedMessage = {
+  winner: PlayerTeam | "DRAW";
+  loser: PlayerTeam | null;
+  reason: BattleEndReason;
+  blueUnits: number;
+  redUnits: number;
+  blueCities: number;
+  redCities: number;
+};
 type UnitMovementState = {
   destinationCell: GridCoordinate | null;
   queuedCells: GridCoordinate[];
@@ -152,9 +162,19 @@ export class BattleRoom extends Room<BattleState> {
       if (cityOwnershipChanged) {
         this.syncCityInfluenceSources();
       }
+      const preGenerationBattleOutcome = this.getBattleOutcome();
+      if (preGenerationBattleOutcome) {
+        this.concludeBattle(preGenerationBattleOutcome);
+        return;
+      }
       const generatedCityUnits = this.updateCityUnitGeneration(deltaSeconds);
       const engagements = this.updateUnitInteractions(deltaSeconds);
       this.updateCombatRotation(deltaSeconds, engagements);
+      const battleOutcome = this.getBattleOutcome();
+      if (battleOutcome) {
+        this.concludeBattle(battleOutcome);
+        return;
+      }
       this.updateInfluenceGrid(cityOwnershipChanged || generatedCityUnits > 0);
     }, GAMEPLAY_CONFIG.network.positionSyncIntervalMs);
 
@@ -1225,7 +1245,15 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
-  private applyLobbyMapSelection(mapId: string): void {
+  private applyLobbyMapSelection(
+    mapId: string,
+    options?: {
+      incrementMapRevision?: boolean;
+      resetReadyStates?: boolean;
+    },
+  ): void {
+    const incrementMapRevision = options?.incrementMapRevision ?? true;
+    const resetReadyStates = options?.resetReadyStates ?? true;
     this.state.mapId = mapId;
     this.applyMapIdToRuntimeTerrain(mapId);
     this.refreshNeutralCityCells();
@@ -1233,14 +1261,18 @@ export class BattleRoom extends Room<BattleState> {
     this.state.blueCityOwner = "BLUE";
     this.resetNeutralCityOwnership();
     this.resetCityUnitGenerationState();
-    this.resetLobbyReadyStates();
+    if (resetReadyStates) {
+      this.resetLobbyReadyStates();
+    }
     this.clearUnits();
     this.syncCityInfluenceSources();
     this.spawnTestUnits();
     this.clearInfluenceGrid();
     this.updateInfluenceGrid(true);
     this.simulationFrame = 0;
-    this.mapRevision += 1;
+    if (incrementMapRevision) {
+      this.mapRevision += 1;
+    }
   }
 
   private getGeneratedMapId(): string {
@@ -1771,6 +1803,114 @@ export class BattleRoom extends Room<BattleState> {
         );
       }
     }
+  }
+
+  private getAliveUnitCount(team: PlayerTeam): number {
+    let aliveUnits = 0;
+    for (const unit of this.state.units.values()) {
+      if (unit.health <= 0) {
+        continue;
+      }
+      if (unit.team.toUpperCase() === team) {
+        aliveUnits += 1;
+      }
+    }
+    return aliveUnits;
+  }
+
+  private getOwnedCityCount(team: PlayerTeam): number {
+    let ownedCities = 0;
+    if (this.getCityOwner("RED") === team) {
+      ownedCities += 1;
+    }
+    if (this.getCityOwner("BLUE") === team) {
+      ownedCities += 1;
+    }
+    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
+      if (this.getNeutralCityOwner(index) === team) {
+        ownedCities += 1;
+      }
+    }
+    return ownedCities;
+  }
+
+  private getBattleOutcome(): BattleEndedMessage | null {
+    if (this.matchPhase !== "BATTLE") {
+      return null;
+    }
+
+    const blueUnits = this.getAliveUnitCount("BLUE");
+    const redUnits = this.getAliveUnitCount("RED");
+    const blueCities = this.getOwnedCityCount("BLUE");
+    const redCities = this.getOwnedCityCount("RED");
+
+    const blueDefeatedByUnits = blueUnits <= 0;
+    const redDefeatedByUnits = redUnits <= 0;
+    const blueDefeatedByCities = blueCities <= 0;
+    const redDefeatedByCities = redCities <= 0;
+    const blueDefeated = blueDefeatedByUnits || blueDefeatedByCities;
+    const redDefeated = redDefeatedByUnits || redDefeatedByCities;
+
+    if (!blueDefeated && !redDefeated) {
+      return null;
+    }
+
+    const createOutcome = (
+      winner: PlayerTeam | "DRAW",
+      loser: PlayerTeam | null,
+      reason: BattleEndReason,
+    ): BattleEndedMessage => ({
+      winner,
+      loser,
+      reason,
+      blueUnits,
+      redUnits,
+      blueCities,
+      redCities,
+    });
+
+    if (blueDefeated && !redDefeated) {
+      return createOutcome(
+        "RED",
+        "BLUE",
+        blueDefeatedByUnits ? "NO_UNITS" : "NO_CITIES",
+      );
+    }
+
+    if (redDefeated && !blueDefeated) {
+      return createOutcome(
+        "BLUE",
+        "RED",
+        redDefeatedByUnits ? "NO_UNITS" : "NO_CITIES",
+      );
+    }
+
+    if (blueCities !== redCities) {
+      return blueCities > redCities
+        ? createOutcome("BLUE", "RED", "TIEBREAKER")
+        : createOutcome("RED", "BLUE", "TIEBREAKER");
+    }
+
+    if (blueUnits !== redUnits) {
+      return blueUnits > redUnits
+        ? createOutcome("BLUE", "RED", "TIEBREAKER")
+        : createOutcome("RED", "BLUE", "TIEBREAKER");
+    }
+
+    return createOutcome("DRAW", null, "TIEBREAKER");
+  }
+
+  private concludeBattle(outcome: BattleEndedMessage): void {
+    this.broadcast("battleEnded", outcome);
+    this.matchPhase = "LOBBY";
+    this.applyLobbyMapSelection(this.state.mapId, {
+      incrementMapRevision: false,
+      resetReadyStates: true,
+    });
+    this.broadcastLobbyState();
+    console.log(
+      `Battle ended. Winner: ${outcome.winner} (reason: ${outcome.reason}).`,
+    );
   }
 
   private getLobbyPlayersSnapshot(): LobbyPlayerSnapshot[] {
