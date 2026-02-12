@@ -19,6 +19,7 @@ import {
   syncCityGenerationTimers as syncCityGenerationTimersSystem,
   updateCityUnitGeneration as updateCityUnitGenerationSystem,
 } from "../systems/cities/CitySpawnSystem.js";
+import { buildCityInfluenceSources } from "../systems/cities/CityInfluenceSourceSync.js";
 import {
   updateCityOwnershipFromOccupancy as updateCityOwnershipFromOccupancySystem,
 } from "../systems/cities/CityControlSystem.js";
@@ -28,6 +29,15 @@ import {
   normalizePathWaypoints,
 } from "../systems/movement/MovementCommandRouter.js";
 import { simulateMovementTick } from "../systems/movement/MovementSimulation.js";
+import {
+  getUnitMoraleAdvantageNormalized,
+  getUnitMoraleScore as getUnitMoraleScoreSystem,
+  updateUnitMoraleScores as updateUnitMoraleScoresSystem,
+} from "../systems/morale/MoraleSystem.js";
+import {
+  getUnitContactDps as getUnitContactDpsSystem,
+  getUnitHealthMitigationMultiplier as getUnitHealthMitigationMultiplierSystem,
+} from "../systems/morale/moraleMath.js";
 import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
@@ -330,10 +340,6 @@ export class BattleRoom extends Room<BattleState> {
     };
   }
 
-  private getTeamSign(team: string): 1 | -1 {
-    return team.toUpperCase() === "BLUE" ? 1 : -1;
-  }
-
   private getInfluenceScoreAtPoint(x: number, y: number): number {
     const grid = this.state.influenceGrid;
     const colBasis = x / BattleRoom.CELL_WIDTH - 0.5;
@@ -364,85 +370,6 @@ export class BattleRoom extends Room<BattleState> {
       return 0;
     }
     return value;
-  }
-
-  private getUnitMoraleScore(unit: Unit): number {
-    const sampleCenter = this.worldToGridCoordinate(unit.x, unit.y);
-    const grid = this.state.influenceGrid;
-    const teamSign = this.getTeamSign(unit.team);
-    const sampleRadius = BattleRoom.MORALE_SAMPLE_RADIUS;
-    let friendlyDots = 0;
-    let sampledCells = 0;
-
-    for (let rowOffset = -sampleRadius; rowOffset <= sampleRadius; rowOffset += 1) {
-      for (let colOffset = -sampleRadius; colOffset <= sampleRadius; colOffset += 1) {
-        const sampleCol = this.clamp(
-          sampleCenter.col + colOffset,
-          0,
-          grid.width - 1,
-        );
-        const sampleRow = this.clamp(
-          sampleCenter.row + rowOffset,
-          0,
-          grid.height - 1,
-        );
-        const cellScore = this.getInfluenceScoreAtCell(sampleCol, sampleRow);
-        const alignedCellScore = cellScore * teamSign;
-        if (alignedCellScore >= 0) {
-          friendlyDots += 1;
-        }
-        sampledCells += 1;
-      }
-    }
-
-    if (sampledCells <= 0) {
-      return 0;
-    }
-
-    const baseMoraleScore =
-      (friendlyDots / sampledCells) * BattleRoom.MORALE_MAX_SCORE;
-    const terrainMoraleMultiplier =
-      this.getTerrainMoraleMultiplierAtCell(sampleCenter);
-    const moraleScore = baseMoraleScore * terrainMoraleMultiplier;
-    return this.clamp(moraleScore, 0, BattleRoom.MORALE_MAX_SCORE);
-  }
-
-  private getMoraleAdvantageNormalized(unit: Unit): number {
-    const rawMoraleScore = Number.isFinite(unit.moraleScore)
-      ? unit.moraleScore
-      : this.getUnitMoraleScore(unit);
-    return this.clamp(rawMoraleScore / BattleRoom.MORALE_MAX_SCORE, 0, 1);
-  }
-
-  private getInfluenceBuffMultiplier(
-    influenceAdvantage: number,
-    influenceMultiplier: number,
-  ): number {
-    return 1 + influenceAdvantage * influenceMultiplier;
-  }
-
-  private getUnitContactDps(influenceAdvantage: number): number {
-    const baseDps = Math.max(0, this.runtimeTuning.baseContactDps);
-    return (
-      baseDps *
-      this.getInfluenceBuffMultiplier(
-        influenceAdvantage,
-        this.runtimeTuning.dpsInfluenceMultiplier,
-      )
-    );
-  }
-
-  private getUnitHealthMitigationMultiplier(influenceAdvantage: number): number {
-    return this.getInfluenceBuffMultiplier(
-      influenceAdvantage,
-      this.runtimeTuning.healthInfluenceMultiplier,
-    );
-  }
-
-  private updateUnitMoraleScores(units: Unit[]): void {
-    for (const unit of units) {
-      unit.moraleScore = this.getUnitMoraleScore(unit);
-    }
   }
 
   private gridToWorldCenter(cell: GridCoordinate): Vector2 {
@@ -701,41 +628,17 @@ export class BattleRoom extends Room<BattleState> {
       this.runtimeTuning.unitInfluenceMultiplier *
       this.runtimeTuning.cityInfluenceUnitsEquivalent;
 
-    const staticSources: Array<{
-      x: number;
-      y: number;
-      power: number;
-      team: PlayerTeam;
-    }> = [
-      {
-        x: redCityPosition.x,
-        y: redCityPosition.y,
-        power: cityPower,
-        team: redCityOwner,
-      },
-      {
-        x: blueCityPosition.x,
-        y: blueCityPosition.y,
-        power: cityPower,
-        team: blueCityOwner,
-      },
-    ];
-
-    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
-      const cityCell = this.getNeutralCityCell(index);
-      const owner = this.getNeutralCityOwner(index);
-      if (!cityCell || owner === "NEUTRAL") {
-        continue;
-      }
-
-      const cityPosition = this.gridToWorldCenter(cityCell);
-      staticSources.push({
-        x: cityPosition.x,
-        y: cityPosition.y,
-        power: cityPower,
-        team: owner,
-      });
-    }
+    const staticSources = buildCityInfluenceSources({
+      redCityPosition,
+      blueCityPosition,
+      redCityOwner,
+      blueCityOwner,
+      neutralCityCount: this.neutralCityCells.length,
+      getNeutralCityCell: (index) => this.getNeutralCityCell(index),
+      getNeutralCityOwner: (index) => this.getNeutralCityOwner(index),
+      gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
+      cityPower,
+    });
 
     this.influenceGridSystem.setStaticInfluenceSources(staticSources);
   }
@@ -1164,6 +1067,19 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateUnitInteractions(deltaSeconds: number): Map<string, Set<string>> {
+    const getUnitMoraleScore = (unit: Unit): number =>
+      getUnitMoraleScoreSystem({
+        unit,
+        moraleSampleRadius: BattleRoom.MORALE_SAMPLE_RADIUS,
+        moraleMaxScore: BattleRoom.MORALE_MAX_SCORE,
+        gridWidth: this.state.influenceGrid.width,
+        gridHeight: this.state.influenceGrid.height,
+        worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
+        getInfluenceScoreAtCell: (col, row) => this.getInfluenceScoreAtCell(col, row),
+        getTerrainMoraleMultiplierAtCell: (cell) =>
+          this.getTerrainMoraleMultiplierAtCell(cell),
+      });
+
     return updateUnitInteractionsSystem({
       deltaSeconds,
       unitsById: this.state.units,
@@ -1171,13 +1087,25 @@ export class BattleRoom extends Room<BattleState> {
       gridContactDistance: BattleRoom.GRID_CONTACT_DISTANCE,
       ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
       clearMovementForUnit: (unitId) => this.clearMovementForUnit(unitId),
-      updateUnitMoraleScores: (units) => this.updateUnitMoraleScores(units),
+      updateUnitMoraleScores: (units) =>
+        updateUnitMoraleScoresSystem(units, getUnitMoraleScore),
       getMoraleAdvantageNormalized: (unit) =>
-        this.getMoraleAdvantageNormalized(unit),
+        getUnitMoraleAdvantageNormalized(
+          unit,
+          BattleRoom.MORALE_MAX_SCORE,
+          getUnitMoraleScore,
+        ),
       getUnitContactDps: (influenceAdvantage) =>
-        this.getUnitContactDps(influenceAdvantage),
+        getUnitContactDpsSystem(
+          this.runtimeTuning.baseContactDps,
+          influenceAdvantage,
+          this.runtimeTuning.dpsInfluenceMultiplier,
+        ),
       getUnitHealthMitigationMultiplier: (influenceAdvantage) =>
-        this.getUnitHealthMitigationMultiplier(influenceAdvantage),
+        getUnitHealthMitigationMultiplierSystem(
+          influenceAdvantage,
+          this.runtimeTuning.healthInfluenceMultiplier,
+        ),
     });
   }
 

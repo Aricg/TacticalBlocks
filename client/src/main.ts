@@ -29,6 +29,11 @@ import { BattleInputController } from './BattleInputController';
 import { FogOfWarController } from './FogOfWarController';
 import { InfluenceRenderer } from './InfluenceRenderer';
 import {
+  deriveLobbyState,
+  getSteppedLobbyMapId,
+  resolveLobbyMapId,
+} from './LobbyFlowController';
+import {
   LobbyOverlayController,
   type LobbyOverlayPlayerView,
 } from './LobbyOverlayController';
@@ -489,21 +494,6 @@ class BattleScene extends Phaser.Scene {
     ).activeMapId = mapId;
   }
 
-  private getResolvedLobbyMapId(requestedMapId: string): string {
-    if (resolveMapImageById(requestedMapId)) {
-      return requestedMapId;
-    }
-
-    const firstLobbyMapIdWithImage = this.availableMapIds.find((mapId) =>
-      Boolean(resolveMapImageById(mapId)),
-    );
-    if (firstLobbyMapIdWithImage) {
-      return firstLobbyMapIdWithImage;
-    }
-
-    return resolveInitialMapId();
-  }
-
   private reloadMapTexture(mapId: string, revision: number): void {
     const imagePath = resolveMapImageById(mapId);
     if (!imagePath) {
@@ -534,7 +524,12 @@ class BattleScene extends Phaser.Scene {
     requestedMapId: string,
     forceTextureReload = false,
   ): void {
-    const nextMapId = this.getResolvedLobbyMapId(requestedMapId);
+    const nextMapId = resolveLobbyMapId({
+      requestedMapId,
+      availableMapIds: this.availableMapIds,
+      hasMapImage: (mapId) => Boolean(resolveMapImageById(mapId)),
+      resolveFallbackMapId: () => resolveInitialMapId(),
+    });
     this.selectedLobbyMapId = nextMapId;
     if (nextMapId === this.activeMapId && !forceTextureReload) {
       return;
@@ -572,17 +567,15 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const mapIds = this.availableMapIds.filter((mapId) =>
-      Boolean(resolveMapImageById(mapId)),
-    );
-    if (mapIds.length === 0) {
+    const nextMapId = getSteppedLobbyMapId({
+      selectedLobbyMapId: this.selectedLobbyMapId,
+      availableMapIds: this.availableMapIds,
+      step,
+      hasMapImage: (mapId) => Boolean(resolveMapImageById(mapId)),
+    });
+    if (!nextMapId) {
       return;
     }
-
-    const currentIndex = mapIds.indexOf(this.selectedLobbyMapId);
-    const startIndex = currentIndex >= 0 ? currentIndex : 0;
-    const nextIndex = (startIndex + step + mapIds.length) % mapIds.length;
-    const nextMapId = mapIds[nextIndex];
 
     this.selectedLobbyMapId = nextMapId;
     this.networkManager.sendLobbySelectMap(nextMapId);
@@ -647,35 +640,27 @@ class BattleScene extends Phaser.Scene {
   }
 
   private applyLobbyState(lobbyStateUpdate: NetworkLobbyStateUpdate): void {
-    const nextPhase = lobbyStateUpdate.phase === 'BATTLE' ? 'BATTLE' : 'LOBBY';
     const previousPhase = this.matchPhase;
+    const lobbyState = deriveLobbyState({
+      lobbyStateUpdate,
+      previousMapRevision: this.lobbyMapRevision,
+      activeMapId: this.activeMapId,
+      selectedLobbyMapId: this.selectedLobbyMapId,
+      fallbackAvailableMapIds: GAMEPLAY_CONFIG.map.availableMapIds,
+      normalizeTeam: (teamValue) => this.normalizeTeam(teamValue),
+    });
 
-    this.matchPhase = nextPhase;
-    this.localSessionId = lobbyStateUpdate.selfSessionId;
-    const previousMapRevision = this.lobbyMapRevision;
-    this.lobbyMapRevision = lobbyStateUpdate.mapRevision;
-    this.isLobbyGeneratingMap = lobbyStateUpdate.isGeneratingMap;
-    this.availableMapIds =
-      lobbyStateUpdate.availableMapIds.length > 0
-        ? [...lobbyStateUpdate.availableMapIds]
-        : [...GAMEPLAY_CONFIG.map.availableMapIds];
-    const forceTextureReload =
-      this.lobbyMapRevision !== previousMapRevision &&
-      lobbyStateUpdate.mapId === this.activeMapId;
+    this.matchPhase = lobbyState.nextPhase;
+    this.localSessionId = lobbyState.localSessionId;
+    this.lobbyMapRevision = lobbyState.lobbyMapRevision;
+    this.isLobbyGeneratingMap = lobbyState.isLobbyGeneratingMap;
+    this.availableMapIds = lobbyState.availableMapIds;
     this.applySelectedLobbyMap(
-      lobbyStateUpdate.mapId || this.selectedLobbyMapId,
-      forceTextureReload,
+      lobbyState.requestedMapId,
+      lobbyState.forceTextureReload,
     );
-    this.lobbyPlayers = lobbyStateUpdate.players.map((player) => ({
-      sessionId: player.sessionId,
-      team: this.normalizeTeam(player.team),
-      ready: player.ready,
-    }));
-
-    const localLobbyPlayer = this.localSessionId
-      ? this.lobbyPlayers.find((player) => player.sessionId === this.localSessionId)
-      : undefined;
-    this.localLobbyReady = localLobbyPlayer?.ready ?? false;
+    this.lobbyPlayers = lobbyState.lobbyPlayers;
+    this.localLobbyReady = lobbyState.localLobbyReady;
 
     if (previousPhase !== this.matchPhase) {
       this.resetPointerInteractionState();

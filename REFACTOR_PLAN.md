@@ -103,8 +103,8 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
 - Progress:
   - [x] engagement accumulation + pending damage application extracted.
   - [x] combat rotation pass extracted.
-  - [ ] morale sampling/normalization extraction pending.
-  - [ ] influence-based DPS/mitigation extraction pending.
+  - [x] morale sampling/normalization extracted.
+  - [x] influence-based DPS/mitigation extracted.
 - Candidate modules:
   - `server/src/systems/morale/MoraleSystem.ts`
   - `server/src/systems/morale/moraleMath.ts`
@@ -121,6 +121,8 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
 - Keep room wiring central but thin:
   - message handlers stay in room, delegate quickly to systems/services
   - preserve explicit authorization and match-phase guards
+- Progress:
+  - [x] room handlers keep auth/phase guards and delegate movement/city/combat work to extracted systems.
 - Preserve current simulation tick order from baseline notes.
 - Avoid broad rewrites here; this is a consolidation slice.
 
@@ -131,6 +133,9 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - `applySelectedLobbyMap`
   - `applyLobbyState`
   - `requestLobbyMapStep` / random / generate
+- Progress:
+  - [x] lobby map id resolution/stepping/state-derive logic extracted to `client/src/LobbyFlowController.ts`.
+  - [ ] scene-side map texture reload/apply side effects still live in `main.ts` (orchestration layer).
 - Candidate module:
   - `client/src/LobbyFlowController.ts`
 - Preserve:
@@ -185,8 +190,8 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
 3. [x] Server movement extraction 1.1b (route construction).
 4. [x] Server movement extraction 1.1c (simulation loop).
 5. [x] Server city ownership/spawn extraction (Slice 1.2).
-6. Server morale/combat extraction (Slice 1.3).
-7. Server room wiring consolidation (Slice 1.4).
+6. [x] Server morale/combat extraction (Slice 1.3).
+7. [x] Server room wiring consolidation (Slice 1.4).
 8. Client map/lobby flow extraction (Slice 2.1).
 9. Client unit command planning extraction (Slice 2.2).
 10. Client network apply layer refinement (Slice 2.3).
