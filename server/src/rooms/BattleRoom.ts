@@ -6,6 +6,28 @@ import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
 import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
+import {
+  updateCombatRotation as updateCombatRotationSystem,
+  updateUnitInteractions as updateUnitInteractionsSystem,
+} from "../systems/combat/ContactCombatSystem.js";
+import {
+  allocateGeneratedCityUnitId as allocateGeneratedCityUnitIdSystem,
+  collectCitySpawnSources,
+  createSpawnedCityUnit,
+  findOpenSpawnCellNearCity as findOpenSpawnCellNearCitySystem,
+  getSpawnRotationForTeam as getSpawnRotationForTeamSystem,
+  syncCityGenerationTimers as syncCityGenerationTimersSystem,
+  updateCityUnitGeneration as updateCityUnitGenerationSystem,
+} from "../systems/cities/CitySpawnSystem.js";
+import {
+  updateCityOwnershipFromOccupancy as updateCityOwnershipFromOccupancySystem,
+} from "../systems/cities/CityControlSystem.js";
+import { isTerrainBlocked } from "../systems/movement/gridPathing.js";
+import {
+  buildTerrainAwareRoute,
+  normalizePathWaypoints,
+} from "../systems/movement/MovementCommandRouter.js";
+import { simulateMovementTick } from "../systems/movement/MovementSimulation.js";
 import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
@@ -438,59 +460,6 @@ export class BattleRoom extends Room<BattleState> {
     return cell;
   }
 
-  private gridKey(cell: GridCoordinate): string {
-    return `${cell.col}:${cell.row}`;
-  }
-
-  private addOccupancy(
-    occupiedByCellKey: Map<string, Set<string>>,
-    cell: GridCoordinate,
-    unitId: string,
-  ): void {
-    const key = this.gridKey(cell);
-    const set = occupiedByCellKey.get(key);
-    if (set) {
-      set.add(unitId);
-      return;
-    }
-
-    occupiedByCellKey.set(key, new Set([unitId]));
-  }
-
-  private removeOccupancy(
-    occupiedByCellKey: Map<string, Set<string>>,
-    cell: GridCoordinate,
-    unitId: string,
-  ): void {
-    const key = this.gridKey(cell);
-    const set = occupiedByCellKey.get(key);
-    if (!set) {
-      return;
-    }
-
-    set.delete(unitId);
-    if (set.size === 0) {
-      occupiedByCellKey.delete(key);
-    }
-  }
-
-  private isDestinationBlocked(
-    occupiedByCellKey: Map<string, Set<string>>,
-    destinationCell: GridCoordinate,
-    unitId: string,
-  ): boolean {
-    const destinationSet = occupiedByCellKey.get(this.gridKey(destinationCell));
-    if (!destinationSet) {
-      return false;
-    }
-
-    return !(destinationSet.size === 1 && destinationSet.has(unitId));
-  }
-
-  private isTerrainBlocked(cell: GridCoordinate): boolean {
-    return this.getTerrainTypeAtCell(cell) === "mountains";
-  }
-
   private getTerrainTypeAtCell(cell: GridCoordinate): TerrainType {
     return getGridCellTerrainType(cell.col, cell.row);
   }
@@ -503,60 +472,6 @@ export class BattleRoom extends Room<BattleState> {
   private getTerrainMoraleMultiplierAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
     return BattleRoom.TERRAIN_MORALE_MULTIPLIER[terrainType] ?? 1.0;
-  }
-
-  private traceGridLine(
-    start: GridCoordinate,
-    end: GridCoordinate,
-  ): GridCoordinate[] {
-    const points: GridCoordinate[] = [];
-    let x0 = start.col;
-    let y0 = start.row;
-    const x1 = end.col;
-    const y1 = end.row;
-
-    const dx = Math.abs(x1 - x0);
-    const sx = x0 < x1 ? 1 : -1;
-    const dy = -Math.abs(y1 - y0);
-    const sy = y0 < y1 ? 1 : -1;
-    let error = dx + dy;
-
-    while (true) {
-      points.push({ col: x0, row: y0 });
-      if (x0 === x1 && y0 === y1) {
-        break;
-      }
-
-      const e2 = 2 * error;
-      if (e2 >= dy) {
-        error += dy;
-        x0 += sx;
-      }
-      if (e2 <= dx) {
-        error += dx;
-        y0 += sy;
-      }
-    }
-
-    return points;
-  }
-
-  private compactGridCoordinates(path: GridCoordinate[]): GridCoordinate[] {
-    if (path.length <= 1) {
-      return path;
-    }
-
-    const compacted: GridCoordinate[] = [path[0]];
-    for (let i = 1; i < path.length; i += 1) {
-      const next = path[i];
-      const previous = compacted[compacted.length - 1];
-      if (next.col === previous.col && next.row === previous.row) {
-        continue;
-      }
-      compacted.push(next);
-    }
-
-    return compacted;
   }
 
   private updateInfluenceGrid(force = false): void {
@@ -645,45 +560,16 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateCityOwnershipFromOccupancy(): boolean {
-    let changed = false;
-    const homeCities: PlayerTeam[] = ["RED", "BLUE"];
-    for (const homeCity of homeCities) {
-      const cityCell = this.getCityCell(homeCity);
-      const occupyingTeam = this.getOccupyingTeamAtCell(cityCell);
-      if (!occupyingTeam) {
-        continue;
-      }
-
-      const currentOwner = this.getCityOwner(homeCity);
-      if (occupyingTeam === currentOwner) {
-        continue;
-      }
-
-      this.setCityOwner(homeCity, occupyingTeam);
-      changed = true;
-    }
-
-    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
-      const cityCell = this.getNeutralCityCell(index);
-      if (!cityCell) {
-        continue;
-      }
-
-      const occupyingTeam = this.getOccupyingTeamAtCell(cityCell);
-      if (!occupyingTeam) {
-        continue;
-      }
-
-      const currentOwner = this.getNeutralCityOwner(index);
-      if (occupyingTeam === currentOwner) {
-        continue;
-      }
-
-      this.setNeutralCityOwner(index, occupyingTeam);
-      changed = true;
-    }
-
-    return changed;
+    return updateCityOwnershipFromOccupancySystem({
+      getOccupyingTeamAtCell: (targetCell) => this.getOccupyingTeamAtCell(targetCell),
+      getCityCell: (homeCity) => this.getCityCell(homeCity),
+      getCityOwner: (homeCity) => this.getCityOwner(homeCity),
+      setCityOwner: (homeCity, owner) => this.setCityOwner(homeCity, owner),
+      neutralCityCount: this.neutralCityCells.length,
+      getNeutralCityCell: (index) => this.getNeutralCityCell(index),
+      getNeutralCityOwner: (index) => this.getNeutralCityOwner(index),
+      setNeutralCityOwner: (index, owner) => this.setNeutralCityOwner(index, owner),
+    });
   }
 
   private resetCityUnitGenerationState(): void {
@@ -700,57 +586,21 @@ export class BattleRoom extends Room<BattleState> {
     this.syncCityGenerationTimers();
   }
 
-  private getHomeCitySpawnSourceId(homeCity: PlayerTeam): string {
-    return `home:${homeCity}`;
-  }
-
-  private getNeutralCitySpawnSourceId(index: number): string {
-    return `neutral:${index}`;
-  }
-
   private getCitySpawnSources(): CitySpawnSource[] {
-    const sources: CitySpawnSource[] = [];
-    const homeCities: PlayerTeam[] = ["RED", "BLUE"];
-    for (const homeCity of homeCities) {
-      sources.push({
-        sourceId: this.getHomeCitySpawnSourceId(homeCity),
-        owner: this.getCityOwner(homeCity),
-        cityCell: this.getCityCell(homeCity),
-      });
-    }
-
-    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
-      const owner = this.getNeutralCityOwner(index);
-      const cityCell = this.getNeutralCityCell(index);
-      if (!cityCell) {
-        continue;
-      }
-
-      sources.push({
-        sourceId: this.getNeutralCitySpawnSourceId(index),
-        owner,
-        cityCell,
-      });
-    }
-
-    return sources;
+    return collectCitySpawnSources({
+      neutralCityCount: this.neutralCityCells.length,
+      getCityOwner: (homeCity) => this.getCityOwner(homeCity),
+      getCityCell: (homeCity) => this.getCityCell(homeCity),
+      getNeutralCityOwner: (index) => this.getNeutralCityOwner(index),
+      getNeutralCityCell: (index) => this.getNeutralCityCell(index),
+    });
   }
 
   private syncCityGenerationTimers(): void {
-    const sources = this.getCitySpawnSources();
-    const validSourceIds = new Set<string>();
-    for (const source of sources) {
-      validSourceIds.add(source.sourceId);
-      if (!this.cityGenerationElapsedSecondsBySourceId.has(source.sourceId)) {
-        this.cityGenerationElapsedSecondsBySourceId.set(source.sourceId, 0);
-      }
-    }
-
-    for (const sourceId of this.cityGenerationElapsedSecondsBySourceId.keys()) {
-      if (!validSourceIds.has(sourceId)) {
-        this.cityGenerationElapsedSecondsBySourceId.delete(sourceId);
-      }
-    }
+    syncCityGenerationTimersSystem(
+      this.cityGenerationElapsedSecondsBySourceId,
+      this.getCitySpawnSources(),
+    );
   }
 
   private isCellOccupiedByActiveUnit(targetCell: GridCoordinate): boolean {
@@ -769,87 +619,46 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private isCitySpawnCellOpen(targetCell: GridCoordinate): boolean {
-    if (this.isTerrainBlocked(targetCell)) {
+    if (isTerrainBlocked(targetCell)) {
       return false;
     }
     return !this.isCellOccupiedByActiveUnit(targetCell);
   }
 
   private findOpenSpawnCellNearCity(cityCell: GridCoordinate): GridCoordinate | null {
-    const visitedCellKeys = new Set<string>();
-    for (
-      let radius = 0;
-      radius <= BattleRoom.CITY_SPAWN_SEARCH_RADIUS;
-      radius += 1
-    ) {
-      for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
-        for (let colOffset = -radius; colOffset <= radius; colOffset += 1) {
-          if (
-            radius > 0 &&
-            Math.max(Math.abs(colOffset), Math.abs(rowOffset)) !== radius
-          ) {
-            continue;
-          }
-
-          const candidateCell: GridCoordinate = {
-            col: this.clamp(
-              cityCell.col + colOffset,
-              0,
-              BattleRoom.GRID_WIDTH - 1,
-            ),
-            row: this.clamp(
-              cityCell.row + rowOffset,
-              0,
-              BattleRoom.GRID_HEIGHT - 1,
-            ),
-          };
-          const candidateKey = this.gridKey(candidateCell);
-          if (visitedCellKeys.has(candidateKey)) {
-            continue;
-          }
-          visitedCellKeys.add(candidateKey);
-
-          if (!this.isCitySpawnCellOpen(candidateCell)) {
-            continue;
-          }
-
-          return candidateCell;
-        }
-      }
-    }
-
-    return null;
+    return findOpenSpawnCellNearCitySystem({
+      cityCell,
+      searchRadius: BattleRoom.CITY_SPAWN_SEARCH_RADIUS,
+      gridWidth: BattleRoom.GRID_WIDTH,
+      gridHeight: BattleRoom.GRID_HEIGHT,
+      isCitySpawnCellOpen: (targetCell) => this.isCitySpawnCellOpen(targetCell),
+    });
   }
 
   private allocateGeneratedCityUnitId(team: PlayerTeam): string {
-    const teamPrefix = team.toLowerCase();
-    let unitId = "";
-    while (unitId.length === 0 || this.state.units.has(unitId)) {
-      const nextSequence = this.generatedUnitSequenceByTeam[team];
-      unitId = `city-${teamPrefix}-${nextSequence}`;
-      this.generatedUnitSequenceByTeam[team] = nextSequence + 1;
-    }
-    return unitId;
+    return allocateGeneratedCityUnitIdSystem(
+      team,
+      this.generatedUnitSequenceByTeam,
+      (unitId) => this.state.units.has(unitId),
+    );
   }
 
   private getSpawnRotationForTeam(team: PlayerTeam, spawnPosition: Vector2): number {
-    const enemyHomeCity: PlayerTeam = team === "BLUE" ? "RED" : "BLUE";
-    const enemyCityPosition = this.getCityWorldPosition(enemyHomeCity);
-    const angleToEnemyHomeCity = Math.atan2(
-      enemyCityPosition.y - spawnPosition.y,
-      enemyCityPosition.x - spawnPosition.x,
+    return getSpawnRotationForTeamSystem(
+      team,
+      spawnPosition,
+      (homeCity) => this.getCityWorldPosition(homeCity),
+      BattleRoom.UNIT_FORWARD_OFFSET,
     );
-    return angleToEnemyHomeCity - BattleRoom.UNIT_FORWARD_OFFSET;
   }
 
   private spawnCityUnit(team: PlayerTeam, spawnCell: GridCoordinate): void {
     const spawnPosition = this.gridToWorldCenter(spawnCell);
     const unitId = this.allocateGeneratedCityUnitId(team);
-    const spawnedUnit = new Unit(
+    const spawnedUnit = createSpawnedCityUnit(
       unitId,
-      team.toLowerCase(),
-      spawnPosition.x,
-      spawnPosition.y,
+      team,
+      spawnPosition,
       this.getSpawnRotationForTeam(team, spawnPosition),
       this.runtimeTuning.baseUnitHealth,
     );
@@ -870,35 +679,16 @@ export class BattleRoom extends Room<BattleState> {
       this.runtimeTuning.cityUnitGenerationIntervalSeconds,
     );
     this.syncCityGenerationTimers();
-    const spawnSources = this.getCitySpawnSources();
-    let totalSpawnedUnits = 0;
-    for (const source of spawnSources) {
-      let elapsedSeconds =
-        this.cityGenerationElapsedSecondsBySourceId.get(source.sourceId) ?? 0;
-      elapsedSeconds += deltaSeconds;
-
-      while (elapsedSeconds >= generationIntervalSeconds) {
-        elapsedSeconds -= generationIntervalSeconds;
-        if (source.owner === "NEUTRAL") {
-          continue;
-        }
-
-        const spawnCell = this.findOpenSpawnCellNearCity(source.cityCell);
-        if (!spawnCell) {
-          continue;
-        }
-
-        this.spawnCityUnit(source.owner, spawnCell);
-        totalSpawnedUnits += 1;
-      }
-
-      this.cityGenerationElapsedSecondsBySourceId.set(
-        source.sourceId,
-        elapsedSeconds,
-      );
-    }
-
-    return totalSpawnedUnits;
+    return updateCityUnitGenerationSystem({
+      deltaSeconds,
+      generationIntervalSeconds,
+      cityGenerationElapsedSecondsBySourceId:
+        this.cityGenerationElapsedSecondsBySourceId,
+      spawnSources: this.getCitySpawnSources(),
+      findOpenSpawnCellNearCity: (cityCell) =>
+        this.findOpenSpawnCellNearCity(cityCell),
+      spawnCityUnit: (team, spawnCell) => this.spawnCityUnit(team, spawnCell),
+    });
   }
 
   private syncCityInfluenceSources(): void {
@@ -1287,17 +1077,9 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const normalizedPath: Vector2[] = [];
-    for (const waypoint of message.path) {
-      if (
-        typeof waypoint?.x !== "number" ||
-        typeof waypoint?.y !== "number" ||
-        !Number.isFinite(waypoint.x) ||
-        !Number.isFinite(waypoint.y)
-      ) {
-        return;
-      }
-      normalizedPath.push({ x: waypoint.x, y: waypoint.y });
+    const normalizedPath = normalizePathWaypoints(message.path);
+    if (!normalizedPath) {
+      return;
     }
 
     const movementState = this.getOrCreateMovementState(unit.unitId);
@@ -1312,32 +1094,12 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const snappedTargetCells = this.compactGridCoordinates(
-      normalizedPath.map((waypoint) =>
-        this.worldToGridCoordinate(waypoint.x, waypoint.y),
-      ),
-    );
-
     const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
-    let pathCursor = { col: unitCell.col, row: unitCell.row };
-    const route: GridCoordinate[] = [];
-    let blockedByTerrain = false;
-
-    for (const targetCell of snappedTargetCells) {
-      const segment = this.traceGridLine(pathCursor, targetCell);
-      for (let i = 1; i < segment.length; i += 1) {
-        const nextCell = segment[i];
-        if (this.isTerrainBlocked(nextCell)) {
-          blockedByTerrain = true;
-          break;
-        }
-        route.push(nextCell);
-      }
-      if (blockedByTerrain) {
-        break;
-      }
-      pathCursor = targetCell;
-    }
+    const route = buildTerrainAwareRoute(
+      unitCell,
+      normalizedPath,
+      (x, y) => this.worldToGridCoordinate(x, y),
+    );
 
     if (route.length === 0) {
       this.clearMovementForUnit(unit.unitId);
@@ -1379,313 +1141,58 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateMovement(deltaSeconds: number): void {
-    if (deltaSeconds <= 0) {
-      return;
-    }
-
-    const aliveUnits: Unit[] = [];
-    const cellByUnitId = new Map<string, GridCoordinate>();
-    const occupiedByCellKey = new Map<string, Set<string>>();
-
-    for (const unit of this.state.units.values()) {
-      if (unit.health <= 0) {
-        continue;
-      }
-      this.ensureFiniteUnitState(unit);
-      const snappedCell = this.snapUnitToGrid(unit);
-      aliveUnits.push(unit);
-      cellByUnitId.set(unit.unitId, snappedCell);
-      this.addOccupancy(occupiedByCellKey, snappedCell, unit.unitId);
-    }
-
-    for (const unit of aliveUnits) {
-      const movementState = this.movementStateByUnitId.get(unit.unitId);
-      if (!movementState) {
-        continue;
-      }
-
-      if (!movementState.destinationCell && movementState.queuedCells.length > 0) {
-        movementState.destinationCell = movementState.queuedCells.shift() ?? null;
-        this.faceCurrentDestination(unit, movementState);
-      }
-
-      if (!movementState.destinationCell) {
-        continue;
-      }
-
-      const currentCell =
-        cellByUnitId.get(unit.unitId) ?? this.worldToGridCoordinate(unit.x, unit.y);
-      const terrainSpeedMultiplier =
-        this.getTerrainSpeedMultiplierAtCell(currentCell);
-      const perSecondSpeed =
-        this.runtimeTuning.unitMoveSpeed *
-        movementState.movementCommandMode.speedMultiplier *
-        terrainSpeedMultiplier;
-      if (perSecondSpeed <= 0 || !Number.isFinite(perSecondSpeed)) {
-        continue;
-      }
-
-      movementState.movementBudget += perSecondSpeed * deltaSeconds;
-
-      if (movementState.movementCommandMode.rotateToFace) {
-        const destination = this.gridToWorldCenter(movementState.destinationCell);
-        const desiredRotation =
-          Math.atan2(destination.y - unit.y, destination.x - unit.x) -
-          BattleRoom.UNIT_FORWARD_OFFSET;
-
-        if (movementState.targetRotation === null) {
-          const headingError = BattleRoom.wrapAngle(desiredRotation - unit.rotation);
-          if (Math.abs(headingError) > BattleRoom.REFACE_ANGLE_THRESHOLD) {
-            movementState.targetRotation = desiredRotation;
-          }
-        }
-
-        if (movementState.targetRotation !== null) {
-          const maxTurnStep = BattleRoom.UNIT_TURN_SPEED * deltaSeconds;
-          const angleDelta = BattleRoom.wrapAngle(
-            movementState.targetRotation - unit.rotation,
-          );
-          if (Math.abs(angleDelta) <= maxTurnStep) {
-            unit.rotation = movementState.targetRotation;
-            movementState.targetRotation = null;
-          } else {
-            unit.rotation = BattleRoom.wrapAngle(
-              unit.rotation + Math.sign(angleDelta) * maxTurnStep,
-            );
-          }
-        }
-
-        const isFacingDestination =
-          movementState.targetRotation === null ||
-          Math.abs(
-            BattleRoom.wrapAngle(movementState.targetRotation - unit.rotation),
-          ) <= BattleRoom.WAYPOINT_MOVE_ANGLE_TOLERANCE;
-        if (!isFacingDestination) {
-          continue;
-        }
-      }
-
-      while (movementState.destinationCell && movementState.movementBudget > 0) {
-        const destinationCell = movementState.destinationCell;
-        if (this.isTerrainBlocked(destinationCell)) {
-          this.clearMovementForUnit(unit.unitId);
-          break;
-        }
-        const destination = this.gridToWorldCenter(destinationCell);
-        const toTargetX = destination.x - unit.x;
-        const toTargetY = destination.y - unit.y;
-        const distance = Math.hypot(toTargetX, toTargetY);
-
-        if (distance <= 0.0001) {
-          movementState.destinationCell = movementState.queuedCells.shift() ?? null;
-          this.faceCurrentDestination(unit, movementState);
-          continue;
-        }
-
-        if (movementState.movementBudget + 0.0001 < distance) {
-          break;
-        }
-
-        if (
-          this.isDestinationBlocked(
-            occupiedByCellKey,
-            destinationCell,
-            unit.unitId,
-          )
-        ) {
-          break;
-        }
-
-        const currentCell =
-          cellByUnitId.get(unit.unitId) ?? this.worldToGridCoordinate(unit.x, unit.y);
-        this.removeOccupancy(occupiedByCellKey, currentCell, unit.unitId);
-
-        unit.x = destination.x;
-        unit.y = destination.y;
-        movementState.movementBudget -= distance;
-
-        const reachedCell = { col: destinationCell.col, row: destinationCell.row };
-        cellByUnitId.set(unit.unitId, reachedCell);
-        this.addOccupancy(occupiedByCellKey, reachedCell, unit.unitId);
-
-        movementState.destinationCell = movementState.queuedCells.shift() ?? null;
-        this.faceCurrentDestination(unit, movementState);
-
-        if (
-          movementState.movementCommandMode.rotateToFace &&
-          movementState.targetRotation !== null
-        ) {
-          const headingError = Math.abs(
-            BattleRoom.wrapAngle(movementState.targetRotation - unit.rotation),
-          );
-          if (headingError > BattleRoom.WAYPOINT_MOVE_ANGLE_TOLERANCE) {
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  private addEngagement(
-    engagements: Map<string, Set<string>>,
-    aId: string,
-    bId: string,
-  ): void {
-    const aSet = engagements.get(aId);
-    if (aSet) {
-      aSet.add(bId);
-    } else {
-      engagements.set(aId, new Set([bId]));
-    }
-
-    const bSet = engagements.get(bId);
-    if (bSet) {
-      bSet.add(aId);
-    } else {
-      engagements.set(bId, new Set([aId]));
-    }
-  }
-
-  private removeUnitFromEngagementMap(
-    engagements: Map<string, Set<string>>,
-    unitId: string,
-  ): void {
-    engagements.delete(unitId);
-    for (const peers of engagements.values()) {
-      peers.delete(unitId);
-    }
-  }
-
-  private applyPendingDamage(
-    pendingDamageByUnitId: Map<string, number>,
-    engagements: Map<string, Set<string>>,
-  ): void {
-    if (pendingDamageByUnitId.size === 0) {
-      return;
-    }
-
-    const deadUnitIds: string[] = [];
-    for (const [unitId, damage] of pendingDamageByUnitId) {
-      const unit = this.state.units.get(unitId);
-      if (!unit || unit.health <= 0) {
-        continue;
-      }
-
-      unit.health = Math.max(0, unit.health - damage);
-      if (unit.health <= 0) {
-        deadUnitIds.push(unitId);
-      }
-    }
-
-    for (const unitId of deadUnitIds) {
-      this.state.units.delete(unitId);
-      this.movementStateByUnitId.delete(unitId);
-      this.removeUnitFromEngagementMap(engagements, unitId);
-    }
+    simulateMovementTick({
+      deltaSeconds,
+      units: this.state.units.values(),
+      movementStateByUnitId: this.movementStateByUnitId,
+      unitMoveSpeed: this.runtimeTuning.unitMoveSpeed,
+      unitTurnSpeed: BattleRoom.UNIT_TURN_SPEED,
+      unitForwardOffset: BattleRoom.UNIT_FORWARD_OFFSET,
+      refaceAngleThreshold: BattleRoom.REFACE_ANGLE_THRESHOLD,
+      waypointMoveAngleTolerance: BattleRoom.WAYPOINT_MOVE_ANGLE_TOLERANCE,
+      ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
+      snapUnitToGrid: (unit) => this.snapUnitToGrid(unit),
+      worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
+      getTerrainSpeedMultiplierAtCell: (cell) =>
+        this.getTerrainSpeedMultiplierAtCell(cell),
+      gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
+      clearMovementForUnit: (unitId) => this.clearMovementForUnit(unitId),
+      faceCurrentDestination: (unit, movementState) =>
+        this.faceCurrentDestination(unit, movementState),
+      wrapAngle: (angle) => BattleRoom.wrapAngle(angle),
+    });
   }
 
   private updateUnitInteractions(deltaSeconds: number): Map<string, Set<string>> {
-    const engagements = new Map<string, Set<string>>();
-    if (deltaSeconds <= 0) {
-      return engagements;
-    }
-
-    const units = Array.from(this.state.units.values()).filter((unit) => unit.health > 0);
-    const pendingDamageByUnitId = new Map<string, number>();
-    this.updateUnitMoraleScores(units);
-
-    for (let i = 0; i < units.length; i += 1) {
-      const a = units[i];
-      this.ensureFiniteUnitState(a);
-
-      for (let j = i + 1; j < units.length; j += 1) {
-        const b = units[j];
-        this.ensureFiniteUnitState(b);
-
-        if (a.team === b.team) {
-          continue;
-        }
-
-        const distance = Math.hypot(b.x - a.x, b.y - a.y);
-        if (distance > BattleRoom.GRID_CONTACT_DISTANCE) {
-          continue;
-        }
-
-        this.clearMovementForUnit(a.unitId);
-        this.clearMovementForUnit(b.unitId);
-
-        const aMoraleAdvantage = this.getMoraleAdvantageNormalized(a);
-        const bMoraleAdvantage = this.getMoraleAdvantageNormalized(b);
-        const aContactDps = this.getUnitContactDps(aMoraleAdvantage);
-        const bContactDps = this.getUnitContactDps(bMoraleAdvantage);
-        const aHealthMitigation =
-          this.getUnitHealthMitigationMultiplier(aMoraleAdvantage);
-        const bHealthMitigation =
-          this.getUnitHealthMitigationMultiplier(bMoraleAdvantage);
-
-        const incomingDamageToA =
-          (bContactDps * deltaSeconds) /
-          Math.max(1, aHealthMitigation);
-        const incomingDamageToB =
-          (aContactDps * deltaSeconds) /
-          Math.max(1, bHealthMitigation);
-        pendingDamageByUnitId.set(
-          a.unitId,
-          (pendingDamageByUnitId.get(a.unitId) ?? 0) + incomingDamageToA,
-        );
-        pendingDamageByUnitId.set(
-          b.unitId,
-          (pendingDamageByUnitId.get(b.unitId) ?? 0) + incomingDamageToB,
-        );
-        this.addEngagement(engagements, a.unitId, b.unitId);
-      }
-    }
-
-    this.applyPendingDamage(pendingDamageByUnitId, engagements);
-    return engagements;
+    return updateUnitInteractionsSystem({
+      deltaSeconds,
+      unitsById: this.state.units,
+      movementStateByUnitId: this.movementStateByUnitId,
+      gridContactDistance: BattleRoom.GRID_CONTACT_DISTANCE,
+      ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
+      clearMovementForUnit: (unitId) => this.clearMovementForUnit(unitId),
+      updateUnitMoraleScores: (units) => this.updateUnitMoraleScores(units),
+      getMoraleAdvantageNormalized: (unit) =>
+        this.getMoraleAdvantageNormalized(unit),
+      getUnitContactDps: (influenceAdvantage) =>
+        this.getUnitContactDps(influenceAdvantage),
+      getUnitHealthMitigationMultiplier: (influenceAdvantage) =>
+        this.getUnitHealthMitigationMultiplier(influenceAdvantage),
+    });
   }
 
   private updateCombatRotation(
     deltaSeconds: number,
     engagements: Map<string, Set<string>>,
   ): void {
-    if (deltaSeconds <= 0) {
-      return;
-    }
-
-    for (const [unitId, engagedUnitIds] of engagements) {
-      if (engagedUnitIds.size === 0) {
-        continue;
-      }
-
-      const unit = this.state.units.get(unitId);
-      if (!unit || unit.health <= 0) {
-        continue;
-      }
-
-      const targetId = engagedUnitIds.values().next().value;
-      if (typeof targetId !== "string") {
-        continue;
-      }
-
-      const target = this.state.units.get(targetId);
-      if (!target || target.health <= 0) {
-        continue;
-      }
-
-      const targetAngle = Math.atan2(target.y - unit.y, target.x - unit.x);
-      const desiredRotation = targetAngle - BattleRoom.UNIT_FORWARD_OFFSET;
-      const angleDelta = BattleRoom.wrapAngle(desiredRotation - unit.rotation);
-      const maxTurnStep = BattleRoom.UNIT_TURN_SPEED * deltaSeconds;
-
-      if (Math.abs(angleDelta) <= maxTurnStep) {
-        unit.rotation = desiredRotation;
-      } else {
-        unit.rotation = BattleRoom.wrapAngle(
-          unit.rotation + Math.sign(angleDelta) * maxTurnStep,
-        );
-      }
-    }
+    updateCombatRotationSystem({
+      deltaSeconds,
+      engagements,
+      unitsById: this.state.units,
+      unitForwardOffset: BattleRoom.UNIT_FORWARD_OFFSET,
+      unitTurnSpeed: BattleRoom.UNIT_TURN_SPEED,
+      wrapAngle: (angle) => BattleRoom.wrapAngle(angle),
+    });
   }
 
   private getOwnedCityCount(team: PlayerTeam): number {

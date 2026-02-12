@@ -64,9 +64,9 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - `server/src/systems/movement/MovementCommandRouter.ts`
   - `server/src/systems/movement/MovementSimulation.ts`
 - Recommended sub-slices to keep diffs reviewable:
-  - 1.1a: pure grid helpers (`traceGridLine`, compacting, terrain/block checks).
-  - 1.1b: message-path normalization + route construction.
-  - 1.1c: per-tick movement simulation + occupancy bookkeeping.
+  - [x] 1.1a: pure grid helpers (`traceGridLine`, compacting, terrain/block checks).
+  - [x] 1.1b: message-path normalization + route construction.
+  - [x] 1.1c: per-tick movement simulation + occupancy bookkeeping.
 - Required behavior invariants:
   - Message validation and team authorization stay in room handler.
   - Route still truncates at first terrain-blocked step.
@@ -79,6 +79,10 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - occupancy-based ownership transitions
   - city spawn source resolution and timer bookkeeping
   - spawn-cell search and spawn creation flow
+- Progress:
+  - [x] ownership transitions extracted.
+  - [x] spawn source resolution + timer bookkeeping extracted.
+  - [x] spawn-cell search + spawn creation flow extracted.
 - Candidate modules:
   - `server/src/systems/cities/CityControlSystem.ts`
   - `server/src/systems/cities/CitySpawnSystem.ts`
@@ -96,6 +100,11 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - morale sampling and normalization
   - influence-based DPS and mitigation multipliers
   - engagement accumulation + pending damage application
+- Progress:
+  - [x] engagement accumulation + pending damage application extracted.
+  - [x] combat rotation pass extracted.
+  - [ ] morale sampling/normalization extraction pending.
+  - [ ] influence-based DPS/mitigation extraction pending.
 - Candidate modules:
   - `server/src/systems/morale/MoraleSystem.ts`
   - `server/src/systems/morale/moraleMath.ts`
@@ -172,10 +181,10 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
 
 ## Suggested Execution Order
 1. Baseline notes refresh + verify gate.
-2. Server movement extraction 1.1a (pure helpers).
-3. Server movement extraction 1.1b (route construction).
-4. Server movement extraction 1.1c (simulation loop).
-5. Server city ownership/spawn extraction (Slice 1.2).
+2. [x] Server movement extraction 1.1a (pure helpers).
+3. [x] Server movement extraction 1.1b (route construction).
+4. [x] Server movement extraction 1.1c (simulation loop).
+5. [x] Server city ownership/spawn extraction (Slice 1.2).
 6. Server morale/combat extraction (Slice 1.3).
 7. Server room wiring consolidation (Slice 1.4).
 8. Client map/lobby flow extraction (Slice 2.1).
