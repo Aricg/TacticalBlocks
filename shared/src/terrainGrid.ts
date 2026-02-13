@@ -465,50 +465,50 @@ const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
     'gffgfgfffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
     'ggggghhgghgggghggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
   'random-frontier-01':
-    'ggggggwwwggwwwwwwwwwggggffwwwwwwwwwwwwwwwwwwwwwwgwwwwwwwwwwwwwwwwwwwwwwfgggwwwgg' +
-    'ggggggwwwggwwwwggggggggggfwwwwwwwwwwwwwwwwwwwwggggwwwwwwwwwwwwwwwwwwwwwfgggggggh' +
-    'wwgggggwgggwwwggggggggggggwwwwwwwwwwwwwwwwwwwwgggggggggggggwwwwwwwwwwwwggggggggh' +
-    'wwwwggggggggwgggggggggggggwwwwwwwwwwwwggggwwwwggggggggggggggwwwwwwgwwwwggggggggg' +
-    'wwwwwgggggggggggggggggggggwwwwwwwwwwwgggggwwwwgggggggggggggggwwwwgggwwwwgggggwww' +
-    'wwwwggggggggggggggffggggggwwwwwwwggggggggggwwgggggggggggggggggggggggwwwwgggwwwww' +
-    'wwgggggggggggggggffffggggwwwwwwwggggggggggggggggggggggggggggggggggggwwwwggwwwwww' +
-    'ffgggggggggggggggfffggggwwwgggggggggggggggggggggggggggggggggggggffffwwwggffgwwww' +
-    'fffgggggggggggggggggggwwwwgggggggggggggggggggggggggggggggggggggffffffggggfffgwww' +
-    'fffggggggggggggggggggwwwwggggggffggggggggggggggggggggggggggggggfffffffggggfggwww' +
-    'ffwgggggggggggggggggwwwwggggffffffhhhggggggggggggggggggggggggggfffggffgggggggwww' +
-    'ggwwgggggggggggggggwwwwwgggfffffffghhgggggggggggggggggggggggggggggggggggggggwwww' +
-    'gwwwgggggggggggggggwwwwwggggffffffghhhgggggggggggggggggggggggggggggggggggggwwwww' +
-    'wwwwgggggggggggggggwwwwwggggffffffghhhhhhfgggggffgggggggggggggggggggggggggwwwwww' +
-    'wwwwgggggggggggggggwwwwwgggggfffffgghhhhhhhgggggggggggggfffgggggggggggggggwwwwww' +
-    'wwwwggggggggggggggggwwwwgggggfffffggggghhhhggggggggggggfffffgggggggggggggwwwwwww' +
-    'wwwwggggfffffggggggggwwggggggffffggggggghhhfggggggggggfffffffggggggggggggwwwwwwg' +
-    'wwwwwggfffffffgggggggggggggggfffgggggggghhhffggggggggffffffffgggffgggggggwwwwwww' +
-    'wwwwwggfffffffggggggggggggggwwfggggggggghhhfffgggggggffffffffgggffggggggwwwwwwww' +
-    'wwwwwggfffffffgggggggggggggggwwwgggggggghhhfffggggfhggggggffggggffggggggwwwwwwww' +
-    'wwwwwggffffgggggggggggggggggggwwwwgggggghhggfggggfffgggggggggggggggggggwwwwwwwww' +
-    'wwwwggggffggggggggggggggggggggggwwwggggggggggggggfffggggggggggggggggggwwwwwwwwww' +
-    'ggggggggggggghhgggggggggggggggggggwgggggggggggggggffggggggggggggggghhgwwwwwwwwww' +
-    'fffgwwwgggggghhgggggggggggggggggggghgggwwwggggggggggggggggggggggggghhggwwwwwwwww' +
-    'fffwwwwwggggggggggggggggggggggggggggggggwwwwggggggggggggggggggggggggggggwwwwwwww' +
-    'ffgwwwwwwggggggggggggggggggggggggggggggggggwggggggggggggggggggggggggggggggggwwww' +
-    'fggwwwwwwwgggggggggggffffggggggggggggggggggggggggwwggggggggggggggggggggggggggwww' +
-    'gggwwwwwwwwggggggggggfffffgghhggggggggggggggggggggwwwggggggggggggggggggggggggwww' +
-    'gggwwwwwwwggggggggggggfffggghhfggggggggggggggggggggwwwgwwgggggggggggggggggggggww' +
-    'ggwwwwwwgggggggggggggggggggghfffggghhggggggggggffffffgwwwwggggggggggggggggggggww' +
-    'ggwwwwwgggggggggggfggggggggggfffgggghggggfffggffffffffwwwwwwgggggggggggggggggwww' +
-    'gwwwwwwggggggggggfffggggggggggfggggggggghffffffffffffffgwwwwwggggggggggggggggwww' +
-    'wwwwwwwgggggggggggfgggggggggggggggggggggffffffffffffgggggwwwwgggggggggggggggwwww' +
-    'wwwwwwwggggggggggggggggggggggggggggggggggfffffgggggggggggwwwggggggggggggggwwwwww' +
-    'wwwwwwgggggggggggggggggggggggggggggggggggffffgggggggggggggwwgggggggggggggwwwwwwg' +
-    'wwwwggggggggggggggggggggggggggggggggggggggffgggggggggggggwwwgggggggggggggwwwwwww' +
-    'wwwggggggggggggggggggggggggggggggggggggggggggggggggggwwwwwwwggggggggggggggwwwwww' +
-    'wgggggggggggggggggggggggggggggggggggggggggggggggggggwwwwwwwwgggggggggggggggggggg' +
-    'gggggggggggggggggggggggggggggggggggggggggggggggggggwwwwwwwwwgggggggggggggggggggg' +
-    'wgggffgggggggggggwwggggggggggggggggggggggggggggggggwwwwwwwwwwggggggggggggggggggg' +
-    'wwgfffggggggggfgwwggggggggggwwwgggggggggggggggggggwwwwwwwwwwwwwwgggggggggggggggg' +
-    'wwwgfggwwggwwwwwwwggggggggggwwwgggggggggggggggwwwwwwwwwwwwwwwwwwwggggffggggwwggw' +
-    'wwwwwwwwwwwwwwwwwwgggggwwwwwwwwggggggggggggggwwwwwwwwwwwwwwwwwwwwggggfffggwwwwww' +
-    'wwwwwwwwwwwwwwwwwwggggwwwwwwgwgghhhhhgggggwgwwgwwwwwwwwwwwwwwwwwwggggfffggwwwwww',
+    'wwwwwwwwwwwwwwwwwwgggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgggggwwwwwwgggwwwwwwwwffggwwww' +
+    'wwwwwwwwwwwwwwwwwggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwggggggwwwwwwgwwwwwwwwgggggggww' +
+    'wwwwwwwwwwwwwwwwgggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwggggggwwwwwwwwwwwwwwgggggggggg' +
+    'wwwwwwwwwwgggwwggggggwwwwwwwwwwwwwwwwwwwwwwwgggwwwggggggwwwwwwwwwwwwwggggggggggg' +
+    'wwwgwwwwwwwggggggggggwwwwwwwwwwgggwwgggggwwgfggggggggggggwwwwwwwwwwwgggggggggwww' +
+    'wwgggwwwwwwggggggggggggwwwwwwwggggggggggggfffgggggggggggggggggggggggggggggggwwww' +
+    'wwggggggwwwggggggggggggwwwwwwggggggggggggggffgggggggggggggggggggggggggggggggwwww' +
+    'wwgggggggwgggggggggggggwwwwwwggggggggggggggggggggffggggggggggggggggggggggggggwww' +
+    'wwgggggggggggfffggggwwwwwwwwgggggggggggggggggggggffggggggggggggggggggggggggggwww' +
+    'wwwgggggggggfffffggwwwwwwwwwggggggggggggggggggggfffgggggggggggggggggggggggggggww' +
+    'wwwwwwwwwwggfffffffwwwgwwwwwggggggggggggggggggggfffgffggggggggggggggggggwwgggggw' +
+    'wwwwwwwwwwwgfffffffffgggwwwwwgggggggggggggggggggffgffffgggggggggggggggggwggggggw' +
+    'wwwwwwwwwwgfffffffffgggwwwwwwwggggggggggggggggggggggfffggggggggggffggggggggggggg' +
+    'wwwwwwwwggggffgggggggggwwwwwwwwggggggggghggggggggggggfffgggffgggffffgggggggggggf' +
+    'wwwwwwwwggggggggggggggggwwwwwwwwwggggggggggggggggggggfffggffffggffffgggggggggggf' +
+    'wwwwwwwwgggggggggggggggggwwwwwwwwwgggggggggggggggggggfffffffffgggffggggggggggggg' +
+    'wwwwwwwwggggggggggggggggggggwwwwwwwggggggggggggggggggfffffffffgggggggggggggggggg' +
+    'wwwwwwwwwgggggggggffggggggggfgwwwwwgggggggggggggggggggffffffffgggggggggggggggggg' +
+    'wwwwwwwwwggggggggffffggggggfffgggwwwwwwwwwhgggggggggggfffffffffggffffggggggggggg' +
+    'wwwwwwwwwggggggggffffhgggggfffgggghwwwwwwwwwgggggggggfffffffffffffffffggggggggww' +
+    'wwwwwwwwggggggggggfffhgggggfffggghhhhwwwwwwwwggggggggfffffffffffffffffgggggggwww' +
+    'wwwwwwwggggggggggggggggggggffhhhhhhhhhgggwwwwwwwwggggffffffgggfffffffgggggggwwww' +
+    'wwwwwwggggggghhfggggggggggffghhhhhhhhggggggwwwwwwgggggfffggggggffffhhggggggwwwwg' +
+    'wwwwwggfffggghhfgggggghhggffgghhhhhhggggggggggwwwgggwwgggggggggffffhhgggggfwwwgf' +
+    'wwwwwggffffgffffgggggggggggggghhhggggggggggggggwwgggwwhgggggggggffgggggggffwwwgf' +
+    'wwwwwggfffffffffgggggggggggggghhffggggggggggggggghggwwwhggggggggggggggggfffwwwgg' +
+    'wwwwwgggfffffffffgffgggggggggghhffggggggggggggggggggwwwwwwggggggggggggggffgwwwgg' +
+    'wwwwwgggffffffffgfffggggggggggghgfgggggggggggggggggfwwwwwwwwgggggggggggfffwwwwwg' +
+    'wwwwwwgggffffgggggffgggggggggggggffgggggggggggggggggfwwwwwwwwggggggggggfffwwwwww' +
+    'wwwwwwwgggffgggggggggggggggggggggfffggggggggggggggggffwwwwwwwggggggggggfffwwwwwg' +
+    'wwwwwwwggggggggggggggggggggggggggfffggggggggggggggggffwwwwwwwggggggggggfffwwwwgg' +
+    'wwwwwwwgggggggggggggggggggggggggggfggggghgggggggggggffwwwwwwwgggggggggggffwwwwgg' +
+    'wwwwwwwggggggggggggggggggggggggggggggggggggggggggggggwwwwwwwwgggggggggwwwwwwwwgg' +
+    'wwwwwwwggggggggggggggggggggggggggggggggggggggggggggwwwwwwwgggggggggggwwwwwwwwwgg' +
+    'wwwwwwggggggggggggggggggggggggggggggggggggggggggggwwwwwwwwggggggggggggwwwwwwwggg' +
+    'wwwwwggggggggggggggggggggggggggggggggggggggggggggwwwwwwwwwgggggggggggggwwwwggggg' +
+    'wwwwwggggggggggggggggggggggggggggggggggggggggggwwwwwwwwwfggggggggggggggggggggggg' +
+    'wwwwwgggggggggggggggggggggffgggggggggggggggggwwwwwwwwgfffgggggggggggggffgggggwww' +
+    'ffffgggggggggggggggggggffffffgggggwwwggggggwwwwwwwwwwgffgggggggggggggffffggwwwww' +
+    'fffgggggggggggffgggggffffffffgggwwwwwwwwwwwwwwwwwwwwwwwggggggggggggggffffgwwwwww' +
+    'ffgggggggggggffffwwgfffgggffggwwwwwwwwwwwwwwwwwwwwwwwwwgggggggggggggggfggwwwwwww' +
+    'fgggggwwwwwwwggggwwwwggwwwgggwwwwwwwwwwwwwwwwwwwwwwwwwwggggffggggggggggwwwwwwwww' +
+    'gggggwwwwwwwwwggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgggggfffgggffgggwwwwwwwwww' +
+    'wwggwwwwwwwwwwggfgwwwwwwwwwwwwwwwwwwwwwwggwwwwwwwwwwwgffgggffffggffgwwgwwwwwwwww',
 };
 
 const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
