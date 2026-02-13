@@ -164,6 +164,10 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - unit snapshot/position/health/rotation/morale apply
   - city ownership apply
   - battle/lobby transition apply
+- Progress:
+  - [x] unit snapshot/position/health/rotation/morale apply extracted to `client/src/network/UnitStateApplier.ts`.
+  - [x] city ownership apply extracted to `client/src/network/CityStateApplier.ts`.
+  - [x] battle-end transition announcement derivation extracted to `client/src/network/BattleTransitionApplier.ts`.
 - Candidate modules:
   - `client/src/network/UnitStateApplier.ts`
   - `client/src/network/CityStateApplier.ts`
@@ -198,7 +202,7 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
 7. [x] Server room wiring consolidation (Slice 1.4).
 8. [x] Client map/lobby flow extraction (Slice 2.1).
 9. [x] Client unit command planning extraction (Slice 2.2).
-10. Client network apply layer refinement (Slice 2.3).
+10. [x] Client network apply layer refinement (Slice 2.3).
 11. Client visual pipeline cleanup (Slice 2.4).
 12. Shared config/contracts hygiene only if warranted (Phase 3).
 

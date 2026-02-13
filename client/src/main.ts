@@ -54,6 +54,17 @@ import {
   type UnitCommandPlannerGridMetrics,
 } from './UnitCommandPlanner';
 import { type TerrainType, Unit } from './Unit';
+import { buildBattleEndedAnnouncement } from './network/BattleTransitionApplier';
+import { applyCityOwnershipState } from './network/CityStateApplier';
+import {
+  applyNetworkUnitHealthState,
+  applyNetworkUnitMoraleState,
+  applyNetworkUnitPositionState,
+  applyNetworkUnitRotationState,
+  normalizeNetworkTeam,
+  removeNetworkUnitState,
+  upsertNetworkUnitState,
+} from './network/UnitStateApplier';
 
 type TerrainSwatch = {
   color: number;
@@ -685,7 +696,7 @@ class BattleScene extends Phaser.Scene {
       activeMapId: this.activeMapId,
       selectedLobbyMapId: this.selectedLobbyMapId,
       fallbackAvailableMapIds: GAMEPLAY_CONFIG.map.availableMapIds,
-      normalizeTeam: (teamValue) => this.normalizeTeam(teamValue),
+      normalizeTeam: (teamValue) => normalizeNetworkTeam(teamValue),
       applySelectedLobbyMap: (requestedMapId, forceTextureReload) => {
         this.applySelectedLobbyMap(requestedMapId, forceTextureReload);
       },
@@ -712,20 +723,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private applyBattleEnded(battleEndedUpdate: NetworkBattleEndedUpdate): void {
-    const reasonText =
-      battleEndedUpdate.reason === 'NO_UNITS'
-        ? 'enemy had no units'
-        : battleEndedUpdate.reason === 'NO_CITIES'
-          ? 'enemy had no cities'
-          : 'tiebreaker';
-    const summaryText =
-      battleEndedUpdate.winner === 'DRAW'
-        ? 'Battle ended in a draw.'
-        : `Winner: ${battleEndedUpdate.winner} (${reasonText}).`;
-    this.lastBattleAnnouncement =
-      `${summaryText} ` +
-      `Cities B:${battleEndedUpdate.blueCities} R:${battleEndedUpdate.redCities} | ` +
-      `Units B:${battleEndedUpdate.blueUnits} R:${battleEndedUpdate.redUnits}`;
+    this.lastBattleAnnouncement = buildBattleEndedAnnouncement(battleEndedUpdate);
     this.matchPhase = 'LOBBY';
     this.refreshLobbyOverlay();
   }
@@ -806,161 +804,113 @@ class BattleScene extends Phaser.Scene {
     this.influenceRenderer?.setInfluenceGrid(influenceGridUpdate);
   }
 
-  private normalizeTeam(teamValue: string): Team {
-    return teamValue.toUpperCase() === Team.RED ? Team.RED : Team.BLUE;
-  }
-
-  private normalizeCityOwner(ownerValue: string): CityOwner {
-    const normalizedOwner = ownerValue.toUpperCase();
-    if (normalizedOwner === Team.RED) {
-      return Team.RED;
-    }
-    if (normalizedOwner === Team.BLUE) {
-      return Team.BLUE;
-    }
-    return 'NEUTRAL';
-  }
-
   private applyCityOwnership(
     cityOwnershipUpdate: NetworkCityOwnershipUpdate,
   ): void {
-    const redOwner = this.normalizeTeam(cityOwnershipUpdate.redCityOwner);
-    const blueOwner = this.normalizeTeam(cityOwnershipUpdate.blueCityOwner);
-    this.neutralCityOwners = this.neutralCityGridCoordinates.map(
-      (_, index) =>
-        this.normalizeCityOwner(cityOwnershipUpdate.neutralCityOwners[index] ?? 'NEUTRAL'),
-    );
-    this.cityOwnerByHomeTeam = {
-      [Team.RED]: redOwner,
-      [Team.BLUE]: blueOwner,
-    };
-    this.cityByHomeTeam[Team.RED]?.setOwner(redOwner);
-    this.cityByHomeTeam[Team.BLUE]?.setOwner(blueOwner);
-    for (let index = 0; index < this.neutralCities.length; index += 1) {
-      this.neutralCities[index]?.setOwner(
-        this.neutralCityOwners[index] ?? 'NEUTRAL',
-      );
-    }
-    this.refreshFogOfWar();
+    applyCityOwnershipState({
+      cityOwnershipUpdate,
+      neutralCityGridCoordinates: this.neutralCityGridCoordinates,
+      setNeutralCityOwners: (owners) => {
+        this.neutralCityOwners = owners;
+      },
+      setCityOwnerByHomeTeam: (owners) => {
+        this.cityOwnerByHomeTeam = owners;
+      },
+      cityByHomeTeam: this.cityByHomeTeam,
+      neutralCities: this.neutralCities,
+      refreshFogOfWar: () => this.refreshFogOfWar(),
+    });
   }
 
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
-    const existingUnit = this.unitsById.get(networkUnit.unitId);
-    if (existingUnit) {
-      existingUnit.setHealthMax(this.runtimeTuning.baseUnitHealth);
-      existingUnit.rotation = networkUnit.rotation;
-      existingUnit.setHealth(networkUnit.health);
-      this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
-      this.moraleScoreByUnitId.set(
-        networkUnit.unitId,
-        networkUnit.moraleScore,
-      );
-      this.applyNetworkUnitPositionSnapshot(
-        existingUnit,
-        networkUnit.unitId,
-        networkUnit.x,
-        networkUnit.y,
-        true,
-      );
-      return;
-    }
-
-    const team =
-      networkUnit.team.toUpperCase() === Team.RED
-        ? Team.RED
-        : Team.BLUE;
-    const spawnedUnit = new Unit(
-      this,
-      networkUnit.x,
-      networkUnit.y,
-      team,
-      networkUnit.rotation,
-      networkUnit.health,
-    );
-    spawnedUnit.setHealthMax(this.runtimeTuning.baseUnitHealth);
-    this.units.push(spawnedUnit);
-    this.unitsById.set(networkUnit.unitId, spawnedUnit);
-    this.lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
-    this.moraleScoreByUnitId.set(networkUnit.unitId, networkUnit.moraleScore);
-    this.combatVisualUntilByUnitId.delete(networkUnit.unitId);
-    this.remoteUnitTargetPositions.set(
-      networkUnit.unitId,
-      new Phaser.Math.Vector2(networkUnit.x, networkUnit.y),
-    );
+    upsertNetworkUnitState({
+      networkUnit,
+      scene: this,
+      units: this.units,
+      unitsById: this.unitsById,
+      baseUnitHealth: this.runtimeTuning.baseUnitHealth,
+      lastKnownHealthByUnitId: this.lastKnownHealthByUnitId,
+      moraleScoreByUnitId: this.moraleScoreByUnitId,
+      combatVisualUntilByUnitId: this.combatVisualUntilByUnitId,
+      remoteUnitTargetPositions: this.remoteUnitTargetPositions,
+      applyNetworkUnitPositionSnapshot: (
+        unit,
+        unitId,
+        x,
+        y,
+        snapImmediately,
+      ) =>
+        this.applyNetworkUnitPositionSnapshot(
+          unit,
+          unitId,
+          x,
+          y,
+          snapImmediately,
+        ),
+    });
   }
 
   private removeNetworkUnit(unitId: string): void {
-    const unit = this.unitsById.get(unitId);
-    if (!unit) {
-      return;
-    }
-
-    this.unitsById.delete(unitId);
-    this.plannedPathsByUnitId.delete(unitId);
-    this.remoteUnitTargetPositions.delete(unitId);
-    this.lastKnownHealthByUnitId.delete(unitId);
-    this.combatVisualUntilByUnitId.delete(unitId);
-    this.moraleScoreByUnitId.delete(unitId);
-    this.selectedUnits.delete(unit);
-    const index = this.units.indexOf(unit);
-    if (index >= 0) {
-      this.units.splice(index, 1);
-    }
-    unit.destroy();
+    removeNetworkUnitState({
+      unitId,
+      units: this.units,
+      unitsById: this.unitsById,
+      plannedPathsByUnitId: this.plannedPathsByUnitId,
+      remoteUnitTargetPositions: this.remoteUnitTargetPositions,
+      lastKnownHealthByUnitId: this.lastKnownHealthByUnitId,
+      combatVisualUntilByUnitId: this.combatVisualUntilByUnitId,
+      moraleScoreByUnitId: this.moraleScoreByUnitId,
+      selectedUnits: this.selectedUnits,
+    });
   }
 
   private applyNetworkUnitPosition(positionUpdate: NetworkUnitPositionUpdate): void {
-    const unit = this.unitsById.get(positionUpdate.unitId);
-    if (!unit) {
-      return;
-    }
-
-    this.applyNetworkUnitPositionSnapshot(
-      unit,
-      positionUpdate.unitId,
-      positionUpdate.x,
-      positionUpdate.y,
-    );
+    applyNetworkUnitPositionState({
+      positionUpdate,
+      unitsById: this.unitsById,
+      applyNetworkUnitPositionSnapshot: (
+        unit,
+        unitId,
+        x,
+        y,
+        snapImmediately,
+      ) =>
+        this.applyNetworkUnitPositionSnapshot(
+          unit,
+          unitId,
+          x,
+          y,
+          snapImmediately,
+        ),
+    });
   }
 
   private applyNetworkUnitHealth(healthUpdate: NetworkUnitHealthUpdate): void {
-    const unit = this.unitsById.get(healthUpdate.unitId);
-    if (!unit) {
-      return;
-    }
-
-    const previousHealth =
-      this.lastKnownHealthByUnitId.get(healthUpdate.unitId) ?? healthUpdate.health;
-    if (healthUpdate.health < previousHealth - 0.0001) {
-      this.markUnitInCombatVisual(healthUpdate.unitId);
-    }
-    this.lastKnownHealthByUnitId.set(healthUpdate.unitId, healthUpdate.health);
-    unit.setHealth(healthUpdate.health);
+    applyNetworkUnitHealthState({
+      healthUpdate,
+      unitsById: this.unitsById,
+      lastKnownHealthByUnitId: this.lastKnownHealthByUnitId,
+      markUnitInCombatVisual: (unitId) => this.markUnitInCombatVisual(unitId),
+    });
   }
 
   private applyNetworkUnitRotation(rotationUpdate: NetworkUnitRotationUpdate): void {
-    const unit = this.unitsById.get(rotationUpdate.unitId);
-    if (!unit) {
-      return;
-    }
-
-    unit.rotation = rotationUpdate.rotation;
+    applyNetworkUnitRotationState({
+      rotationUpdate,
+      unitsById: this.unitsById,
+    });
   }
 
   private applyNetworkUnitMorale(moraleUpdate: NetworkUnitMoraleUpdate): void {
-    if (!this.unitsById.has(moraleUpdate.unitId)) {
-      return;
-    }
-
-    this.moraleScoreByUnitId.set(
-      moraleUpdate.unitId,
-      moraleUpdate.moraleScore,
-    );
+    applyNetworkUnitMoraleState({
+      moraleUpdate,
+      unitsById: this.unitsById,
+      moraleScoreByUnitId: this.moraleScoreByUnitId,
+    });
   }
 
   private applyAssignedTeam(teamValue: string): void {
-    const assignedTeam =
-      teamValue.toUpperCase() === Team.RED ? Team.RED : Team.BLUE;
+    const assignedTeam = normalizeNetworkTeam(teamValue);
     if (assignedTeam !== this.localPlayerTeam) {
       this.clearSelection();
       this.localPlayerTeam = assignedTeam;
