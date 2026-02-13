@@ -7,7 +7,6 @@ import {
   NetworkManager,
   type NetworkUnitHealthUpdate,
   type NetworkMatchPhase,
-  type NetworkUnitPathCommand,
   type NetworkUnitRotationUpdate,
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
@@ -42,16 +41,23 @@ import {
 import { PathPreviewRenderer } from './PathPreviewRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
+import {
+  advancePlannedPaths,
+  buildMovementCommandMode,
+  clipPathTargetsByTerrain,
+  getFormationCenter,
+  gridToWorldCenter,
+  setPlannedPath,
+  snapAndCompactPath,
+  worldToGridCoordinate,
+  type GridCoordinate,
+  type UnitCommandPlannerGridMetrics,
+} from './UnitCommandPlanner';
 import { type TerrainType, Unit } from './Unit';
 
 type TerrainSwatch = {
   color: number;
   type: TerrainType;
-};
-
-type GridCoordinate = {
-  col: number;
-  row: number;
 };
 
 const MAP_IMAGE_BY_PATH = import.meta.glob('../../shared/*-16c.png', {
@@ -206,6 +212,13 @@ class BattleScene extends Phaser.Scene {
     BattleScene.MAP_WIDTH / BattleScene.GRID_WIDTH;
   private static readonly GRID_CELL_HEIGHT =
     BattleScene.MAP_HEIGHT / BattleScene.GRID_HEIGHT;
+  private static readonly UNIT_COMMAND_GRID_METRICS: UnitCommandPlannerGridMetrics =
+    {
+      width: BattleScene.GRID_WIDTH,
+      height: BattleScene.GRID_HEIGHT,
+      cellWidth: BattleScene.GRID_CELL_WIDTH,
+      cellHeight: BattleScene.GRID_CELL_HEIGHT,
+    };
   private static readonly REMOTE_POSITION_LERP_RATE =
     GAMEPLAY_CONFIG.network.remotePositionLerpRate;
   private static readonly REMOTE_POSITION_SNAP_DISTANCE =
@@ -465,7 +478,10 @@ class BattleScene extends Phaser.Scene {
 
     for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
       const neutralCell = this.neutralCityGridCoordinates[index];
-      const neutralPosition = this.gridToWorldCenter(neutralCell);
+      const neutralPosition = gridToWorldCenter(
+        neutralCell,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
       const neutralCity = new City(
         this,
         neutralPosition.x,
@@ -1169,39 +1185,40 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    let formationCenterX = 0;
-    let formationCenterY = 0;
-    for (const unit of this.selectedUnits) {
-      formationCenterX += unit.x;
-      formationCenterY += unit.y;
+    const formationCenter = getFormationCenter(this.selectedUnits);
+    if (!formationCenter) {
+      return;
     }
-    formationCenterX /= this.selectedUnits.size;
-    formationCenterY /= this.selectedUnits.size;
 
-    const movementCommandMode: NetworkUnitPathCommand['movementCommandMode'] = shiftHeld
-      ? { speedMultiplier: 0.5, rotateToFace: false }
-      : undefined;
+    const movementCommandMode = buildMovementCommandMode(shiftHeld);
 
     for (const [unitId, unit] of this.unitsById) {
       if (!this.selectedUnits.has(unit)) {
         continue;
       }
-      const offsetX = unit.x - formationCenterX;
-      const offsetY = unit.y - formationCenterY;
-      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
-      const targetCell = this.worldToGridCoordinate(
+      const offsetX = unit.x - formationCenter.x;
+      const offsetY = unit.y - formationCenter.y;
+      const unitCell = worldToGridCoordinate(
+        unit.x,
+        unit.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
+      const targetCell = worldToGridCoordinate(
         targetX + offsetX,
         targetY + offsetY,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
-      const clippedTargetCells = this.clipPathTargetsByTerrain(unitCell, [
-        targetCell,
-      ]);
+      const clippedTargetCells = clipPathTargetsByTerrain({
+        start: unitCell,
+        targets: [targetCell],
+        isGridCellImpassable,
+      });
       if (clippedTargetCells.length === 0) {
         this.plannedPathsByUnitId.delete(unitId);
         continue;
       }
       const unitPath = clippedTargetCells.map((cell) =>
-        this.gridToWorldCenter(cell),
+        gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
       this.networkManager.sendUnitPathCommand({
         unitId,
@@ -1225,57 +1242,58 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    let formationCenterX = 0;
-    let formationCenterY = 0;
-    for (const unit of this.selectedUnits) {
-      formationCenterX += unit.x;
-      formationCenterY += unit.y;
+    const formationCenter = getFormationCenter(this.selectedUnits);
+    if (!formationCenter) {
+      return;
     }
-    formationCenterX /= this.selectedUnits.size;
-    formationCenterY /= this.selectedUnits.size;
 
-    const movementCommandMode: NetworkUnitPathCommand['movementCommandMode'] = shiftHeld
-      ? { speedMultiplier: 0.5, rotateToFace: false }
-      : undefined;
+    const movementCommandMode = buildMovementCommandMode(shiftHeld);
 
     for (const [unitId, unit] of this.unitsById) {
       if (!this.selectedUnits.has(unit)) {
         continue;
       }
-      const offsetX = unit.x - formationCenterX;
-      const offsetY = unit.y - formationCenterY;
-      const snappedPath = this.snapAndCompactPath(
+      const offsetX = unit.x - formationCenter.x;
+      const offsetY = unit.y - formationCenter.y;
+      const snappedPath = snapAndCompactPath(
         path.map((point) =>
           new Phaser.Math.Vector2(point.x + offsetX, point.y + offsetY),
         ),
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
       if (snappedPath.length === 0) {
         continue;
       }
       const targetCells = snappedPath.map((point) =>
-        this.worldToGridCoordinate(point.x, point.y),
+        worldToGridCoordinate(
+          point.x,
+          point.y,
+          BattleScene.UNIT_COMMAND_GRID_METRICS,
+        ),
       );
-      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
-      const clippedTargetCells = this.clipPathTargetsByTerrain(
-        unitCell,
-        targetCells,
+      const unitCell = worldToGridCoordinate(
+        unit.x,
+        unit.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
+      const clippedTargetCells = clipPathTargetsByTerrain({
+        start: unitCell,
+        targets: targetCells,
+        isGridCellImpassable,
+      });
       if (clippedTargetCells.length === 0) {
         this.plannedPathsByUnitId.delete(unitId);
         continue;
       }
       const unitPath = clippedTargetCells.map((cell) =>
-        this.gridToWorldCenter(cell),
+        gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
       this.networkManager.sendUnitPathCommand({
         unitId,
         path: unitPath.map((point) => ({ x: point.x, y: point.y })),
         movementCommandMode,
       });
-      this.setPlannedPath(
-        unitId,
-        unitPath.map((point) => point.clone()),
-      );
+      this.setPlannedPath(unitId, unitPath);
     }
   }
 
@@ -1302,43 +1320,20 @@ class BattleScene extends Phaser.Scene {
   }
 
   private setPlannedPath(unitId: string, path: Phaser.Math.Vector2[]): void {
-    if (path.length === 0) {
-      this.plannedPathsByUnitId.delete(unitId);
-      return;
-    }
-
-    this.plannedPathsByUnitId.set(
+    setPlannedPath({
+      plannedPathsByUnitId: this.plannedPathsByUnitId,
       unitId,
-      path.map((point) => point.clone()),
-    );
+      path,
+    });
   }
 
   private advancePlannedPaths(): void {
-    const reachedDistanceSq =
-      BattleScene.PLANNED_PATH_WAYPOINT_REACHED_DISTANCE *
-      BattleScene.PLANNED_PATH_WAYPOINT_REACHED_DISTANCE;
-
-    for (const [unitId, path] of this.plannedPathsByUnitId) {
-      const unit = this.unitsById.get(unitId);
-      if (!unit || path.length === 0) {
-        this.plannedPathsByUnitId.delete(unitId);
-        continue;
-      }
-
-      while (path.length > 0) {
-        const nextWaypoint = path[0];
-        const dx = nextWaypoint.x - unit.x;
-        const dy = nextWaypoint.y - unit.y;
-        if (dx * dx + dy * dy > reachedDistanceSq) {
-          break;
-        }
-        path.shift();
-      }
-
-      if (path.length === 0) {
-        this.plannedPathsByUnitId.delete(unitId);
-      }
-    }
+    advancePlannedPaths({
+      plannedPathsByUnitId: this.plannedPathsByUnitId,
+      unitsById: this.unitsById,
+      waypointReachedDistance:
+        BattleScene.PLANNED_PATH_WAYPOINT_REACHED_DISTANCE,
+    });
   }
 
   private appendDraggedPathPoint(
@@ -1357,129 +1352,17 @@ class BattleScene extends Phaser.Scene {
 
   private buildCommandPath(path: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
     const commandPath = this.pathPreviewRenderer?.buildCommandPath(path) ?? [];
-    return this.snapAndCompactPath(commandPath);
-  }
-
-  private worldToGridCoordinate(x: number, y: number): GridCoordinate {
-    const colBasis = x / BattleScene.GRID_CELL_WIDTH - 0.5;
-    const rowBasis = y / BattleScene.GRID_CELL_HEIGHT - 0.5;
-    return {
-      col: Phaser.Math.Clamp(
-        Math.round(colBasis),
-        0,
-        BattleScene.GRID_WIDTH - 1,
-      ),
-      row: Phaser.Math.Clamp(
-        Math.round(rowBasis),
-        0,
-        BattleScene.GRID_HEIGHT - 1,
-      ),
-    };
-  }
-
-  private gridToWorldCenter(cell: GridCoordinate): Phaser.Math.Vector2 {
-    return new Phaser.Math.Vector2(
-      (cell.col + 0.5) * BattleScene.GRID_CELL_WIDTH,
-      (cell.row + 0.5) * BattleScene.GRID_CELL_HEIGHT,
+    return snapAndCompactPath(
+      commandPath,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
     );
   }
 
-  private snapPointToGrid(x: number, y: number): Phaser.Math.Vector2 {
-    return this.gridToWorldCenter(this.worldToGridCoordinate(x, y));
-  }
-
-  private traceGridLine(
-    start: GridCoordinate,
-    end: GridCoordinate,
-  ): GridCoordinate[] {
-    const points: GridCoordinate[] = [];
-    let x0 = start.col;
-    let y0 = start.row;
-    const x1 = end.col;
-    const y1 = end.row;
-    const dx = Math.abs(x1 - x0);
-    const sx = x0 < x1 ? 1 : -1;
-    const dy = -Math.abs(y1 - y0);
-    const sy = y0 < y1 ? 1 : -1;
-    let error = dx + dy;
-
-    while (true) {
-      points.push({ col: x0, row: y0 });
-      if (x0 === x1 && y0 === y1) {
-        break;
-      }
-      const e2 = 2 * error;
-      if (e2 >= dy) {
-        error += dy;
-        x0 += sx;
-      }
-      if (e2 <= dx) {
-        error += dx;
-        y0 += sy;
-      }
-    }
-
-    return points;
-  }
-
-  private clipPathTargetsByTerrain(
-    start: GridCoordinate,
-    targets: GridCoordinate[],
-  ): GridCoordinate[] {
-    const clippedTargets: GridCoordinate[] = [];
-    let cursor = { col: start.col, row: start.row };
-
-    for (const target of targets) {
-      const segment = this.traceGridLine(cursor, target);
-      let lastTraversable = { col: cursor.col, row: cursor.row };
-      let blocked = false;
-
-      for (let i = 1; i < segment.length; i += 1) {
-        const step = segment[i];
-        if (isGridCellImpassable(step.col, step.row)) {
-          blocked = true;
-          break;
-        }
-        lastTraversable = step;
-      }
-
-      if (blocked) {
-        if (
-          lastTraversable.col !== cursor.col ||
-          lastTraversable.row !== cursor.row
-        ) {
-          clippedTargets.push(lastTraversable);
-        }
-        break;
-      }
-
-      clippedTargets.push(target);
-      cursor = target;
-    }
-
-    return this.compactGridCoordinates(clippedTargets);
-  }
-
-  private compactGridCoordinates(path: GridCoordinate[]): GridCoordinate[] {
-    if (path.length <= 1) {
-      return path;
-    }
-
-    const compacted: GridCoordinate[] = [path[0]];
-    for (let i = 1; i < path.length; i += 1) {
-      const next = path[i];
-      const previous = compacted[compacted.length - 1];
-      if (next.col === previous.col && next.row === previous.row) {
-        continue;
-      }
-      compacted.push(next);
-    }
-
-    return compacted;
-  }
-
   private getCityWorldPosition(team: Team): Phaser.Math.Vector2 {
-    return this.gridToWorldCenter(getTeamCityGridCoordinate(team));
+    return gridToWorldCenter(
+      getTeamCityGridCoordinate(team),
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
   }
 
   private getOwnedCityPositions(ownerTeam: Team): Phaser.Math.Vector2[] {
@@ -1495,30 +1378,14 @@ class BattleScene extends Phaser.Scene {
       if (this.neutralCityOwners[index] !== ownerTeam) {
         continue;
       }
-      positions.push(this.gridToWorldCenter(this.neutralCityGridCoordinates[index]));
+      positions.push(
+        gridToWorldCenter(
+          this.neutralCityGridCoordinates[index],
+          BattleScene.UNIT_COMMAND_GRID_METRICS,
+        ),
+      );
     }
     return positions;
-  }
-
-  private snapAndCompactPath(
-    path: Phaser.Math.Vector2[],
-  ): Phaser.Math.Vector2[] {
-    if (path.length === 0) {
-      return [];
-    }
-
-    const snappedPath = path.map((point) => this.snapPointToGrid(point.x, point.y));
-    const compactedPath: Phaser.Math.Vector2[] = [snappedPath[0]];
-    for (let i = 1; i < snappedPath.length; i += 1) {
-      const next = snappedPath[i];
-      const previous = compactedPath[compactedPath.length - 1];
-      if (next.x === previous.x && next.y === previous.y) {
-        continue;
-      }
-      compactedPath.push(next);
-    }
-
-    return compactedPath;
   }
 
   private drawPathPreview(draggedPath: Phaser.Math.Vector2[]): void {

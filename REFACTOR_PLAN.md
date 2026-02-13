@@ -148,6 +148,10 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - formation-center offsets
   - snap/compact/clip path utilities
   - planned-path bookkeeping helpers
+- Progress:
+  - [x] formation-center offsets + movement command mode derivation extracted to `client/src/UnitCommandPlanner.ts`.
+  - [x] snap/compact/clip path utilities extracted to `client/src/UnitCommandPlanner.ts`.
+  - [x] planned-path bookkeeping helpers extracted to `client/src/UnitCommandPlanner.ts`.
 - Candidate module:
   - `client/src/UnitCommandPlanner.ts`
 - Preserve:
@@ -192,8 +196,8 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
 5. [x] Server city ownership/spawn extraction (Slice 1.2).
 6. [x] Server morale/combat extraction (Slice 1.3).
 7. [x] Server room wiring consolidation (Slice 1.4).
-8. Client map/lobby flow extraction (Slice 2.1).
-9. Client unit command planning extraction (Slice 2.2).
+8. [x] Client map/lobby flow extraction (Slice 2.1).
+9. [x] Client unit command planning extraction (Slice 2.2).
 10. Client network apply layer refinement (Slice 2.3).
 11. Client visual pipeline cleanup (Slice 2.4).
 12. Shared config/contracts hygiene only if warranted (Phase 3).
