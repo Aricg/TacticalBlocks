@@ -135,7 +135,7 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - `requestLobbyMapStep` / random / generate
 - Progress:
   - [x] lobby map id resolution/stepping/state-derive logic extracted to `client/src/LobbyFlowController.ts`.
-  - [ ] scene-side map texture reload/apply side effects still live in `main.ts` (orchestration layer).
+  - [x] scene-side map texture reload/apply side-effect orchestration extracted behind `client/src/LobbyFlowController.ts` flow helpers.
 - Candidate module:
   - `client/src/LobbyFlowController.ts`
 - Preserve:

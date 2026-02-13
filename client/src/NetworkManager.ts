@@ -415,20 +415,28 @@ export class NetworkManager {
       ? message.players
       : [];
 
+    const normalizedPlayers = players
+      .map((player) => {
+        if (typeof player?.sessionId !== 'string') {
+          return null;
+        }
+
+        const rawTeam =
+          typeof player?.team === 'string' ? player.team.toUpperCase() : '';
+        const normalizedTeam = rawTeam === 'RED' ? 'RED' : 'BLUE';
+        const normalizedReady = player?.ready === true;
+
+        return {
+          sessionId: player.sessionId,
+          team: normalizedTeam,
+          ready: normalizedReady,
+        };
+      })
+      .filter((player): player is NetworkLobbyPlayer => player !== null);
+
     return {
       phase,
-      players: players
-        .filter(
-          (player) =>
-            typeof player?.sessionId === 'string' &&
-            (player?.team === 'BLUE' || player?.team === 'RED') &&
-            typeof player?.ready === 'boolean',
-        )
-        .map((player) => ({
-          sessionId: player.sessionId,
-          team: player.team,
-          ready: player.ready,
-        })),
+      players: normalizedPlayers,
       mapId: typeof message?.mapId === 'string' ? message.mapId : '',
       availableMapIds: Array.isArray(message?.availableMapIds)
         ? message.availableMapIds.filter(

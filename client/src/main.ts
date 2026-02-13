@@ -29,9 +29,11 @@ import { BattleInputController } from './BattleInputController';
 import { FogOfWarController } from './FogOfWarController';
 import { InfluenceRenderer } from './InfluenceRenderer';
 import {
-  deriveLobbyState,
-  getSteppedLobbyMapId,
-  resolveLobbyMapId,
+  applyLobbyStateFlow,
+  applySelectedLobbyMapFlow,
+  canRequestGenerateLobbyMap,
+  canRequestRandomLobbyMap,
+  getLobbyMapStepRequest,
 } from './LobbyFlowController';
 import {
   LobbyOverlayController,
@@ -524,50 +526,59 @@ class BattleScene extends Phaser.Scene {
     requestedMapId: string,
     forceTextureReload = false,
   ): void {
-    const nextMapId = resolveLobbyMapId({
+    applySelectedLobbyMapFlow({
       requestedMapId,
       availableMapIds: this.availableMapIds,
+      activeMapId: this.activeMapId,
+      lobbyMapRevision: this.lobbyMapRevision,
+      forceTextureReload,
       hasMapImage: (mapId) => Boolean(resolveMapImageById(mapId)),
       resolveFallbackMapId: () => resolveInitialMapId(),
+      effects: {
+        setSelectedLobbyMapId: (mapId: string) => {
+          this.selectedLobbyMapId = mapId;
+        },
+        applyMapIdToRuntimeTerrain: (mapId: string) => {
+          this.applyMapIdToRuntimeTerrain(mapId);
+        },
+        resetNeutralCities: () => {
+          this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+          this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
+        },
+        rebuildCitiesForCurrentMap: () => {
+          this.rebuildCitiesForCurrentMap();
+        },
+        drawImpassableOverlay: () => {
+          this.drawImpassableOverlay();
+        },
+        reloadMapTexture: (mapId: string, revision: number) => {
+          this.reloadMapTexture(mapId, revision);
+        },
+        applyLoadedMapTexture: (mapId: string) => {
+          this.activeMapId = mapId;
+          this.mapTextureKey = getTextureKeyForMapId(mapId);
+          if (this.mapBackground) {
+            this.mapBackground.setTexture(this.mapTextureKey);
+          }
+        },
+        initializeMapTerrainSampling: () => {
+          this.initializeMapTerrainSampling();
+        },
+        refreshFogOfWar: () => {
+          this.refreshFogOfWar();
+        },
+      },
     });
-    this.selectedLobbyMapId = nextMapId;
-    if (nextMapId === this.activeMapId && !forceTextureReload) {
-      return;
-    }
-
-    if (nextMapId === this.activeMapId && forceTextureReload) {
-      this.applyMapIdToRuntimeTerrain(nextMapId);
-      this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
-      this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
-      this.rebuildCitiesForCurrentMap();
-      this.drawImpassableOverlay();
-      this.reloadMapTexture(nextMapId, this.lobbyMapRevision);
-      this.refreshFogOfWar();
-      return;
-    }
-
-    this.activeMapId = nextMapId;
-    this.mapTextureKey = getTextureKeyForMapId(nextMapId);
-    this.applyMapIdToRuntimeTerrain(nextMapId);
-    this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
-    this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
-
-    if (this.mapBackground) {
-      this.mapBackground.setTexture(this.mapTextureKey);
-    }
-
-    this.rebuildCitiesForCurrentMap();
-    this.drawImpassableOverlay();
-    this.initializeMapTerrainSampling();
-    this.refreshFogOfWar();
   }
 
   private requestLobbyMapStep(step: number): void {
-    if (!this.networkManager || this.matchPhase !== 'LOBBY' || this.hasExitedBattle) {
+    if (!this.networkManager) {
       return;
     }
 
-    const nextMapId = getSteppedLobbyMapId({
+    const nextMapId = getLobbyMapStepRequest({
+      matchPhase: this.matchPhase,
+      hasExitedBattle: this.hasExitedBattle,
       selectedLobbyMapId: this.selectedLobbyMapId,
       availableMapIds: this.availableMapIds,
       step,
@@ -583,14 +594,18 @@ class BattleScene extends Phaser.Scene {
   }
 
   private requestRandomLobbyMap(): void {
-    if (!this.networkManager || this.matchPhase !== 'LOBBY' || this.hasExitedBattle) {
+    if (!this.networkManager) {
       return;
     }
 
-    const selectableMapIds = this.availableMapIds.filter((mapId) =>
-      Boolean(resolveMapImageById(mapId)),
-    );
-    if (selectableMapIds.length <= 1) {
+    if (
+      !canRequestRandomLobbyMap({
+        matchPhase: this.matchPhase,
+        hasExitedBattle: this.hasExitedBattle,
+        availableMapIds: this.availableMapIds,
+        hasMapImage: (mapId) => Boolean(resolveMapImageById(mapId)),
+      })
+    ) {
       return;
     }
 
@@ -598,11 +613,16 @@ class BattleScene extends Phaser.Scene {
   }
 
   private requestGenerateLobbyMap(): void {
+    if (!this.networkManager) {
+      return;
+    }
+
     if (
-      !this.networkManager ||
-      this.matchPhase !== 'LOBBY' ||
-      this.hasExitedBattle ||
-      this.isLobbyGeneratingMap
+      !canRequestGenerateLobbyMap({
+        matchPhase: this.matchPhase,
+        hasExitedBattle: this.hasExitedBattle,
+        isLobbyGeneratingMap: this.isLobbyGeneratingMap,
+      })
     ) {
       return;
     }
@@ -641,35 +661,36 @@ class BattleScene extends Phaser.Scene {
 
   private applyLobbyState(lobbyStateUpdate: NetworkLobbyStateUpdate): void {
     const previousPhase = this.matchPhase;
-    const lobbyState = deriveLobbyState({
+    applyLobbyStateFlow({
       lobbyStateUpdate,
+      previousPhase,
       previousMapRevision: this.lobbyMapRevision,
+      previousLobbyPlayers: this.lobbyPlayers,
       activeMapId: this.activeMapId,
       selectedLobbyMapId: this.selectedLobbyMapId,
       fallbackAvailableMapIds: GAMEPLAY_CONFIG.map.availableMapIds,
       normalizeTeam: (teamValue) => this.normalizeTeam(teamValue),
+      applySelectedLobbyMap: (requestedMapId, forceTextureReload) => {
+        this.applySelectedLobbyMap(requestedMapId, forceTextureReload);
+      },
+      applyDerivedLobbyState: (lobbyState) => {
+        this.matchPhase = lobbyState.nextPhase;
+        this.localSessionId = lobbyState.localSessionId;
+        this.lobbyMapRevision = lobbyState.lobbyMapRevision;
+        this.isLobbyGeneratingMap = lobbyState.isLobbyGeneratingMap;
+        this.availableMapIds = lobbyState.availableMapIds;
+        this.lobbyPlayers = lobbyState.lobbyPlayers;
+        this.localLobbyReady = lobbyState.localLobbyReady;
+      },
+      onPhaseTransition: (nextPhase) => {
+        this.resetPointerInteractionState();
+        this.clearSelection();
+        this.plannedPathsByUnitId.clear();
+        if (nextPhase === 'BATTLE') {
+          this.lastBattleAnnouncement = null;
+        }
+      },
     });
-
-    this.matchPhase = lobbyState.nextPhase;
-    this.localSessionId = lobbyState.localSessionId;
-    this.lobbyMapRevision = lobbyState.lobbyMapRevision;
-    this.isLobbyGeneratingMap = lobbyState.isLobbyGeneratingMap;
-    this.availableMapIds = lobbyState.availableMapIds;
-    this.applySelectedLobbyMap(
-      lobbyState.requestedMapId,
-      lobbyState.forceTextureReload,
-    );
-    this.lobbyPlayers = lobbyState.lobbyPlayers;
-    this.localLobbyReady = lobbyState.localLobbyReady;
-
-    if (previousPhase !== this.matchPhase) {
-      this.resetPointerInteractionState();
-      this.clearSelection();
-      this.plannedPathsByUnitId.clear();
-      if (this.matchPhase === 'BATTLE') {
-        this.lastBattleAnnouncement = null;
-      }
-    }
 
     this.refreshLobbyOverlay();
   }
