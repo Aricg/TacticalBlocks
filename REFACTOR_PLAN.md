@@ -182,6 +182,10 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
   - terrain tint refresh
   - influence debug focus update
   - planned path rendering
+- Progress:
+  - [x] frame update orchestration extracted to `client/src/VisualUpdatePipeline.ts`.
+  - [x] terrain tint refresh extracted to `refreshUnitTerrainTint(...)` in `client/src/VisualUpdatePipeline.ts`.
+  - [x] fog refresh, planned-path rendering, and influence debug focus stages wrapped in `client/src/VisualUpdatePipeline.ts`.
 - Guardrail:
   - Do not change update trigger cadence or ordering in this structural slice.
   - Any cadence/perf changes require a dedicated behavior-change slice.
@@ -203,7 +207,7 @@ Keep feature work fast and safe by reducing hotspot complexity, clarifying owner
 8. [x] Client map/lobby flow extraction (Slice 2.1).
 9. [x] Client unit command planning extraction (Slice 2.2).
 10. [x] Client network apply layer refinement (Slice 2.3).
-11. Client visual pipeline cleanup (Slice 2.4).
+11. [x] Client visual pipeline cleanup (Slice 2.4).
 12. Shared config/contracts hygiene only if warranted (Phase 3).
 
 ## Done Criteria Per Slice

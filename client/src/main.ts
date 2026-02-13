@@ -65,6 +65,10 @@ import {
   removeNetworkUnitState,
   upsertNetworkUnitState,
 } from './network/UnitStateApplier';
+import {
+  refreshUnitTerrainTint,
+  runVisualUpdatePipeline,
+} from './VisualUpdatePipeline';
 
 type TerrainSwatch = {
   color: number;
@@ -1416,11 +1420,11 @@ class BattleScene extends Phaser.Scene {
   }
 
   private updateUnitTerrainColors(): void {
-    for (const unit of this.units) {
-      const terrainColor = this.sampleMapColorAt(unit.x, unit.y);
-      unit.setTerrainColor(terrainColor);
-      unit.setTerrainType(this.resolveTerrainType(terrainColor));
-    }
+    refreshUnitTerrainTint({
+      units: this.units,
+      sampleMapColorAt: (worldX, worldY) => this.sampleMapColorAt(worldX, worldY),
+      resolveTerrainType: (color) => this.resolveTerrainType(color),
+    });
   }
 
   private sampleMapColorAt(worldX: number, worldY: number): number | null {
@@ -1553,14 +1557,20 @@ class BattleScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
-    this.smoothRemoteUnitPositions(delta);
-    this.applyCombatVisualWiggle(time);
-    this.updateUnitTerrainColors();
-    this.advancePlannedPaths();
-    this.refreshFogOfWar();
-    this.renderMovementLines();
-    this.updateInfluenceDebugFocus();
-    this.influenceRenderer?.render(delta);
+    runVisualUpdatePipeline({
+      timeMs: time,
+      deltaMs: delta,
+      callbacks: {
+        smoothRemoteUnitPositions: (deltaMs) => this.smoothRemoteUnitPositions(deltaMs),
+        applyCombatVisualWiggle: (timeMs) => this.applyCombatVisualWiggle(timeMs),
+        refreshTerrainTint: () => this.updateUnitTerrainColors(),
+        advancePlannedPaths: () => this.advancePlannedPaths(),
+        refreshFogOfWar: () => this.refreshFogOfWar(),
+        renderPlannedPaths: () => this.renderMovementLines(),
+        updateInfluenceDebugFocus: () => this.updateInfluenceDebugFocus(),
+        renderInfluence: (deltaMs) => this.influenceRenderer?.render(deltaMs),
+      },
+    });
   }
 }
 
