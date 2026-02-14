@@ -65,7 +65,6 @@ export interface UpdateUnitInteractionsParams {
   movementStateByUnitId: Map<string, UnitMovementState>;
   gridContactDistance: number;
   ensureFiniteUnitState: (unit: Unit) => void;
-  clearMovementForUnit: (unitId: string) => void;
   updateUnitMoraleScores: (units: Unit[]) => void;
   getMoraleAdvantageNormalized: (unit: Unit) => number;
   getUnitContactDps: (influenceAdvantage: number) => number;
@@ -78,7 +77,6 @@ export function updateUnitInteractions({
   movementStateByUnitId,
   gridContactDistance,
   ensureFiniteUnitState,
-  clearMovementForUnit,
   updateUnitMoraleScores,
   getMoraleAdvantageNormalized,
   getUnitContactDps,
@@ -109,9 +107,6 @@ export function updateUnitInteractions({
       if (distance > gridContactDistance) {
         continue;
       }
-
-      clearMovementForUnit(a.unitId);
-      clearMovementForUnit(b.unitId);
 
       const aMoraleAdvantage = getMoraleAdvantageNormalized(a);
       const bMoraleAdvantage = getMoraleAdvantageNormalized(b);

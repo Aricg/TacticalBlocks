@@ -83,6 +83,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly battleLifecycleService = new BattleLifecycleService();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
+  private readonly engagedUnitIds = new Set<string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private neutralCityCells: GridCoordinate[] = [];
   private matchPhase: MatchPhase = "LOBBY";
@@ -234,6 +235,7 @@ export class BattleRoom extends Room<BattleState> {
   onDispose(): void {
     this.movementStateByUnitId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
+    this.engagedUnitIds.clear();
     this.lobbyService.dispose();
     this.simulationFrame = 0;
     this.resetCityUnitGenerationState();
@@ -924,6 +926,7 @@ export class BattleRoom extends Room<BattleState> {
     }
     this.movementStateByUnitId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
+    this.engagedUnitIds.clear();
   }
 
   private clearInfluenceGrid(): void {
@@ -1203,6 +1206,7 @@ export class BattleRoom extends Room<BattleState> {
         this.getTerrainSpeedMultiplierAtCell(cell),
       gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
       clearMovementForUnit: (unitId) => this.clearMovementForUnit(unitId),
+      isUnitMovementSuppressed: (unitId) => this.engagedUnitIds.has(unitId),
       faceCurrentDestination: (unit, movementState) =>
         this.faceCurrentDestination(unit, movementState),
       wrapAngle: (angle) => BattleRoom.wrapAngle(angle),
@@ -1223,13 +1227,12 @@ export class BattleRoom extends Room<BattleState> {
           this.getTerrainMoraleMultiplierAtCell(cell),
       });
 
-    return updateUnitInteractionsSystem({
+    const engagements = updateUnitInteractionsSystem({
       deltaSeconds,
       unitsById: this.state.units,
       movementStateByUnitId: this.movementStateByUnitId,
       gridContactDistance: BattleRoom.GRID_CONTACT_DISTANCE,
       ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
-      clearMovementForUnit: (unitId) => this.clearMovementForUnit(unitId),
       updateUnitMoraleScores: (units) =>
         updateUnitMoraleScoresSystem(units, getUnitMoraleScore),
       getMoraleAdvantageNormalized: (unit) =>
@@ -1250,6 +1253,15 @@ export class BattleRoom extends Room<BattleState> {
           this.runtimeTuning.healthInfluenceMultiplier,
         ),
     });
+
+    this.engagedUnitIds.clear();
+    for (const [unitId, engagedPeers] of engagements) {
+      if (engagedPeers.size > 0) {
+        this.engagedUnitIds.add(unitId);
+      }
+    }
+
+    return engagements;
   }
 
   private updateCombatRotation(

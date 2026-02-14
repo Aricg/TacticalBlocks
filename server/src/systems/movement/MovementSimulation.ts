@@ -59,6 +59,7 @@ export interface MovementSimulationParams {
   getTerrainSpeedMultiplierAtCell: (cell: GridCoordinate) => number;
   gridToWorldCenter: (cell: GridCoordinate) => Vector2;
   clearMovementForUnit: (unitId: string) => void;
+  isUnitMovementSuppressed: (unitId: string) => boolean;
   faceCurrentDestination: (unit: Unit, movementState: UnitMovementState) => void;
   wrapAngle: (angle: number) => number;
 }
@@ -78,6 +79,7 @@ export function simulateMovementTick({
   getTerrainSpeedMultiplierAtCell,
   gridToWorldCenter,
   clearMovementForUnit,
+  isUnitMovementSuppressed,
   faceCurrentDestination,
   wrapAngle,
 }: MovementSimulationParams): void {
@@ -103,6 +105,11 @@ export function simulateMovementTick({
   for (const unit of aliveUnits) {
     const movementState = movementStateByUnitId.get(unit.unitId);
     if (!movementState) {
+      continue;
+    }
+
+    if (isUnitMovementSuppressed(unit.unitId)) {
+      movementState.movementBudget = 0;
       continue;
     }
 
