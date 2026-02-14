@@ -124,34 +124,60 @@ export function buildGridRouteFromWorldPath(
     return [];
   }
 
-  const snappedTargets = compactGridCoordinates(
-    path.map((point) => worldToGridCoordinate(point.x, point.y, grid)),
-  );
-  if (snappedTargets.length <= 1) {
-    return snappedTargets;
-  }
+  const route: GridCoordinate[] = [
+    worldToGridCoordinate(path[0].x, path[0].y, grid),
+  ];
+  const maxStepsPerSample = grid.width + grid.height;
+  const commitDistanceUnits = 0.62;
 
-  const route: GridCoordinate[] = [snappedTargets[0]];
-  for (let i = 1; i < snappedTargets.length; i += 1) {
-    const segment = traceGridLine(route[route.length - 1], snappedTargets[i]);
-    for (let segmentIndex = 1; segmentIndex < segment.length; segmentIndex += 1) {
-      const step = segment[segmentIndex];
+  for (let i = 1; i < path.length; i += 1) {
+    const sample = path[i];
+    let remainingSteps = maxStepsPerSample;
+
+    while (remainingSteps > 0) {
+      const current = route[route.length - 1];
+      const currentCenter = gridToWorldCenter(current, grid);
+      const deltaColUnits = (sample.x - currentCenter.x) / grid.cellWidth;
+      const deltaRowUnits = (sample.y - currentCenter.y) / grid.cellHeight;
+      const distanceUnits = Math.hypot(deltaColUnits, deltaRowUnits);
+      if (distanceUnits < commitDistanceUnits) {
+        break;
+      }
+
+      const previous = route.length >= 2 ? route[route.length - 2] : null;
+      const step = resolveIntentStep({
+        previousStep:
+          previous === null
+            ? null
+            : {
+                colStep: current.col - previous.col,
+                rowStep: current.row - previous.row,
+              },
+        deltaColUnits,
+        deltaRowUnits,
+      });
+      const next = {
+        col: Phaser.Math.Clamp(current.col + step.colStep, 0, grid.width - 1),
+        row: Phaser.Math.Clamp(current.row + step.rowStep, 0, grid.height - 1),
+      };
+
+      if (next.col === current.col && next.row === current.row) {
+        break;
+      }
+
       if (
         route.length >= 2 &&
-        step.col === route[route.length - 2].col &&
-        step.row === route[route.length - 2].row
+        next.col === route[route.length - 2].col &&
+        next.row === route[route.length - 2].row
       ) {
         // Dragging back over the just-laid segment should erase tail steps.
         route.pop();
+        remainingSteps -= 1;
         continue;
       }
 
-      const current = route[route.length - 1];
-      if (step.col === current.col && step.row === current.row) {
-        continue;
-      }
-
-      route.push(step);
+      route.push(next);
+      remainingSteps -= 1;
     }
   }
 
@@ -309,4 +335,70 @@ function compactGridCoordinates(path: GridCoordinate[]): GridCoordinate[] {
   }
 
   return compacted;
+}
+
+function resolveIntentStep(
+  {
+    previousStep,
+    deltaColUnits,
+    deltaRowUnits,
+  }: {
+    previousStep: { colStep: number; rowStep: number } | null;
+    deltaColUnits: number;
+    deltaRowUnits: number;
+  },
+): { colStep: number; rowStep: number } {
+  const absCol = Math.abs(deltaColUnits);
+  const absRow = Math.abs(deltaRowUnits);
+  const colStep = deltaColUnits > 0 ? 1 : deltaColUnits < 0 ? -1 : 0;
+  const rowStep = deltaRowUnits > 0 ? 1 : deltaRowUnits < 0 ? -1 : 0;
+
+  if (colStep === 0) {
+    return { colStep: 0, rowStep };
+  }
+  if (rowStep === 0) {
+    return { colStep, rowStep: 0 };
+  }
+
+  const previousWasHorizontal =
+    previousStep !== null && previousStep.colStep !== 0 && previousStep.rowStep === 0;
+  const previousWasVertical =
+    previousStep !== null && previousStep.colStep === 0 && previousStep.rowStep !== 0;
+  if (previousWasHorizontal && absRow <= 1) {
+    return { colStep, rowStep: 0 };
+  }
+  if (previousWasVertical && absCol <= 1) {
+    return { colStep: 0, rowStep };
+  }
+
+  // Guard against accidental diagonal on noisy sideways drags when target is
+  // only one cell away on each axis.
+  if (absCol <= 1 && absRow <= 1) {
+    const axisBiasFactor = 1.2;
+    if (absCol > absRow * axisBiasFactor) {
+      return { colStep, rowStep: 0 };
+    }
+    if (absRow > absCol * axisBiasFactor) {
+      return { colStep: 0, rowStep };
+    }
+    if (previousWasHorizontal) {
+      return { colStep, rowStep: 0 };
+    }
+    if (previousWasVertical) {
+      return { colStep: 0, rowStep };
+    }
+  }
+
+  const diagonalRatioThreshold = 0.7;
+  if (absCol >= absRow) {
+    if (absRow / absCol >= diagonalRatioThreshold) {
+      return { colStep, rowStep };
+    }
+    return { colStep, rowStep: 0 };
+  }
+
+  if (absCol / absRow >= diagonalRatioThreshold) {
+    return { colStep, rowStep };
+  }
+  return { colStep: 0, rowStep };
 }
