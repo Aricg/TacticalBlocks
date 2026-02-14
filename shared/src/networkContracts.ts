@@ -2,6 +2,7 @@ import type { RuntimeTuning } from './runtimeTuning.js';
 
 export const NETWORK_MESSAGE_TYPES = {
   unitPath: 'unitPath',
+  unitPathState: 'unitPathState',
   unitCancelMovement: 'unitCancelMovement',
   unitToggleMovementPause: 'unitToggleMovementPause',
   runtimeTuningUpdate: 'runtimeTuningUpdate',
@@ -33,6 +34,11 @@ export type UnitPathMessage = {
   unitId: string;
   path: Vector2[];
   movementCommandMode?: Partial<MovementCommandMode>;
+};
+
+export type UnitPathStateMessage = {
+  unitId: string;
+  path: Vector2[];
 };
 
 export type UnitCancelMovementMessage = {

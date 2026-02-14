@@ -4,7 +4,6 @@ type VisualUpdateCallbacks = {
   smoothRemoteUnitPositions: (deltaMs: number) => void;
   applyCombatVisualWiggle: (timeMs: number) => void;
   refreshTerrainTint: () => void;
-  advancePlannedPaths: () => void;
   refreshFogOfWar: () => void;
   renderPlannedPaths: () => void;
   updateInfluenceDebugFocus: () => void;
@@ -23,7 +22,6 @@ export function runVisualUpdatePipeline({
   callbacks.smoothRemoteUnitPositions(deltaMs);
   callbacks.applyCombatVisualWiggle(timeMs);
   runTerrainTintRefresh(callbacks);
-  callbacks.advancePlannedPaths();
   runFogRefresh(callbacks);
   runPlannedPathRendering(callbacks);
   runInfluenceDebugFocusUpdate(callbacks);

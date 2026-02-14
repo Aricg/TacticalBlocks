@@ -30,12 +30,6 @@ type SetPlannedPathArgs = {
   path: Phaser.Math.Vector2[];
 };
 
-type AdvancePlannedPathsArgs = {
-  plannedPathsByUnitId: Map<string, Phaser.Math.Vector2[]>;
-  unitsById: ReadonlyMap<string, UnitPosition>;
-  waypointReachedDistance: number;
-};
-
 export function buildMovementCommandMode(
   shiftHeld: boolean,
 ): NetworkUnitPathCommand['movementCommandMode'] {
@@ -237,52 +231,6 @@ export function setPlannedPath({
     unitId,
     path.map((point) => point.clone()),
   );
-}
-
-export function advancePlannedPaths({
-  plannedPathsByUnitId,
-  unitsById,
-  waypointReachedDistance,
-}: AdvancePlannedPathsArgs): void {
-  const reachedDistanceSq = waypointReachedDistance * waypointReachedDistance;
-
-  for (const [unitId, path] of plannedPathsByUnitId) {
-    const unit = unitsById.get(unitId);
-    if (!unit || path.length === 0) {
-      plannedPathsByUnitId.delete(unitId);
-      continue;
-    }
-
-    while (path.length > 0) {
-      const nextWaypoint = path[0];
-      const dx = nextWaypoint.x - unit.x;
-      const dy = nextWaypoint.y - unit.y;
-      if (dx * dx + dy * dy > reachedDistanceSq) {
-        // If server authority skipped an intermediate waypoint, resync by
-        // fast-forwarding to the nearest reached waypoint in the remaining path.
-        let reachedLaterWaypointIndex = -1;
-        for (let i = 1; i < path.length; i += 1) {
-          const candidate = path[i];
-          const cdx = candidate.x - unit.x;
-          const cdy = candidate.y - unit.y;
-          if (cdx * cdx + cdy * cdy <= reachedDistanceSq) {
-            reachedLaterWaypointIndex = i;
-            break;
-          }
-        }
-        if (reachedLaterWaypointIndex >= 1) {
-          path.splice(0, reachedLaterWaypointIndex + 1);
-          continue;
-        }
-        break;
-      }
-      path.shift();
-    }
-
-    if (path.length === 0) {
-      plannedPathsByUnitId.delete(unitId);
-    }
-  }
 }
 
 function traceGridLine(

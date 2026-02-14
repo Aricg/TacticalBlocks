@@ -10,6 +10,7 @@ import {
   type NetworkUnitRotationUpdate,
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
+  type NetworkUnitPathStateUpdate,
   type NetworkUnitMoraleUpdate,
   type NetworkUnitPathCommand,
 } from './NetworkManager';
@@ -43,7 +44,6 @@ import { PathPreviewRenderer } from './PathPreviewRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
 import {
-  advancePlannedPaths,
   buildGridRouteFromWorldPath,
   buildMovementCommandMode,
   clipPathTargetsByTerrain,
@@ -263,7 +263,6 @@ class BattleScene extends Phaser.Scene {
   private static readonly REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS =
     GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
   private static readonly REMOTE_POSITION_INTERPOLATION_MAX_DURATION_MS = 3000;
-  private static readonly PLANNED_PATH_WAYPOINT_REACHED_DISTANCE = 12;
   private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
   private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
@@ -424,6 +423,9 @@ class BattleScene extends Phaser.Scene {
       },
       (positionUpdate) => {
         this.applyNetworkUnitPosition(positionUpdate);
+      },
+      (pathStateUpdate) => {
+        this.applyNetworkUnitPathState(pathStateUpdate);
       },
       (healthUpdate) => {
         this.applyNetworkUnitHealth(healthUpdate);
@@ -931,6 +933,25 @@ class BattleScene extends Phaser.Scene {
           snapImmediately,
         ),
     });
+  }
+
+  private applyNetworkUnitPathState(
+    pathStateUpdate: NetworkUnitPathStateUpdate,
+  ): void {
+    const { unitId, path } = pathStateUpdate;
+    if (this.pendingUnitPathCommandsByUnitId.has(unitId)) {
+      return;
+    }
+
+    if (path.length === 0) {
+      this.plannedPathsByUnitId.delete(unitId);
+      return;
+    }
+
+    this.setPlannedPath(
+      unitId,
+      path.map((point) => new Phaser.Math.Vector2(point.x, point.y)),
+    );
   }
 
   private applyNetworkUnitHealth(healthUpdate: NetworkUnitHealthUpdate): void {
@@ -1542,32 +1563,6 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
-  private advancePlannedPaths(): void {
-    const activePlannedPathsByUnitId = new Map<string, Phaser.Math.Vector2[]>();
-    for (const [unitId, path] of this.plannedPathsByUnitId) {
-      if (this.pendingUnitPathCommandsByUnitId.has(unitId)) {
-        continue;
-      }
-      activePlannedPathsByUnitId.set(unitId, path);
-    }
-
-    advancePlannedPaths({
-      plannedPathsByUnitId: activePlannedPathsByUnitId,
-      unitsById: this.unitsById,
-      waypointReachedDistance:
-        BattleScene.PLANNED_PATH_WAYPOINT_REACHED_DISTANCE,
-    });
-
-    for (const unitId of Array.from(this.plannedPathsByUnitId.keys())) {
-      if (this.pendingUnitPathCommandsByUnitId.has(unitId)) {
-        continue;
-      }
-      if (!activePlannedPathsByUnitId.has(unitId)) {
-        this.plannedPathsByUnitId.delete(unitId);
-      }
-    }
-  }
-
   private appendDraggedPathPoint(
     draggedPath: Phaser.Math.Vector2[],
     x: number,
@@ -1844,7 +1839,6 @@ class BattleScene extends Phaser.Scene {
         smoothRemoteUnitPositions: (deltaMs) => this.smoothRemoteUnitPositions(deltaMs),
         applyCombatVisualWiggle: (timeMs) => this.applyCombatVisualWiggle(timeMs),
         refreshTerrainTint: () => this.updateUnitTerrainColors(),
-        advancePlannedPaths: () => this.advancePlannedPaths(),
         refreshFogOfWar: () => this.refreshFogOfWar(),
         renderPlannedPaths: () => this.renderMovementLines(),
         updateInfluenceDebugFocus: () => this.updateInfluenceDebugFocus(),

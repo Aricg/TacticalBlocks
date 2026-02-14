@@ -15,6 +15,7 @@ import {
   type UnitCancelMovementMessage,
   type UnitToggleMovementPauseMessage,
   type UnitPathMessage,
+  type UnitPathStateMessage,
 } from '../../shared/src/networkContracts.js';
 
 type ServerUnitState = {
@@ -76,6 +77,8 @@ export type NetworkUnitMoraleUpdate = {
   moraleScore: number;
 };
 
+export type NetworkUnitPathStateUpdate = UnitPathStateMessage;
+
 export type NetworkInfluenceGridUpdate = {
   width: number;
   height: number;
@@ -116,6 +119,9 @@ type UnitAddedHandler = (unit: NetworkUnitSnapshot) => void;
 type UnitRemovedHandler = (unitId: string) => void;
 type TeamAssignedHandler = (team: PlayerTeam) => void;
 type UnitPositionChangedHandler = (position: NetworkUnitPositionUpdate) => void;
+type UnitPathStateChangedHandler = (
+  pathStateUpdate: NetworkUnitPathStateUpdate,
+) => void;
 type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
 type UnitRotationChangedHandler = (
   rotationUpdate: NetworkUnitRotationUpdate,
@@ -160,6 +166,7 @@ export class NetworkManager {
     private readonly onLobbyStateChanged: LobbyStateChangedHandler,
     private readonly onBattleEnded: BattleEndedHandler,
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
+    private readonly onUnitPathStateChanged: UnitPathStateChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
     private readonly onUnitMoraleChanged: UnitMoraleChangedHandler,
@@ -199,6 +206,30 @@ export class NetworkManager {
         this.onLobbyStateChanged(
           this.normalizeLobbyStateUpdate(message, room.sessionId),
         );
+      },
+    );
+    room.onMessage(
+      NETWORK_MESSAGE_TYPES.unitPathState,
+      (message: UnitPathStateMessage) => {
+        const unitId = typeof message?.unitId === 'string' ? message.unitId : '';
+        if (unitId.length === 0) {
+          return;
+        }
+        const path = Array.isArray(message?.path)
+          ? message.path
+              .filter(
+                (waypoint): waypoint is { x: number; y: number } =>
+                  typeof waypoint?.x === 'number' &&
+                  Number.isFinite(waypoint.x) &&
+                  typeof waypoint?.y === 'number' &&
+                  Number.isFinite(waypoint.y),
+              )
+              .map((waypoint) => ({ x: waypoint.x, y: waypoint.y }))
+          : [];
+        this.onUnitPathStateChanged({
+          unitId,
+          path,
+        });
       },
     );
     room.onMessage(

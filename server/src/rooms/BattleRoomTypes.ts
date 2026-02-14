@@ -19,6 +19,7 @@ export type {
   UnitCancelMovementMessage,
   UnitToggleMovementPauseMessage,
   UnitPathMessage,
+  UnitPathStateMessage,
   Vector2,
 } from "../../../shared/src/networkContracts.js";
 

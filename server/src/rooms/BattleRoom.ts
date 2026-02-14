@@ -71,6 +71,7 @@ import type {
   UnitToggleMovementPauseMessage,
   UnitMovementState,
   UnitPathMessage,
+  UnitPathStateMessage,
   Vector2,
 } from "./BattleRoomTypes.js";
 
@@ -80,6 +81,7 @@ export class BattleRoom extends Room<BattleState> {
   );
   private readonly battleLifecycleService = new BattleLifecycleService();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
+  private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private neutralCityCells: GridCoordinate[] = [];
   private matchPhase: MatchPhase = "LOBBY";
@@ -155,6 +157,7 @@ export class BattleRoom extends Room<BattleState> {
       }
       const generatedCityUnits = this.updateCityUnitGeneration(deltaSeconds);
       const engagements = this.updateUnitInteractions(deltaSeconds);
+      this.syncAllUnitPathStates();
       this.updateCombatRotation(deltaSeconds, engagements);
       const battleOutcome = this.getBattleOutcome();
       if (battleOutcome) {
@@ -209,6 +212,7 @@ export class BattleRoom extends Room<BattleState> {
     const assignedTeam = this.lobbyService.registerJoin(client.sessionId);
     client.send(NETWORK_MESSAGE_TYPES.teamAssigned, { team: assignedTeam });
     client.send(NETWORK_MESSAGE_TYPES.runtimeTuningSnapshot, this.runtimeTuning);
+    this.sendUnitPathStateSnapshot(client);
     this.broadcastLobbyState();
     console.log(`Client joined battle room: ${client.sessionId} (${assignedTeam})`);
   }
@@ -223,6 +227,7 @@ export class BattleRoom extends Room<BattleState> {
 
   onDispose(): void {
     this.movementStateByUnitId.clear();
+    this.lastBroadcastPathSignatureByUnitId.clear();
     this.lobbyService.dispose();
     this.simulationFrame = 0;
     this.resetCityUnitGenerationState();
@@ -264,6 +269,84 @@ export class BattleRoom extends Room<BattleState> {
     };
     movementState.movementBudget = 0;
     movementState.isPaused = false;
+  }
+
+  private buildPathSignature(movementState: UnitMovementState): string {
+    const cells: GridCoordinate[] = [];
+    if (movementState.destinationCell) {
+      cells.push(movementState.destinationCell);
+    }
+    cells.push(...movementState.queuedCells);
+    if (cells.length === 0) {
+      return "";
+    }
+
+    return cells.map((cell) => `${cell.col},${cell.row}`).join(";");
+  }
+
+  private buildUnitPathStateMessage(unitId: string): UnitPathStateMessage {
+    const movementState = this.movementStateByUnitId.get(unitId);
+    if (!movementState) {
+      return { unitId, path: [] };
+    }
+
+    const pathCells: GridCoordinate[] = [];
+    if (movementState.destinationCell) {
+      pathCells.push(movementState.destinationCell);
+    }
+    pathCells.push(...movementState.queuedCells);
+
+    return {
+      unitId,
+      path: pathCells.map((cell) => this.gridToWorldCenter(cell)),
+    };
+  }
+
+  private syncUnitPathState(unitId: string): void {
+    const movementState = this.movementStateByUnitId.get(unitId);
+    if (!movementState) {
+      this.lastBroadcastPathSignatureByUnitId.delete(unitId);
+      return;
+    }
+
+    const nextSignature = this.buildPathSignature(movementState);
+    const previousSignature = this.lastBroadcastPathSignatureByUnitId.get(unitId);
+    if (previousSignature === nextSignature) {
+      return;
+    }
+
+    this.lastBroadcastPathSignatureByUnitId.set(unitId, nextSignature);
+    this.broadcast(
+      NETWORK_MESSAGE_TYPES.unitPathState,
+      this.buildUnitPathStateMessage(unitId),
+    );
+  }
+
+  private syncAllUnitPathStates(): void {
+    const activeUnitIds = new Set<string>();
+    for (const [unitId] of this.movementStateByUnitId) {
+      activeUnitIds.add(unitId);
+      this.syncUnitPathState(unitId);
+    }
+
+    for (const unitId of Array.from(this.lastBroadcastPathSignatureByUnitId.keys())) {
+      if (!activeUnitIds.has(unitId)) {
+        this.lastBroadcastPathSignatureByUnitId.delete(unitId);
+      }
+    }
+  }
+
+  private sendUnitPathStateSnapshot(client: Client): void {
+    for (const [unitId, movementState] of this.movementStateByUnitId) {
+      const signature = this.buildPathSignature(movementState);
+      if (signature.length === 0) {
+        continue;
+      }
+      client.send(
+        NETWORK_MESSAGE_TYPES.unitPathState,
+        this.buildUnitPathStateMessage(unitId),
+      );
+    }
   }
 
   private normalizeMovementCommandMode(
@@ -839,6 +922,7 @@ export class BattleRoom extends Room<BattleState> {
       this.state.units.delete(unitId);
     }
     this.movementStateByUnitId.clear();
+    this.lastBroadcastPathSignatureByUnitId.clear();
   }
 
   private clearInfluenceGrid(): void {
@@ -1004,6 +1088,7 @@ export class BattleRoom extends Room<BattleState> {
 
     if (normalizedPath.length === 0) {
       this.clearMovementForUnit(unit.unitId);
+      this.syncUnitPathState(unit.unitId);
       return;
     }
 
@@ -1016,12 +1101,14 @@ export class BattleRoom extends Room<BattleState> {
 
     if (route.length === 0) {
       this.clearMovementForUnit(unit.unitId);
+      this.syncUnitPathState(unit.unitId);
       return;
     }
 
     movementState.destinationCell = route[0];
     movementState.queuedCells = route.slice(1);
     this.faceCurrentDestination(unit, movementState);
+    this.syncUnitPathState(unit.unitId);
   }
 
   private handleUnitCancelMovementMessage(
@@ -1051,6 +1138,7 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     this.clearMovementForUnit(unit.unitId);
+    this.syncUnitPathState(unit.unitId);
   }
 
   private handleUnitToggleMovementPauseMessage(
