@@ -20,30 +20,37 @@ export class Unit extends Phaser.GameObjects.Container {
   private readonly facingArrow: Phaser.GameObjects.Triangle;
   private readonly healthBoxBg: Phaser.GameObjects.Rectangle;
   private readonly healthBoxFill: Phaser.GameObjects.Rectangle;
-  private readonly dpsText: Phaser.GameObjects.Text;
-  private readonly terrainDebugText: Phaser.GameObjects.Text;
+  private readonly moraleBoxBg: Phaser.GameObjects.Rectangle;
+  private readonly moraleBoxFill: Phaser.GameObjects.Rectangle;
+  private readonly combatStatsText: Phaser.GameObjects.Text;
   private health: number;
   private healthMax: number;
-  private currentDpsOutput: number;
+  private moraleScore: number | null;
+  private calculatedDps: number | null;
   private terrainColor: number | null;
   private terrainType: TerrainType;
 
   private static readonly BODY_WIDTH: number = GAMEPLAY_CONFIG.unit.bodyWidth;
   private static readonly BODY_HEIGHT: number = GAMEPLAY_CONFIG.unit.bodyHeight;
   private static readonly OUTLINE_WIDTH = 2;
-  private static readonly HEALTH_BOX_WIDTH = 20;
-  private static readonly HEALTH_BOX_HEIGHT = 4;
-  private static readonly HEALTH_BOX_TOP_INSET = 3;
+  private static readonly HEALTH_BOX_WIDTH = Unit.BODY_WIDTH;
+  private static readonly HEALTH_BOX_HEIGHT = Math.max(
+    4,
+    Math.round(Unit.BODY_HEIGHT * 0.5),
+  );
+  private static readonly HEALTH_BOX_TOP_INSET = Unit.HEALTH_BOX_HEIGHT * 0.5;
   private static readonly HEALTH_BOX_BASE_Y =
     -(Unit.BODY_HEIGHT * 0.5) + Unit.HEALTH_BOX_TOP_INSET;
+  private static readonly MORALE_BOX_BASE_Y =
+    Unit.HEALTH_BOX_BASE_Y + Unit.HEALTH_BOX_HEIGHT;
   private static readonly HEALTH_MAX: number = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly HEALTH_RED_THRESHOLD: number =
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
+  private static readonly MORALE_MAX_SCORE = 100;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly HEALTH_FILL_BASE_X = -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1;
-  private static readonly DPS_TEXT_BASE_Y = Unit.BODY_HEIGHT * 0.5 - 6;
-  private static readonly TERRAIN_TEXT_BASE_Y = -(Unit.BODY_HEIGHT * 0.5) - 11;
+  private static readonly COMBAT_STATS_TEXT_BASE_Y = Unit.BODY_HEIGHT * 0.5 - 6;
   private static readonly ARROW_VERTICES = [
     { x: -5, y: 3 },
     { x: 0, y: -5 },
@@ -70,7 +77,8 @@ export class Unit extends Phaser.GameObjects.Container {
     this.team = team;
     this.healthMax = Unit.HEALTH_MAX;
     this.health = Phaser.Math.Clamp(health, 0, this.healthMax);
-    this.currentDpsOutput = 0;
+    this.moraleScore = null;
+    this.calculatedDps = null;
     this.terrainColor = null;
     this.terrainType = 'unknown';
     this.rotation = rotation;
@@ -134,46 +142,58 @@ export class Unit extends Phaser.GameObjects.Container {
     );
     this.healthBoxFill.setOrigin(0, 0.5);
 
-    this.dpsText = new Phaser.GameObjects.Text(
+    this.moraleBoxBg = new Phaser.GameObjects.Rectangle(
       scene,
       0,
-      Unit.DPS_TEXT_BASE_Y,
-      '',
-      {
-        fontFamily: 'monospace',
-        fontSize: '8px',
-        color: '#ffffff',
-      },
+      Unit.MORALE_BOX_BASE_Y,
+      Unit.HEALTH_BOX_WIDTH,
+      Unit.HEALTH_BOX_HEIGHT,
+      0x1a1a1a,
     );
-    this.dpsText.setOrigin(0.5, 0.5);
+    this.moraleBoxBg.setOrigin(0.5, 0.5);
+    this.moraleBoxBg.setStrokeStyle(1, 0xffffff, 0.7);
 
-    this.terrainDebugText = new Phaser.GameObjects.Text(
+    this.moraleBoxFill = new Phaser.GameObjects.Rectangle(
+      scene,
+      Unit.HEALTH_FILL_BASE_X,
+      Unit.MORALE_BOX_BASE_Y,
+      Unit.HEALTH_BOX_INNER_WIDTH,
+      Unit.HEALTH_BOX_INNER_HEIGHT,
+      0x6f9fff,
+    );
+    this.moraleBoxFill.setOrigin(0, 0.5);
+
+    this.combatStatsText = new Phaser.GameObjects.Text(
       scene,
       0,
-      Unit.TERRAIN_TEXT_BASE_Y,
+      Unit.COMBAT_STATS_TEXT_BASE_Y,
       '',
       {
         fontFamily: 'monospace',
-        fontSize: '8px',
-        color: '#f3f3f3',
-        backgroundColor: '#111111',
+        fontSize: '11px',
+        color: '#ffffff',
+        backgroundColor: '#000000',
+        align: 'center',
+        padding: { x: 3, y: 2 },
       },
     );
-    this.terrainDebugText.setOrigin(0.5, 0.5);
+    this.combatStatsText.setOrigin(0.5, 0.5);
+    this.combatStatsText.setVisible(false);
 
     this.add([
       this.unitBody,
       this.facingArrow,
       this.healthBoxBg,
       this.healthBoxFill,
-      this.dpsText,
-      this.terrainDebugText,
+      this.moraleBoxBg,
+      this.moraleBoxFill,
+      this.combatStatsText,
     ]);
 
     scene.add.existing(this);
     this.refreshHealthVisuals();
-    this.refreshDpsOutputVisual();
-    this.refreshTerrainDebugVisual();
+    this.refreshMoraleVisuals();
+    this.refreshCombatStatsVisual();
   }
 
   public static fromGameObject(
@@ -204,13 +224,11 @@ export class Unit extends Phaser.GameObjects.Container {
   }
 
   public resetCurrentDpsOutput(): void {
-    this.currentDpsOutput = 0;
     this.previouslyEngagedUnits.clear();
     for (const engagedUnit of this.engagedUnits) {
       this.previouslyEngagedUnits.add(engagedUnit);
     }
     this.engagedUnits.clear();
-    this.refreshDpsOutputVisual();
   }
 
   public wasEngagedWith(unit: Unit): boolean {
@@ -222,10 +240,8 @@ export class Unit extends Phaser.GameObjects.Container {
       return;
     }
 
-    this.currentDpsOutput += damagePerSecond;
     this.health = Math.max(0, this.health - damagePerSecond * deltaSeconds);
     this.refreshHealthVisuals();
-    this.refreshDpsOutputVisual();
   }
 
   public isAlive(): boolean {
@@ -247,6 +263,17 @@ export class Unit extends Phaser.GameObjects.Container {
     this.refreshHealthVisuals();
   }
 
+  public setCombatStats(moraleScore: number | null, calculatedDps: number | null): void {
+    this.moraleScore = Number.isFinite(moraleScore) ? moraleScore : null;
+    this.calculatedDps = Number.isFinite(calculatedDps) ? calculatedDps : null;
+    this.refreshMoraleVisuals();
+    this.refreshCombatStatsVisual();
+  }
+
+  public setCombatStatsVisible(visible: boolean): void {
+    this.combatStatsText.setVisible(visible);
+  }
+
   public setCombatVisualOffset(offsetX: number, offsetY: number): void {
     this.unitBody.setPosition(offsetX, offsetY);
     this.facingArrow.setPosition(offsetX, offsetY);
@@ -255,8 +282,15 @@ export class Unit extends Phaser.GameObjects.Container {
       Unit.HEALTH_FILL_BASE_X + offsetX,
       Unit.HEALTH_BOX_BASE_Y + offsetY,
     );
-    this.dpsText.setPosition(offsetX, Unit.DPS_TEXT_BASE_Y + offsetY);
-    this.terrainDebugText.setPosition(offsetX, Unit.TERRAIN_TEXT_BASE_Y + offsetY);
+    this.moraleBoxBg.setPosition(offsetX, Unit.MORALE_BOX_BASE_Y + offsetY);
+    this.moraleBoxFill.setPosition(
+      Unit.HEALTH_FILL_BASE_X + offsetX,
+      Unit.MORALE_BOX_BASE_Y + offsetY,
+    );
+    this.combatStatsText.setPosition(
+      offsetX,
+      Unit.COMBAT_STATS_TEXT_BASE_Y + offsetY,
+    );
   }
 
   public clearCombatVisualOffset(): void {
@@ -280,15 +314,10 @@ export class Unit extends Phaser.GameObjects.Container {
 
   public setTerrainType(type: TerrainType): void {
     this.terrainType = type;
-    this.refreshTerrainDebugVisual();
   }
 
   public getTerrainType(): TerrainType {
     return this.terrainType;
-  }
-
-  private refreshTerrainDebugVisual(): void {
-    this.terrainDebugText.setText(this.terrainType.toUpperCase());
   }
 
   private refreshHealthVisuals(): void {
@@ -307,12 +336,30 @@ export class Unit extends Phaser.GameObjects.Container {
     return Phaser.Math.Clamp(this.health / this.healthMax, 0, 1);
   }
 
-  private refreshDpsOutputVisual(): void {
-    if (this.currentDpsOutput <= 0) {
-      this.dpsText.setText('');
-      return;
-    }
+  private refreshMoraleVisuals(): void {
+    const moraleRatio = this.getMoraleRatio();
+    this.moraleBoxFill.setDisplaySize(
+      Unit.HEALTH_BOX_INNER_WIDTH * moraleRatio,
+      Unit.HEALTH_BOX_INNER_HEIGHT,
+    );
+    this.moraleBoxFill.setFillStyle(moraleRatio > 0.35 ? 0x6f9fff : 0xd6a64f);
+    this.moraleBoxFill.setVisible(this.moraleScore !== null && moraleRatio > 0);
+  }
 
-    this.dpsText.setText(`${Math.round(this.currentDpsOutput)} DPS`);
+  private getMoraleRatio(): number {
+    if (this.moraleScore === null) {
+      return 0;
+    }
+    return Phaser.Math.Clamp(this.moraleScore / Unit.MORALE_MAX_SCORE, 0, 1);
+  }
+
+  private refreshCombatStatsVisual(): void {
+    const moraleLabel =
+      this.moraleScore === null ? '--' : Math.round(this.moraleScore).toString();
+    const dpsLabel =
+      this.calculatedDps === null
+        ? '--'
+        : this.calculatedDps.toFixed(1).replace(/\.0$/, '');
+    this.combatStatsText.setText(`M ${moraleLabel}\nD ${dpsLabel}`);
   }
 }
