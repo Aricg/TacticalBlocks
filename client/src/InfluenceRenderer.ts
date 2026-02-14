@@ -274,7 +274,9 @@ export class InfluenceRenderer {
       }
     }
 
-    this.renderFocusCellValues(rawServerCells);
+    // Keep influence dots, but hide per-unit numeric debug labels to avoid
+    // overlapping combat stat text on selected units.
+    this.hideDebugTexts();
   }
 
   private renderFocusCellValues(rawServerCells: Float32Array): void {

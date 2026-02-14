@@ -47,6 +47,7 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly HEALTH_RED_THRESHOLD: number =
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
   private static readonly MORALE_MAX_SCORE = 100;
+  private static readonly MORALE_LOW_THRESHOLD = 0.35;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly HEALTH_FILL_BASE_X = -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1;
@@ -59,6 +60,13 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
     [Team.RED]: 0xa05555,
     [Team.BLUE]: 0x4e6f9e,
+  };
+  private static readonly TEAM_MORALE_FILL_COLORS: Record<
+    Team,
+    { high: number; low: number }
+  > = {
+    [Team.RED]: { high: 0xd44b4b, low: 0x8d2e2e },
+    [Team.BLUE]: { high: 0x6f9fff, low: 0x405f99 },
   };
 
   constructor(
@@ -159,7 +167,7 @@ export class Unit extends Phaser.GameObjects.Container {
       Unit.MORALE_BOX_BASE_Y,
       Unit.HEALTH_BOX_INNER_WIDTH,
       Unit.HEALTH_BOX_INNER_HEIGHT,
-      0x6f9fff,
+      Unit.TEAM_MORALE_FILL_COLORS[this.team].high,
     );
     this.moraleBoxFill.setOrigin(0, 0.5);
 
@@ -338,11 +346,14 @@ export class Unit extends Phaser.GameObjects.Container {
 
   private refreshMoraleVisuals(): void {
     const moraleRatio = this.getMoraleRatio();
+    const moraleColors = Unit.TEAM_MORALE_FILL_COLORS[this.team];
     this.moraleBoxFill.setDisplaySize(
       Unit.HEALTH_BOX_INNER_WIDTH * moraleRatio,
       Unit.HEALTH_BOX_INNER_HEIGHT,
     );
-    this.moraleBoxFill.setFillStyle(moraleRatio > 0.35 ? 0x6f9fff : 0xd6a64f);
+    this.moraleBoxFill.setFillStyle(
+      moraleRatio > Unit.MORALE_LOW_THRESHOLD ? moraleColors.high : moraleColors.low,
+    );
     this.moraleBoxFill.setVisible(this.moraleScore !== null && moraleRatio > 0);
   }
 

@@ -230,6 +230,7 @@ class BattleScene extends Phaser.Scene {
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
+  private showCombatStatsOverlay = false;
   private mapSamplingWidth = 0;
   private mapSamplingHeight = 0;
 
@@ -266,6 +267,7 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
   private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
+  private static readonly MORALE_MAX_SCORE = 100;
   private static readonly SHOW_IMPASSABLE_OVERLAY = true;
   private static readonly IMPASSABLE_OVERLAY_DEPTH = 930;
   private static readonly IMPASSABLE_OVERLAY_FILL_COLOR = 0xff1f1f;
@@ -341,6 +343,12 @@ class BattleScene extends Phaser.Scene {
         }
         this.networkManager.sendRuntimeTuningUpdate(update);
       },
+      {
+        initialCombatStatsOverlayVisible: this.showCombatStatsOverlay,
+        onCombatStatsOverlayVisibilityChange: (visible) => {
+          this.setCombatStatsOverlayVisible(visible);
+        },
+      },
     );
     this.applyRuntimeTuning(this.runtimeTuning);
     this.refreshFogOfWar();
@@ -398,7 +406,7 @@ class BattleScene extends Phaser.Scene {
         cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
         engageSelectedUnitMovement: () => this.engageSelectedUnitMovement(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
-        exitBattle: () => this.exitBattle(),
+        clearAllQueuedMovement: () => this.clearAllQueuedMovement(),
       },
       {
         dragThreshold: BattleScene.DRAG_THRESHOLD,
@@ -829,6 +837,7 @@ class BattleScene extends Phaser.Scene {
     for (const unit of this.unitsById.values()) {
       unit.setHealthMax(this.runtimeTuning.baseUnitHealth);
     }
+    this.refreshUnitCombatStatsLabels();
     this.influenceRenderer?.setLineStyle({
       lineThickness: this.runtimeTuning.lineThickness,
       lineAlpha: this.runtimeTuning.lineAlpha,
@@ -896,6 +905,10 @@ class BattleScene extends Phaser.Scene {
           snapImmediately,
         ),
     });
+    this.refreshUnitCombatStatsLabel(networkUnit.unitId);
+    this.unitsById
+      .get(networkUnit.unitId)
+      ?.setCombatStatsVisible(this.showCombatStatsOverlay);
   }
 
   private removeNetworkUnit(unitId: string): void {
@@ -988,6 +1001,45 @@ class BattleScene extends Phaser.Scene {
       unitsById: this.unitsById,
       moraleScoreByUnitId: this.moraleScoreByUnitId,
     });
+    this.refreshUnitCombatStatsLabel(moraleUpdate.unitId);
+  }
+
+  private refreshUnitCombatStatsLabels(): void {
+    for (const unitId of this.unitsById.keys()) {
+      this.refreshUnitCombatStatsLabel(unitId);
+    }
+  }
+
+  private refreshUnitCombatStatsLabel(unitId: string): void {
+    const unit = this.unitsById.get(unitId);
+    if (!unit) {
+      return;
+    }
+
+    const moraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
+    const calculatedDps = this.calculateUnitContactDps(moraleScore);
+    unit.setCombatStats(moraleScore, calculatedDps);
+  }
+
+  private calculateUnitContactDps(moraleScore: number | null): number | null {
+    if (moraleScore === null || !Number.isFinite(moraleScore)) {
+      return null;
+    }
+
+    const normalizedMorale = Phaser.Math.Clamp(
+      moraleScore / BattleScene.MORALE_MAX_SCORE,
+      0,
+      1,
+    );
+    const safeBaseDps = Math.max(0, this.runtimeTuning.baseContactDps);
+    return safeBaseDps * (1 + normalizedMorale * this.runtimeTuning.dpsInfluenceMultiplier);
+  }
+
+  private setCombatStatsOverlayVisible(visible: boolean): void {
+    this.showCombatStatsOverlay = visible;
+    for (const unit of this.unitsById.values()) {
+      unit.setCombatStatsVisible(visible);
+    }
   }
 
   private applyAssignedTeam(teamValue: string): void {
@@ -1501,6 +1553,22 @@ class BattleScene extends Phaser.Scene {
 
     for (const [unitId, unit] of this.unitsById) {
       if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+      this.networkManager?.sendUnitCancelMovement(unitId);
+      this.plannedPathsByUnitId.delete(unitId);
+      this.pendingUnitPathCommandsByUnitId.delete(unitId);
+    }
+  }
+
+  private clearAllQueuedMovement(): void {
+    if (!this.isBattleActive()) {
+      return;
+    }
+
+    this.resetPointerInteractionState();
+    for (const [unitId, unit] of this.unitsById) {
+      if (unit.team !== this.localPlayerTeam) {
         continue;
       }
       this.networkManager?.sendUnitCancelMovement(unitId);

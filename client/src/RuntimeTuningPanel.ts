@@ -106,6 +106,7 @@ export class RuntimeTuningPanel {
   private readonly root: HTMLDivElement;
   private readonly content: HTMLDivElement;
   private readonly toggleButton: HTMLButtonElement;
+  private readonly combatStatsOverlayInput: HTMLInputElement;
   private readonly inputByKey = new Map<RuntimeTuningKey, HTMLInputElement>();
   private readonly valueByKey = new Map<RuntimeTuningKey, HTMLSpanElement>();
   private isMinimized = false;
@@ -114,6 +115,10 @@ export class RuntimeTuningPanel {
   constructor(
     initialValues: RuntimeTuning,
     private readonly onSliderInput: (update: Partial<RuntimeTuning>) => void,
+    options?: {
+      initialCombatStatsOverlayVisible?: boolean;
+      onCombatStatsOverlayVisibilityChange?: (visible: boolean) => void;
+    },
   ) {
     const existingPanel = document.getElementById('runtime-tuning-panel');
     if (existingPanel) {
@@ -175,6 +180,28 @@ export class RuntimeTuningPanel {
     subtitle.style.opacity = '0.75';
     subtitle.style.marginBottom = '8px';
     this.content.appendChild(subtitle);
+
+    const combatStatsOverlayRow = document.createElement('label');
+    combatStatsOverlayRow.style.display = 'flex';
+    combatStatsOverlayRow.style.alignItems = 'center';
+    combatStatsOverlayRow.style.justifyContent = 'space-between';
+    combatStatsOverlayRow.style.gap = '8px';
+    combatStatsOverlayRow.style.marginBottom = '10px';
+    combatStatsOverlayRow.style.opacity = '0.92';
+    combatStatsOverlayRow.textContent = 'Show Unit Stats Overlay';
+    this.content.appendChild(combatStatsOverlayRow);
+
+    this.combatStatsOverlayInput = document.createElement('input');
+    this.combatStatsOverlayInput.type = 'checkbox';
+    this.combatStatsOverlayInput.checked = Boolean(
+      options?.initialCombatStatsOverlayVisible,
+    );
+    this.combatStatsOverlayInput.addEventListener('input', () => {
+      options?.onCombatStatsOverlayVisibilityChange?.(
+        this.combatStatsOverlayInput.checked,
+      );
+    });
+    combatStatsOverlayRow.appendChild(this.combatStatsOverlayInput);
 
     const groupContainerByName = new Map<string, HTMLDivElement>();
     for (const slider of SLIDERS) {
