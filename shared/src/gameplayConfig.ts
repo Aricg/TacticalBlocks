@@ -12,7 +12,7 @@ const MAP_IDS = [
   'random-frontier-01',
 ] as const;
 
-const UNIT_BASE_MOVE_SPEED = 20;
+const UNIT_BASE_MOVE_SPEED = 200;
 
 export const GAMEPLAY_CONFIG = {
   map: {
@@ -86,6 +86,7 @@ export const GAMEPLAY_CONFIG = {
   input: {
     dragThreshold: 10,
     previewPathPointSpacing: 4,
+    commandPathPointSpacing: 50,
   },
   movement: {
     // Baseline unit locomotion tuning.
@@ -95,8 +96,8 @@ export const GAMEPLAY_CONFIG = {
     refaceAngleThresholdRadians: (Math.PI / 180) * 3,
     waypointMoveAngleToleranceRadians: 0.35,
     minWaypointDistance: 1,
-    // Clamp for player-provided command speed multipliers.
-    maxCommandSpeedMultiplier: 4,
+    // Server-side speed multiplier for commands that disable rotate-to-face.
+    rotateToFaceDisabledSpeedMultiplier: 0.5,
     allyCollisionPushSpeed: 180,
     allySoftSeparationDistance: 28,
     allySoftSeparationPushSpeed: 90,

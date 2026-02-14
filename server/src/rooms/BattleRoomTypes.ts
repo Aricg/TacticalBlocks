@@ -1,5 +1,6 @@
 import type {
   MovementCommandMode,
+  MovementCommandModeInput,
   PlayerTeam,
 } from "../../../shared/src/networkContracts.js";
 
@@ -14,6 +15,7 @@ export type {
   LobbyStateMessage,
   MatchPhase,
   MovementCommandMode,
+  MovementCommandModeInput,
   PlayerTeam,
   RuntimeTuningUpdateMessage,
   UnitCancelMovementMessage,

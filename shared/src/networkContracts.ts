@@ -30,10 +30,15 @@ export type MovementCommandMode = {
   rotateToFace: boolean;
 };
 
+export type MovementCommandModeInput = Pick<
+  MovementCommandMode,
+  "rotateToFace"
+>;
+
 export type UnitPathMessage = {
   unitId: string;
   path: Vector2[];
-  movementCommandMode?: Partial<MovementCommandMode>;
+  movementCommandMode?: Partial<MovementCommandModeInput>;
 };
 
 export type UnitPathStateMessage = {

@@ -65,6 +65,7 @@ import type {
   LobbyStateMessage,
   MatchPhase,
   MovementCommandMode,
+  MovementCommandModeInput,
   PlayerTeam,
   RuntimeTuningUpdateMessage,
   UnitCancelMovementMessage,
@@ -110,6 +111,11 @@ export class BattleRoom extends Room<BattleState> {
     speedMultiplier: 1,
     rotateToFace: true,
   };
+  private static readonly ROTATE_TO_FACE_DISABLED_SPEED_MULTIPLIER =
+    Number.isFinite(GAMEPLAY_CONFIG.movement.rotateToFaceDisabledSpeedMultiplier) &&
+    GAMEPLAY_CONFIG.movement.rotateToFaceDisabledSpeedMultiplier > 0
+      ? GAMEPLAY_CONFIG.movement.rotateToFaceDisabledSpeedMultiplier
+      : BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE.speedMultiplier;
   private static readonly TERRAIN_SPEED_MULTIPLIER: Record<TerrainType, number> =
     GAMEPLAY_CONFIG.terrain.movementMultiplierByType;
   private static readonly TERRAIN_MORALE_MULTIPLIER: Record<TerrainType, number> =
@@ -350,21 +356,16 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private normalizeMovementCommandMode(
-    movementCommandMode?: Partial<MovementCommandMode>,
+    movementCommandMode?: Partial<MovementCommandModeInput>,
   ): MovementCommandMode {
-    const speedMultiplier = movementCommandMode?.speedMultiplier;
-    const normalizedSpeedMultiplier =
-      typeof speedMultiplier === "number" &&
-      Number.isFinite(speedMultiplier) &&
-      speedMultiplier > 0
-        ? Math.min(speedMultiplier, GAMEPLAY_CONFIG.movement.maxCommandSpeedMultiplier)
-        : BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE.speedMultiplier;
-
     const rotateToFace = movementCommandMode?.rotateToFace;
     const normalizedRotateToFace =
       typeof rotateToFace === "boolean"
         ? rotateToFace
         : BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE.rotateToFace;
+    const normalizedSpeedMultiplier = normalizedRotateToFace
+      ? BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE.speedMultiplier
+      : BattleRoom.ROTATE_TO_FACE_DISABLED_SPEED_MULTIPLIER;
 
     return {
       speedMultiplier: normalizedSpeedMultiplier,

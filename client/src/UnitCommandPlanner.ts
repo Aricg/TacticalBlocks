@@ -38,7 +38,6 @@ export function buildMovementCommandMode(
   }
 
   return {
-    speedMultiplier: 0.5,
     rotateToFace: false,
   };
 }
