@@ -124,20 +124,49 @@ export function buildGridRouteFromWorldPath(
     return [];
   }
 
-  const snappedTargets = compactGridCoordinates(
-    path.map((point) => worldToGridCoordinate(point.x, point.y, grid)),
-  );
-  if (snappedTargets.length <= 1) {
-    return snappedTargets;
-  }
+  const route: GridCoordinate[] = [
+    worldToGridCoordinate(path[0].x, path[0].y, grid),
+  ];
+  const maxStepsPerSample = grid.width + grid.height;
 
-  const route: GridCoordinate[] = [snappedTargets[0]];
-  for (let i = 1; i < snappedTargets.length; i += 1) {
-    const previous = snappedTargets[i - 1];
-    const next = snappedTargets[i];
-    const segment = traceGridLine(previous, next);
-    for (let segmentIndex = 1; segmentIndex < segment.length; segmentIndex += 1) {
-      route.push(segment[segmentIndex]);
+  for (let i = 1; i < path.length; i += 1) {
+    const sample = path[i];
+    let remainingSteps = maxStepsPerSample;
+    while (remainingSteps > 0) {
+      const cursor = route[route.length - 1];
+      const cursorCenter = gridToWorldCenter(cursor, grid);
+      const deltaColUnits = (sample.x - cursorCenter.x) / grid.cellWidth;
+      const deltaRowUnits = (sample.y - cursorCenter.y) / grid.cellHeight;
+      const distanceUnits = Math.hypot(deltaColUnits, deltaRowUnits);
+      if (distanceUnits < 0.62) {
+        break;
+      }
+
+      const direction = resolveIntentDirection(deltaColUnits, deltaRowUnits);
+      if (!direction) {
+        break;
+      }
+
+      const nextCell = {
+        col: Phaser.Math.Clamp(cursor.col + direction.colStep, 0, grid.width - 1),
+        row: Phaser.Math.Clamp(cursor.row + direction.rowStep, 0, grid.height - 1),
+      };
+      if (nextCell.col === cursor.col && nextCell.row === cursor.row) {
+        break;
+      }
+
+      const existingIndex = findGridCoordinateIndex(route, nextCell);
+      if (existingIndex >= 0) {
+        if (existingIndex === route.length - 1) {
+          break;
+        }
+        route.length = existingIndex + 1;
+        remainingSteps -= 1;
+        continue;
+      }
+
+      route.push(nextCell);
+      remainingSteps -= 1;
     }
   }
 
@@ -279,4 +308,49 @@ function compactGridCoordinates(path: GridCoordinate[]): GridCoordinate[] {
   }
 
   return compacted;
+}
+
+function findGridCoordinateIndex(
+  path: GridCoordinate[],
+  coordinate: GridCoordinate,
+): number {
+  for (let i = path.length - 1; i >= 0; i -= 1) {
+    const point = path[i];
+    if (point.col === coordinate.col && point.row === coordinate.row) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function resolveIntentDirection(
+  deltaColUnits: number,
+  deltaRowUnits: number,
+): { colStep: number; rowStep: number } | null {
+  const absCol = Math.abs(deltaColUnits);
+  const absRow = Math.abs(deltaRowUnits);
+  if (absCol < 0.0001 && absRow < 0.0001) {
+    return null;
+  }
+
+  const colStep = deltaColUnits > 0 ? 1 : deltaColUnits < 0 ? -1 : 0;
+  const rowStep = deltaRowUnits > 0 ? 1 : deltaRowUnits < 0 ? -1 : 0;
+  if (colStep === 0) {
+    return { colStep: 0, rowStep };
+  }
+  if (rowStep === 0) {
+    return { colStep, rowStep: 0 };
+  }
+
+  if (absCol >= absRow) {
+    if (absRow / absCol >= 0.35) {
+      return { colStep, rowStep };
+    }
+    return { colStep, rowStep: 0 };
+  }
+
+  if (absCol / absRow >= 0.35) {
+    return { colStep, rowStep };
+  }
+  return { colStep: 0, rowStep };
 }
