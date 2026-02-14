@@ -128,7 +128,7 @@ export function buildGridRouteFromWorldPath(
     worldToGridCoordinate(path[0].x, path[0].y, grid),
   ];
   const maxStepsPerSample = grid.width + grid.height;
-  const commitDistanceUnits = 0.62;
+  const commitDistanceUnits = 0.55;
 
   for (let i = 1; i < path.length; i += 1) {
     const sample = path[i];
@@ -364,32 +364,27 @@ function resolveIntentStep(
     previousStep !== null && previousStep.colStep !== 0 && previousStep.rowStep === 0;
   const previousWasVertical =
     previousStep !== null && previousStep.colStep === 0 && previousStep.rowStep !== 0;
-  if (previousWasHorizontal && absRow <= 1) {
+  if (previousWasHorizontal && absRow <= 0.72) {
     return { colStep, rowStep: 0 };
   }
-  if (previousWasVertical && absCol <= 1) {
+  if (previousWasVertical && absCol <= 0.72) {
     return { colStep: 0, rowStep };
   }
 
   // Guard against accidental diagonal on noisy sideways drags when target is
   // only one cell away on each axis.
   if (absCol <= 1 && absRow <= 1) {
-    const axisBiasFactor = 1.2;
+    const axisBiasFactor = 1.12;
     if (absCol > absRow * axisBiasFactor) {
       return { colStep, rowStep: 0 };
     }
     if (absRow > absCol * axisBiasFactor) {
       return { colStep: 0, rowStep };
     }
-    if (previousWasHorizontal) {
-      return { colStep, rowStep: 0 };
-    }
-    if (previousWasVertical) {
-      return { colStep: 0, rowStep };
-    }
+    return { colStep, rowStep };
   }
 
-  const diagonalRatioThreshold = 0.7;
+  const diagonalRatioThreshold = 0.6;
   if (absCol >= absRow) {
     if (absRow / absCol >= diagonalRatioThreshold) {
       return { colStep, rowStep };
