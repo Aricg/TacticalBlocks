@@ -144,6 +144,14 @@ export class NetworkManager {
   private room: Room<BattleRoomState> | null = null;
   private detachCallbacks: Array<() => void> = [];
 
+  private static queuePositionFlush(flush: () => void): void {
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(flush);
+      return;
+    }
+    void Promise.resolve().then(flush);
+  }
+
   constructor(
     private readonly onUnitAdded: UnitAddedHandler,
     private readonly onUnitRemoved: UnitRemovedHandler,
@@ -265,19 +273,26 @@ export class NetworkManager {
               : 0,
           });
 
-          const detachX = $(serverUnit).listen('x', (x: number) => {
-            this.onUnitPositionChanged({
-              unitId,
-              x,
-              y: serverUnit.y,
+          let positionFlushQueued = false;
+          const queuePositionChange = () => {
+            if (positionFlushQueued) {
+              return;
+            }
+            positionFlushQueued = true;
+            NetworkManager.queuePositionFlush(() => {
+              positionFlushQueued = false;
+              this.onUnitPositionChanged({
+                unitId,
+                x: serverUnit.x,
+                y: serverUnit.y,
+              });
             });
+          };
+          const detachX = $(serverUnit).listen('x', () => {
+            queuePositionChange();
           });
-          const detachY = $(serverUnit).listen('y', (y: number) => {
-            this.onUnitPositionChanged({
-              unitId,
-              x: serverUnit.x,
-              y,
-            });
+          const detachY = $(serverUnit).listen('y', () => {
+            queuePositionChange();
           });
           const detachHealth = $(serverUnit).listen('health', (health: number) => {
             this.onUnitHealthChanged({

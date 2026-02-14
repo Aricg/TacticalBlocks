@@ -166,6 +166,29 @@ class BattleScene extends Phaser.Scene {
   > = new Map<string, NetworkUnitPathCommand>();
   private readonly remoteUnitTargetPositions: Map<string, Phaser.Math.Vector2> =
     new Map<string, Phaser.Math.Vector2>();
+  private readonly remoteUnitInterpolationByUnitId: Map<
+    string,
+    {
+      startX: number;
+      startY: number;
+      targetX: number;
+      targetY: number;
+      startedAtMs: number;
+      durationMs: number;
+      lastAuthoritativeAtMs: number;
+    }
+  > = new Map<
+    string,
+    {
+      startX: number;
+      startY: number;
+      targetX: number;
+      targetY: number;
+      startedAtMs: number;
+      durationMs: number;
+      lastAuthoritativeAtMs: number;
+    }
+  >();
   private readonly lastKnownHealthByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly combatVisualUntilByUnitId: Map<string, number> =
@@ -243,6 +266,13 @@ class BattleScene extends Phaser.Scene {
     GAMEPLAY_CONFIG.network.remotePositionLerpRate;
   private static readonly REMOTE_POSITION_SNAP_DISTANCE =
     GAMEPLAY_CONFIG.network.remotePositionSnapDistance;
+  private static readonly REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS =
+    GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
+  private static readonly REMOTE_POSITION_INTERPOLATION_MAX_DURATION_MS = 3000;
+  private static readonly REMOTE_POSITION_INTERPOLATION_BASE_SPEED =
+    GAMEPLAY_CONFIG.movement.unitMoveSpeed;
+  private static readonly REMOTE_POSITION_AUTHORITATIVE_SNAP_DISTANCE =
+    BattleScene.REMOTE_POSITION_SNAP_DISTANCE * 3;
   private static readonly PLANNED_PATH_WAYPOINT_REACHED_DISTANCE = 12;
   private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
@@ -879,6 +909,7 @@ class BattleScene extends Phaser.Scene {
       selectedUnits: this.selectedUnits,
     });
     this.pendingUnitPathCommandsByUnitId.delete(unitId);
+    this.remoteUnitInterpolationByUnitId.delete(unitId);
   }
 
   private applyNetworkUnitPosition(positionUpdate: NetworkUnitPositionUpdate): void {
@@ -946,7 +977,10 @@ class BattleScene extends Phaser.Scene {
     y: number,
     snapImmediately = false,
   ): void {
+    const nowMs = this.time.now;
     const existingTarget = this.remoteUnitTargetPositions.get(unitId);
+    const previousTargetX = existingTarget?.x ?? unit.x;
+    const previousTargetY = existingTarget?.y ?? unit.y;
     if (existingTarget) {
       existingTarget.set(x, y);
     } else {
@@ -955,34 +989,102 @@ class BattleScene extends Phaser.Scene {
 
     if (snapImmediately) {
       unit.setPosition(x, y);
+      this.remoteUnitInterpolationByUnitId.set(unitId, {
+        startX: x,
+        startY: y,
+        targetX: x,
+        targetY: y,
+        startedAtMs: nowMs,
+        durationMs: 0,
+        lastAuthoritativeAtMs: nowMs,
+      });
       return;
     }
 
-    const distance = Phaser.Math.Distance.Between(unit.x, unit.y, x, y);
-    if (distance >= BattleScene.REMOTE_POSITION_SNAP_DISTANCE) {
+    const authoritativeStepDistance = Phaser.Math.Distance.Between(
+      previousTargetX,
+      previousTargetY,
+      x,
+      y,
+    );
+    if (
+      authoritativeStepDistance >=
+      BattleScene.REMOTE_POSITION_AUTHORITATIVE_SNAP_DISTANCE
+    ) {
       unit.setPosition(x, y);
+      this.remoteUnitInterpolationByUnitId.set(unitId, {
+        startX: x,
+        startY: y,
+        targetX: x,
+        targetY: y,
+        startedAtMs: nowMs,
+        durationMs: 0,
+        lastAuthoritativeAtMs: nowMs,
+      });
+      return;
     }
+
+    const previousInterpolation =
+      this.remoteUnitInterpolationByUnitId.get(unitId);
+    const previousAuthoritativeAtMs =
+      previousInterpolation?.lastAuthoritativeAtMs ??
+      nowMs - BattleScene.REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS;
+    const observedStepMs = Math.max(
+      BattleScene.REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS,
+      nowMs - previousAuthoritativeAtMs,
+    );
+    const stepDistance = authoritativeStepDistance;
+    const expectedStepDurationMs =
+      (stepDistance /
+        Math.max(
+          0.001,
+          BattleScene.REMOTE_POSITION_INTERPOLATION_BASE_SPEED,
+        )) *
+      1000;
+    const durationMs = Phaser.Math.Clamp(
+      Math.max(observedStepMs, expectedStepDurationMs),
+      BattleScene.REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS,
+      BattleScene.REMOTE_POSITION_INTERPOLATION_MAX_DURATION_MS,
+    );
+    this.remoteUnitInterpolationByUnitId.set(unitId, {
+      startX: unit.x,
+      startY: unit.y,
+      targetX: x,
+      targetY: y,
+      startedAtMs: nowMs,
+      durationMs,
+      lastAuthoritativeAtMs: nowMs,
+    });
   }
 
   private rebuildRemotePositionTargets(): void {
+    const nowMs = this.time.now;
     this.remoteUnitTargetPositions.clear();
+    this.remoteUnitInterpolationByUnitId.clear();
     for (const [unitId, unit] of this.unitsById) {
       this.remoteUnitTargetPositions.set(
         unitId,
         new Phaser.Math.Vector2(unit.x, unit.y),
       );
+      this.remoteUnitInterpolationByUnitId.set(unitId, {
+        startX: unit.x,
+        startY: unit.y,
+        targetX: unit.x,
+        targetY: unit.y,
+        startedAtMs: nowMs,
+        durationMs: 0,
+        lastAuthoritativeAtMs: nowMs,
+      });
     }
   }
 
   private smoothRemoteUnitPositions(deltaMs: number): void {
+    const nowMs = this.time.now;
     const lerpT = Phaser.Math.Clamp(
       (BattleScene.REMOTE_POSITION_LERP_RATE * deltaMs) / 1000,
       0,
       1,
     );
-    if (lerpT <= 0) {
-      return;
-    }
 
     const staleUnitIds: string[] = [];
     for (const [unitId, target] of this.remoteUnitTargetPositions) {
@@ -992,14 +1094,41 @@ class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      unit.setPosition(
-        Phaser.Math.Linear(unit.x, target.x, lerpT),
-        Phaser.Math.Linear(unit.y, target.y, lerpT),
-      );
+      const interpolation = this.remoteUnitInterpolationByUnitId.get(unitId);
+      if (interpolation) {
+        const durationMs = Math.max(interpolation.durationMs, 0);
+        const t =
+          durationMs <= 0
+            ? 1
+            : Phaser.Math.Clamp(
+                (nowMs - interpolation.startedAtMs) / durationMs,
+                0,
+                1,
+              );
+        unit.setPosition(
+          Phaser.Math.Linear(interpolation.startX, interpolation.targetX, t),
+          Phaser.Math.Linear(interpolation.startY, interpolation.targetY, t),
+        );
+        if (t >= 1) {
+          interpolation.startX = interpolation.targetX;
+          interpolation.startY = interpolation.targetY;
+          interpolation.startedAtMs = nowMs;
+          interpolation.durationMs = 0;
+        }
+        continue;
+      }
+
+      if (lerpT > 0) {
+        unit.setPosition(
+          Phaser.Math.Linear(unit.x, target.x, lerpT),
+          Phaser.Math.Linear(unit.y, target.y, lerpT),
+        );
+      }
     }
 
     for (const unitId of staleUnitIds) {
       this.remoteUnitTargetPositions.delete(unitId);
+      this.remoteUnitInterpolationByUnitId.delete(unitId);
     }
   }
 
