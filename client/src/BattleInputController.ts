@@ -221,11 +221,6 @@ export class BattleInputController {
       this.pathDragStart = null;
 
       if (this.pathDrawing) {
-        this.callbacks.appendDraggedPathPoint(
-          this.draggedPath,
-          pointer.worldX,
-          pointer.worldY,
-        );
         const commandPath = this.callbacks.buildCommandPath(this.draggedPath);
         if (commandPath.length > 1) {
           this.callbacks.commandSelectedUnitsAlongPath(
