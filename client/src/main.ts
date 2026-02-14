@@ -1413,6 +1413,7 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
+    let engagedPendingCommand = false;
     for (const [unitId, unit] of this.unitsById) {
       if (!this.selectedUnits.has(unit)) {
         continue;
@@ -1425,6 +1426,18 @@ class BattleScene extends Phaser.Scene {
 
       this.networkManager.sendUnitPathCommand(pendingCommand);
       this.pendingUnitPathCommandsByUnitId.delete(unitId);
+      engagedPendingCommand = true;
+    }
+
+    if (engagedPendingCommand) {
+      return;
+    }
+
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+      this.networkManager.sendUnitToggleMovementPause(unitId);
     }
   }
 

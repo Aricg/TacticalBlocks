@@ -68,6 +68,7 @@ import type {
   PlayerTeam,
   RuntimeTuningUpdateMessage,
   UnitCancelMovementMessage,
+  UnitToggleMovementPauseMessage,
   UnitMovementState,
   UnitPathMessage,
   Vector2,
@@ -173,6 +174,12 @@ export class BattleRoom extends Room<BattleState> {
       },
     );
     this.onMessage(
+      NETWORK_MESSAGE_TYPES.unitToggleMovementPause,
+      (client, message: UnitToggleMovementPauseMessage) => {
+        this.handleUnitToggleMovementPauseMessage(client, message);
+      },
+    );
+    this.onMessage(
       NETWORK_MESSAGE_TYPES.runtimeTuningUpdate,
       (client, message: RuntimeTuningUpdateMessage) => {
         this.handleRuntimeTuningUpdate(client, message);
@@ -228,6 +235,7 @@ export class BattleRoom extends Room<BattleState> {
       targetRotation: null,
       movementCommandMode: { ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE },
       movementBudget: 0,
+      isPaused: false,
     };
   }
 
@@ -255,6 +263,7 @@ export class BattleRoom extends Room<BattleState> {
       ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE,
     };
     movementState.movementBudget = 0;
+    movementState.isPaused = false;
   }
 
   private normalizeMovementCommandMode(
@@ -991,6 +1000,7 @@ export class BattleRoom extends Room<BattleState> {
     );
     movementState.targetRotation = null;
     movementState.movementBudget = 0;
+    movementState.isPaused = false;
 
     if (normalizedPath.length === 0) {
       this.clearMovementForUnit(unit.unitId);
@@ -1041,6 +1051,50 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     this.clearMovementForUnit(unit.unitId);
+  }
+
+  private handleUnitToggleMovementPauseMessage(
+    client: Client,
+    message: UnitToggleMovementPauseMessage,
+  ): void {
+    if (this.matchPhase !== "BATTLE") {
+      return;
+    }
+
+    const assignedTeam = this.lobbyService.getAssignedTeam(client.sessionId);
+    if (!assignedTeam) {
+      return;
+    }
+
+    if (typeof message?.unitId !== "string") {
+      return;
+    }
+
+    const unit = this.state.units.get(message.unitId);
+    if (!unit) {
+      return;
+    }
+
+    if (unit.team.toUpperCase() !== assignedTeam) {
+      return;
+    }
+
+    const movementState = this.movementStateByUnitId.get(unit.unitId);
+    if (!movementState) {
+      return;
+    }
+
+    const hasPath =
+      movementState.destinationCell !== null || movementState.queuedCells.length > 0;
+    if (!hasPath) {
+      return;
+    }
+
+    movementState.isPaused = !movementState.isPaused;
+    if (movementState.isPaused) {
+      movementState.movementBudget = 0;
+      movementState.targetRotation = null;
+    }
   }
 
   private updateMovement(deltaSeconds: number): void {

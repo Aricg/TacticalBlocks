@@ -3,6 +3,7 @@ import type { RuntimeTuning } from './runtimeTuning.js';
 export const NETWORK_MESSAGE_TYPES = {
   unitPath: 'unitPath',
   unitCancelMovement: 'unitCancelMovement',
+  unitToggleMovementPause: 'unitToggleMovementPause',
   runtimeTuningUpdate: 'runtimeTuningUpdate',
   lobbyReady: 'lobbyReady',
   lobbySelectMap: 'lobbySelectMap',
@@ -35,6 +36,10 @@ export type UnitPathMessage = {
 };
 
 export type UnitCancelMovementMessage = {
+  unitId: string;
+};
+
+export type UnitToggleMovementPauseMessage = {
   unitId: string;
 };
 

@@ -17,6 +17,7 @@ export type {
   PlayerTeam,
   RuntimeTuningUpdateMessage,
   UnitCancelMovementMessage,
+  UnitToggleMovementPauseMessage,
   UnitPathMessage,
   Vector2,
 } from "../../../shared/src/networkContracts.js";
@@ -32,6 +33,7 @@ export type UnitMovementState = {
   targetRotation: number | null;
   movementCommandMode: MovementCommandMode;
   movementBudget: number;
+  isPaused: boolean;
 };
 export type CitySpawnSource = {
   sourceId: string;

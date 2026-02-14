@@ -106,6 +106,11 @@ export function simulateMovementTick({
       continue;
     }
 
+    if (movementState.isPaused) {
+      movementState.movementBudget = 0;
+      continue;
+    }
+
     if (!movementState.destinationCell && movementState.queuedCells.length > 0) {
       movementState.destinationCell = movementState.queuedCells.shift() ?? null;
       faceCurrentDestination(unit, movementState);

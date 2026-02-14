@@ -13,6 +13,7 @@ import {
   type RuntimeTuningUpdateMessage,
   type TeamAssignedMessage,
   type UnitCancelMovementMessage,
+  type UnitToggleMovementPauseMessage,
   type UnitPathMessage,
 } from '../../shared/src/networkContracts.js';
 
@@ -359,6 +360,15 @@ export class NetworkManager {
 
     const message: UnitCancelMovementMessage = { unitId };
     this.room.send(NETWORK_MESSAGE_TYPES.unitCancelMovement, message);
+  }
+
+  public sendUnitToggleMovementPause(unitId: string): void {
+    if (!this.room) {
+      return;
+    }
+
+    const message: UnitToggleMovementPauseMessage = { unitId };
+    this.room.send(NETWORK_MESSAGE_TYPES.unitToggleMovementPause, message);
   }
 
   public sendRuntimeTuningUpdate(update: RuntimeTuningUpdateMessage): void {
