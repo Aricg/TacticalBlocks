@@ -77,6 +77,22 @@ type TerrainSwatch = {
   type: TerrainType;
 };
 
+type RemoteUnitTransform = {
+  x: number;
+  y: number;
+  rotation: number;
+};
+
+type RemoteUnitRenderState = {
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  startedAtMs: number;
+  durationMs: number;
+  pendingRotation: number | null;
+};
+
 const MAP_IMAGE_BY_PATH = import.meta.glob('../../shared/*-16c.png', {
   eager: true,
   import: 'default',
@@ -165,6 +181,10 @@ class BattleScene extends Phaser.Scene {
     string,
     NetworkUnitPathCommand
   > = new Map<string, NetworkUnitPathCommand>();
+  private readonly remoteUnitLatestTransformByUnitId: Map<string, RemoteUnitTransform> =
+    new Map<string, RemoteUnitTransform>();
+  private readonly remoteUnitRenderStateByUnitId: Map<string, RemoteUnitRenderState> =
+    new Map<string, RemoteUnitRenderState>();
   private readonly lastKnownHealthByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly combatVisualUntilByUnitId: Map<string, number> =
@@ -236,6 +256,13 @@ class BattleScene extends Phaser.Scene {
       cellWidth: BattleScene.GRID_CELL_WIDTH,
       cellHeight: BattleScene.GRID_CELL_HEIGHT,
     };
+  private static readonly REMOTE_POSITION_SNAP_DISTANCE =
+    GAMEPLAY_CONFIG.network.remotePositionSnapDistance;
+  private static readonly REMOTE_POSITION_AUTHORITATIVE_SNAP_DISTANCE =
+    BattleScene.REMOTE_POSITION_SNAP_DISTANCE * 3;
+  private static readonly REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS =
+    GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
+  private static readonly REMOTE_POSITION_INTERPOLATION_MAX_DURATION_MS = 3000;
   private static readonly PLANNED_PATH_WAYPOINT_REACHED_DISTANCE = 12;
   private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
@@ -840,6 +867,32 @@ class BattleScene extends Phaser.Scene {
       lastKnownHealthByUnitId: this.lastKnownHealthByUnitId,
       moraleScoreByUnitId: this.moraleScoreByUnitId,
       combatVisualUntilByUnitId: this.combatVisualUntilByUnitId,
+      applyNetworkUnitPositionSnapshot: (
+        unit,
+        unitId,
+        x,
+        y,
+        snapImmediately,
+      ) =>
+        this.applyNetworkUnitPositionSnapshot(
+          unit,
+          unitId,
+          x,
+          y,
+          snapImmediately,
+        ),
+      applyNetworkUnitRotationSnapshot: (
+        unit,
+        unitId,
+        rotation,
+        snapImmediately,
+      ) =>
+        this.applyNetworkUnitRotationSnapshot(
+          unit,
+          unitId,
+          rotation,
+          snapImmediately,
+        ),
     });
   }
 
@@ -855,12 +908,28 @@ class BattleScene extends Phaser.Scene {
       selectedUnits: this.selectedUnits,
     });
     this.pendingUnitPathCommandsByUnitId.delete(unitId);
+    this.remoteUnitLatestTransformByUnitId.delete(unitId);
+    this.remoteUnitRenderStateByUnitId.delete(unitId);
   }
 
   private applyNetworkUnitPosition(positionUpdate: NetworkUnitPositionUpdate): void {
     applyNetworkUnitPositionState({
       positionUpdate,
       unitsById: this.unitsById,
+      applyNetworkUnitPositionSnapshot: (
+        unit,
+        unitId,
+        x,
+        y,
+        snapImmediately,
+      ) =>
+        this.applyNetworkUnitPositionSnapshot(
+          unit,
+          unitId,
+          x,
+          y,
+          snapImmediately,
+        ),
     });
   }
 
@@ -877,6 +946,18 @@ class BattleScene extends Phaser.Scene {
     applyNetworkUnitRotationState({
       rotationUpdate,
       unitsById: this.unitsById,
+      applyNetworkUnitRotationSnapshot: (
+        unit,
+        unitId,
+        rotation,
+        snapImmediately,
+      ) =>
+        this.applyNetworkUnitRotationSnapshot(
+          unit,
+          unitId,
+          rotation,
+          snapImmediately,
+        ),
     });
   }
 
@@ -895,9 +976,238 @@ class BattleScene extends Phaser.Scene {
       this.localPlayerTeam = assignedTeam;
       this.plannedPathsByUnitId.clear();
       this.pendingUnitPathCommandsByUnitId.clear();
+      this.rebuildRemoteRenderState();
       this.refreshFogOfWar();
     }
     this.refreshLobbyOverlay();
+  }
+
+  private applyNetworkUnitPositionSnapshot(
+    unit: Unit,
+    unitId: string,
+    x: number,
+    y: number,
+    snapImmediately = false,
+  ): void {
+    const nowMs = this.time.now;
+    const latestTransform =
+      this.remoteUnitLatestTransformByUnitId.get(unitId) ?? {
+        x: unit.x,
+        y: unit.y,
+        rotation: unit.rotation,
+      };
+    const previousAuthoritativeX = latestTransform.x;
+    const previousAuthoritativeY = latestTransform.y;
+    const authoritativeStepDistance = Phaser.Math.Distance.Between(
+      previousAuthoritativeX,
+      previousAuthoritativeY,
+      x,
+      y,
+    );
+    const authoritativePositionChanged =
+      authoritativeStepDistance > GAMEPLAY_CONFIG.network.positionSyncEpsilon;
+    const nextTransform: RemoteUnitTransform = {
+      x,
+      y,
+      rotation: latestTransform.rotation,
+    };
+    this.remoteUnitLatestTransformByUnitId.set(unitId, nextTransform);
+
+    if (snapImmediately) {
+      unit.setPosition(x, y);
+      this.remoteUnitRenderStateByUnitId.set(unitId, {
+        startX: x,
+        startY: y,
+        targetX: x,
+        targetY: y,
+        startedAtMs: nowMs,
+        durationMs: 0,
+        pendingRotation: null,
+      });
+      return;
+    }
+
+    const renderState = this.remoteUnitRenderStateByUnitId.get(unitId);
+    const currentX = unit.x;
+    const currentY = unit.y;
+    const visualErrorToAuthoritative = Phaser.Math.Distance.Between(
+      currentX,
+      currentY,
+      x,
+      y,
+    );
+
+    if (!authoritativePositionChanged) {
+      if (
+        visualErrorToAuthoritative >=
+        BattleScene.REMOTE_POSITION_AUTHORITATIVE_SNAP_DISTANCE
+      ) {
+        unit.setPosition(x, y);
+      }
+
+      if (!renderState) {
+        this.remoteUnitRenderStateByUnitId.set(unitId, {
+          startX: unit.x,
+          startY: unit.y,
+          targetX: x,
+          targetY: y,
+          startedAtMs: nowMs,
+          durationMs: 0,
+          pendingRotation: null,
+        });
+      }
+      return;
+    }
+
+    if (renderState && renderState.pendingRotation !== null) {
+      unit.rotation = renderState.pendingRotation;
+      renderState.pendingRotation = null;
+    }
+
+    if (
+      visualErrorToAuthoritative >=
+      BattleScene.REMOTE_POSITION_AUTHORITATIVE_SNAP_DISTANCE
+    ) {
+      unit.setPosition(x, y);
+      this.remoteUnitRenderStateByUnitId.set(unitId, {
+        startX: x,
+        startY: y,
+        targetX: x,
+        targetY: y,
+        startedAtMs: nowMs,
+        durationMs: 0,
+        pendingRotation: null,
+      });
+      return;
+    }
+
+    const durationMs = Phaser.Math.Clamp(
+      (authoritativeStepDistance / Math.max(0.001, this.runtimeTuning.unitMoveSpeed)) *
+        1000,
+      BattleScene.REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS,
+      BattleScene.REMOTE_POSITION_INTERPOLATION_MAX_DURATION_MS,
+    );
+    this.remoteUnitRenderStateByUnitId.set(unitId, {
+      startX: currentX,
+      startY: currentY,
+      targetX: x,
+      targetY: y,
+      startedAtMs: nowMs,
+      durationMs,
+      pendingRotation: null,
+    });
+  }
+
+  private applyNetworkUnitRotationSnapshot(
+    unit: Unit,
+    unitId: string,
+    rotation: number,
+    snapImmediately = false,
+  ): void {
+    const nowMs = this.time.now;
+    const latestTransform =
+      this.remoteUnitLatestTransformByUnitId.get(unitId) ?? {
+        x: unit.x,
+        y: unit.y,
+        rotation: unit.rotation,
+      };
+    const nextTransform: RemoteUnitTransform = {
+      x: latestTransform.x,
+      y: latestTransform.y,
+      rotation,
+    };
+    this.remoteUnitLatestTransformByUnitId.set(unitId, nextTransform);
+
+    if (snapImmediately) {
+      unit.rotation = rotation;
+      const renderState = this.remoteUnitRenderStateByUnitId.get(unitId);
+      if (renderState) {
+        renderState.pendingRotation = null;
+      }
+      return;
+    }
+
+    const renderState = this.remoteUnitRenderStateByUnitId.get(unitId);
+    if (renderState && this.isRemoteRenderStateActive(renderState, nowMs)) {
+      renderState.pendingRotation = rotation;
+      return;
+    }
+
+    unit.rotation = rotation;
+  }
+
+  private rebuildRemoteRenderState(): void {
+    const nowMs = this.time.now;
+    this.remoteUnitLatestTransformByUnitId.clear();
+    this.remoteUnitRenderStateByUnitId.clear();
+    for (const [unitId, unit] of this.unitsById) {
+      const transform: RemoteUnitTransform = {
+        x: unit.x,
+        y: unit.y,
+        rotation: unit.rotation,
+      };
+      this.remoteUnitLatestTransformByUnitId.set(unitId, transform);
+      this.remoteUnitRenderStateByUnitId.set(unitId, {
+        startX: unit.x,
+        startY: unit.y,
+        targetX: unit.x,
+        targetY: unit.y,
+        startedAtMs: nowMs,
+        durationMs: 0,
+        pendingRotation: null,
+      });
+    }
+  }
+
+  private smoothRemoteUnitPositions(_deltaMs: number): void {
+    const nowMs = this.time.now;
+    const staleUnitIds: string[] = [];
+    for (const [unitId, renderState] of this.remoteUnitRenderStateByUnitId) {
+      const unit = this.unitsById.get(unitId);
+      if (!unit || !unit.isAlive()) {
+        staleUnitIds.push(unitId);
+        continue;
+      }
+
+      if (!this.isRemoteRenderStateActive(renderState, nowMs)) {
+        unit.setPosition(renderState.targetX, renderState.targetY);
+        if (renderState.pendingRotation !== null) {
+          unit.rotation = renderState.pendingRotation;
+          renderState.pendingRotation = null;
+        }
+        renderState.startX = renderState.targetX;
+        renderState.startY = renderState.targetY;
+        renderState.startedAtMs = nowMs;
+        renderState.durationMs = 0;
+        continue;
+      }
+
+      const t = Phaser.Math.Clamp(
+        (nowMs - renderState.startedAtMs) / Math.max(1, renderState.durationMs),
+        0,
+        1,
+      );
+      unit.setPosition(
+        Phaser.Math.Linear(renderState.startX, renderState.targetX, t),
+        Phaser.Math.Linear(renderState.startY, renderState.targetY, t),
+      );
+    }
+
+    for (const unitId of staleUnitIds) {
+      this.remoteUnitLatestTransformByUnitId.delete(unitId);
+      this.remoteUnitRenderStateByUnitId.delete(unitId);
+    }
+  }
+
+  private isRemoteRenderStateActive(
+    renderState: RemoteUnitRenderState,
+    nowMs: number,
+  ): boolean {
+    if (renderState.durationMs <= 0) {
+      return false;
+    }
+
+    return nowMs < renderState.startedAtMs + renderState.durationMs - 0.001;
   }
 
   private markUnitInCombatVisual(unitId: string): void {
@@ -1501,6 +1811,18 @@ class BattleScene extends Phaser.Scene {
   }
 
   private getAuthoritativeUnitPosition(unit: Unit): { x: number; y: number } {
+    for (const [unitId, candidate] of this.unitsById) {
+      if (candidate !== unit) {
+        continue;
+      }
+
+      const transform = this.remoteUnitLatestTransformByUnitId.get(unitId);
+      if (transform) {
+        return { x: transform.x, y: transform.y };
+      }
+      break;
+    }
+
     return { x: unit.x, y: unit.y };
   }
 
@@ -1519,6 +1841,7 @@ class BattleScene extends Phaser.Scene {
       timeMs: time,
       deltaMs: delta,
       callbacks: {
+        smoothRemoteUnitPositions: (deltaMs) => this.smoothRemoteUnitPositions(deltaMs),
         applyCombatVisualWiggle: (timeMs) => this.applyCombatVisualWiggle(timeMs),
         refreshTerrainTint: () => this.updateUnitTerrainColors(),
         advancePlannedPaths: () => this.advancePlannedPaths(),

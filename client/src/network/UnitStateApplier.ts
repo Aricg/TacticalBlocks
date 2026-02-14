@@ -9,6 +9,21 @@ import type {
 import { Team } from '../Team';
 import { Unit } from '../Unit';
 
+type ApplyNetworkUnitPositionSnapshot = (
+  unit: Unit,
+  unitId: string,
+  x: number,
+  y: number,
+  snapImmediately?: boolean,
+) => void;
+
+type ApplyNetworkUnitRotationSnapshot = (
+  unit: Unit,
+  unitId: string,
+  rotation: number,
+  snapImmediately?: boolean,
+) => void;
+
 type MarkUnitInCombatVisual = (unitId: string) => void;
 
 export function normalizeNetworkTeam(teamValue: string): Team {
@@ -24,6 +39,8 @@ export function upsertNetworkUnitState({
   lastKnownHealthByUnitId,
   moraleScoreByUnitId,
   combatVisualUntilByUnitId,
+  applyNetworkUnitPositionSnapshot,
+  applyNetworkUnitRotationSnapshot,
 }: {
   networkUnit: NetworkUnitSnapshot;
   scene: Phaser.Scene;
@@ -33,15 +50,28 @@ export function upsertNetworkUnitState({
   lastKnownHealthByUnitId: Map<string, number>;
   moraleScoreByUnitId: Map<string, number>;
   combatVisualUntilByUnitId: Map<string, number>;
+  applyNetworkUnitPositionSnapshot: ApplyNetworkUnitPositionSnapshot;
+  applyNetworkUnitRotationSnapshot: ApplyNetworkUnitRotationSnapshot;
 }): void {
   const existingUnit = unitsById.get(networkUnit.unitId);
   if (existingUnit) {
     existingUnit.setHealthMax(baseUnitHealth);
-    existingUnit.rotation = networkUnit.rotation;
+    applyNetworkUnitRotationSnapshot(
+      existingUnit,
+      networkUnit.unitId,
+      networkUnit.rotation,
+      true,
+    );
     existingUnit.setHealth(networkUnit.health);
     lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
     moraleScoreByUnitId.set(networkUnit.unitId, networkUnit.moraleScore);
-    existingUnit.setPosition(networkUnit.x, networkUnit.y);
+    applyNetworkUnitPositionSnapshot(
+      existingUnit,
+      networkUnit.unitId,
+      networkUnit.x,
+      networkUnit.y,
+      true,
+    );
     return;
   }
 
@@ -59,6 +89,19 @@ export function upsertNetworkUnitState({
   lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
   moraleScoreByUnitId.set(networkUnit.unitId, networkUnit.moraleScore);
   combatVisualUntilByUnitId.delete(networkUnit.unitId);
+  applyNetworkUnitPositionSnapshot(
+    spawnedUnit,
+    networkUnit.unitId,
+    networkUnit.x,
+    networkUnit.y,
+    true,
+  );
+  applyNetworkUnitRotationSnapshot(
+    spawnedUnit,
+    networkUnit.unitId,
+    networkUnit.rotation,
+    true,
+  );
 }
 
 export function removeNetworkUnitState({
@@ -101,16 +144,23 @@ export function removeNetworkUnitState({
 export function applyNetworkUnitPositionState({
   positionUpdate,
   unitsById,
+  applyNetworkUnitPositionSnapshot,
 }: {
   positionUpdate: NetworkUnitPositionUpdate;
   unitsById: ReadonlyMap<string, Unit>;
+  applyNetworkUnitPositionSnapshot: ApplyNetworkUnitPositionSnapshot;
 }): void {
   const unit = unitsById.get(positionUpdate.unitId);
   if (!unit) {
     return;
   }
 
-  unit.setPosition(positionUpdate.x, positionUpdate.y);
+  applyNetworkUnitPositionSnapshot(
+    unit,
+    positionUpdate.unitId,
+    positionUpdate.x,
+    positionUpdate.y,
+  );
 }
 
 export function applyNetworkUnitHealthState({
@@ -141,16 +191,18 @@ export function applyNetworkUnitHealthState({
 export function applyNetworkUnitRotationState({
   rotationUpdate,
   unitsById,
+  applyNetworkUnitRotationSnapshot,
 }: {
   rotationUpdate: NetworkUnitRotationUpdate;
   unitsById: ReadonlyMap<string, Unit>;
+  applyNetworkUnitRotationSnapshot: ApplyNetworkUnitRotationSnapshot;
 }): void {
   const unit = unitsById.get(rotationUpdate.unitId);
   if (!unit) {
     return;
   }
 
-  unit.rotation = rotationUpdate.rotation;
+  applyNetworkUnitRotationSnapshot(unit, rotationUpdate.unitId, rotationUpdate.rotation);
 }
 
 export function applyNetworkUnitMoraleState({
