@@ -36,6 +36,7 @@ type BattleInputCallbacks = {
   clearPathPreview: () => void;
   buildCommandPath: (path: Phaser.Math.Vector2[]) => Phaser.Math.Vector2[];
   cancelSelectedUnitMovement: () => void;
+  engageSelectedUnitMovement: () => void;
   isShiftHeld: (pointer: Phaser.Input.Pointer) => boolean;
   exitBattle: () => void;
 };
@@ -127,11 +128,7 @@ export class BattleInputController {
     }
 
     if (pointer.button === 2) {
-      this.callbacks.commandSelectedUnits(
-        pointer.worldX,
-        pointer.worldY,
-        this.callbacks.isShiftHeld(pointer),
-      );
+      this.callbacks.cancelSelectedUnitMovement();
       return;
     }
 
@@ -278,7 +275,7 @@ export class BattleInputController {
     if (!this.callbacks.isBattleActive()) {
       return;
     }
-    this.callbacks.cancelSelectedUnitMovement();
+    this.callbacks.engageSelectedUnitMovement();
   };
 
   private readonly handleKeyDownEsc = (): void => {

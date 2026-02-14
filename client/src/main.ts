@@ -11,6 +11,7 @@ import {
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
   type NetworkUnitMoraleUpdate,
+  type NetworkUnitPathCommand,
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
@@ -159,6 +160,10 @@ class BattleScene extends Phaser.Scene {
   private readonly unitsById: Map<string, Unit> = new Map<string, Unit>();
   private readonly plannedPathsByUnitId: Map<string, Phaser.Math.Vector2[]> =
     new Map<string, Phaser.Math.Vector2[]>();
+  private readonly pendingUnitPathCommandsByUnitId: Map<
+    string,
+    NetworkUnitPathCommand
+  > = new Map<string, NetworkUnitPathCommand>();
   private readonly remoteUnitTargetPositions: Map<string, Phaser.Math.Vector2> =
     new Map<string, Phaser.Math.Vector2>();
   private readonly lastKnownHealthByUnitId: Map<string, number> =
@@ -373,6 +378,7 @@ class BattleScene extends Phaser.Scene {
         buildCommandPath: (path: Phaser.Math.Vector2[]) =>
           this.buildCommandPath(path),
         cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
+        engageSelectedUnitMovement: () => this.engageSelectedUnitMovement(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
         exitBattle: () => this.exitBattle(),
       },
@@ -717,6 +723,7 @@ class BattleScene extends Phaser.Scene {
         this.resetPointerInteractionState();
         this.clearSelection();
         this.plannedPathsByUnitId.clear();
+        this.pendingUnitPathCommandsByUnitId.clear();
         if (nextPhase === 'BATTLE') {
           this.lastBattleAnnouncement = null;
         }
@@ -729,6 +736,10 @@ class BattleScene extends Phaser.Scene {
   private applyBattleEnded(battleEndedUpdate: NetworkBattleEndedUpdate): void {
     this.lastBattleAnnouncement = buildBattleEndedAnnouncement(battleEndedUpdate);
     this.matchPhase = 'LOBBY';
+    this.resetPointerInteractionState();
+    this.clearSelection();
+    this.plannedPathsByUnitId.clear();
+    this.pendingUnitPathCommandsByUnitId.clear();
     this.refreshLobbyOverlay();
   }
 
@@ -770,6 +781,7 @@ class BattleScene extends Phaser.Scene {
     this.resetPointerInteractionState();
     this.clearSelection();
     this.plannedPathsByUnitId.clear();
+    this.pendingUnitPathCommandsByUnitId.clear();
 
     for (const unitId of Array.from(this.unitsById.keys())) {
       this.removeNetworkUnit(unitId);
@@ -866,6 +878,7 @@ class BattleScene extends Phaser.Scene {
       moraleScoreByUnitId: this.moraleScoreByUnitId,
       selectedUnits: this.selectedUnits,
     });
+    this.pendingUnitPathCommandsByUnitId.delete(unitId);
   }
 
   private applyNetworkUnitPosition(positionUpdate: NetworkUnitPositionUpdate): void {
@@ -919,6 +932,7 @@ class BattleScene extends Phaser.Scene {
       this.clearSelection();
       this.localPlayerTeam = assignedTeam;
       this.plannedPathsByUnitId.clear();
+      this.pendingUnitPathCommandsByUnitId.clear();
       this.rebuildRemotePositionTargets();
       this.refreshFogOfWar();
     }
@@ -1135,7 +1149,7 @@ class BattleScene extends Phaser.Scene {
     targetY: number,
     shiftHeld = false,
   ): void {
-    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !this.networkManager) {
+    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
       return;
     }
 
@@ -1169,17 +1183,13 @@ class BattleScene extends Phaser.Scene {
       });
       if (clippedTargetCells.length === 0) {
         this.plannedPathsByUnitId.delete(unitId);
+        this.pendingUnitPathCommandsByUnitId.delete(unitId);
         continue;
       }
       const unitPath = clippedTargetCells.map((cell) =>
         gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
-      this.networkManager.sendUnitPathCommand({
-        unitId,
-        path: unitPath.map((point) => ({ x: point.x, y: point.y })),
-        movementCommandMode,
-      });
-      this.setPlannedPath(unitId, unitPath);
+      this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
     }
   }
 
@@ -1190,8 +1200,7 @@ class BattleScene extends Phaser.Scene {
     if (
       !this.isBattleActive() ||
       this.selectedUnits.size === 0 ||
-      path.length === 0 ||
-      !this.networkManager
+      path.length === 0
     ) {
       return;
     }
@@ -1216,6 +1225,8 @@ class BattleScene extends Phaser.Scene {
         BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
       if (snappedPath.length === 0) {
+        this.plannedPathsByUnitId.delete(unitId);
+        this.pendingUnitPathCommandsByUnitId.delete(unitId);
         continue;
       }
       const targetCells = snappedPath.map((point) =>
@@ -1237,17 +1248,13 @@ class BattleScene extends Phaser.Scene {
       });
       if (clippedTargetCells.length === 0) {
         this.plannedPathsByUnitId.delete(unitId);
+        this.pendingUnitPathCommandsByUnitId.delete(unitId);
         continue;
       }
       const unitPath = clippedTargetCells.map((cell) =>
         gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
-      this.networkManager.sendUnitPathCommand({
-        unitId,
-        path: unitPath.map((point) => ({ x: point.x, y: point.y })),
-        movementCommandMode,
-      });
-      this.setPlannedPath(unitId, unitPath);
+      this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
     }
   }
 
@@ -1260,7 +1267,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private cancelSelectedUnitMovement(): void {
-    if (!this.isBattleActive() || !this.networkManager) {
+    if (!this.isBattleActive()) {
       return;
     }
 
@@ -1268,9 +1275,43 @@ class BattleScene extends Phaser.Scene {
       if (!this.selectedUnits.has(unit)) {
         continue;
       }
-      this.networkManager.sendUnitCancelMovement(unitId);
+      this.networkManager?.sendUnitCancelMovement(unitId);
       this.plannedPathsByUnitId.delete(unitId);
+      this.pendingUnitPathCommandsByUnitId.delete(unitId);
     }
+  }
+
+  private engageSelectedUnitMovement(): void {
+    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !this.networkManager) {
+      return;
+    }
+
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+
+      const pendingCommand = this.pendingUnitPathCommandsByUnitId.get(unitId);
+      if (!pendingCommand) {
+        continue;
+      }
+
+      this.networkManager.sendUnitPathCommand(pendingCommand);
+      this.pendingUnitPathCommandsByUnitId.delete(unitId);
+    }
+  }
+
+  private stageUnitPathCommand(
+    unitId: string,
+    path: Phaser.Math.Vector2[],
+    movementCommandMode?: NetworkUnitPathCommand['movementCommandMode'],
+  ): void {
+    this.pendingUnitPathCommandsByUnitId.set(unitId, {
+      unitId,
+      path: path.map((point) => ({ x: point.x, y: point.y })),
+      movementCommandMode,
+    });
+    this.setPlannedPath(unitId, path);
   }
 
   private setPlannedPath(unitId: string, path: Phaser.Math.Vector2[]): void {
@@ -1282,12 +1323,29 @@ class BattleScene extends Phaser.Scene {
   }
 
   private advancePlannedPaths(): void {
+    const activePlannedPathsByUnitId = new Map<string, Phaser.Math.Vector2[]>();
+    for (const [unitId, path] of this.plannedPathsByUnitId) {
+      if (this.pendingUnitPathCommandsByUnitId.has(unitId)) {
+        continue;
+      }
+      activePlannedPathsByUnitId.set(unitId, path);
+    }
+
     advancePlannedPaths({
-      plannedPathsByUnitId: this.plannedPathsByUnitId,
+      plannedPathsByUnitId: activePlannedPathsByUnitId,
       unitsById: this.unitsById,
       waypointReachedDistance:
         BattleScene.PLANNED_PATH_WAYPOINT_REACHED_DISTANCE,
     });
+
+    for (const unitId of Array.from(this.plannedPathsByUnitId.keys())) {
+      if (this.pendingUnitPathCommandsByUnitId.has(unitId)) {
+        continue;
+      }
+      if (!activePlannedPathsByUnitId.has(unitId)) {
+        this.plannedPathsByUnitId.delete(unitId);
+      }
+    }
   }
 
   private appendDraggedPathPoint(
