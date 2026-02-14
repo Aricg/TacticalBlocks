@@ -3,7 +3,6 @@ import Phaser from 'phaser';
 type PathPreviewRendererConfig = {
   depth: number;
   previewPointSpacing: number;
-  commandPointSpacing: number;
   lineThickness: number;
   lineColor: number;
   lineAlpha: number;
@@ -58,47 +57,6 @@ export class PathPreviewRenderer {
     }
 
     draggedPath.push(nextPoint);
-  }
-
-  public buildCommandPath(path: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
-    if (path.length === 0) {
-      return [];
-    }
-
-    if (path.length === 1) {
-      return [path[0].clone()];
-    }
-
-    const commandPath: Phaser.Math.Vector2[] = [path[0].clone()];
-    for (let i = 1; i < path.length - 1; i += 1) {
-      const lastKeptPoint = commandPath[commandPath.length - 1];
-      const candidatePoint = path[i];
-      if (
-        Phaser.Math.Distance.Between(
-          lastKeptPoint.x,
-          lastKeptPoint.y,
-          candidatePoint.x,
-          candidatePoint.y,
-        ) >= this.config.commandPointSpacing
-      ) {
-        commandPath.push(candidatePoint.clone());
-      }
-    }
-
-    const finalPoint = path[path.length - 1];
-    const lastKeptPoint = commandPath[commandPath.length - 1];
-    if (
-      Phaser.Math.Distance.Between(
-        finalPoint.x,
-        finalPoint.y,
-        lastKeptPoint.x,
-        lastKeptPoint.y,
-      ) > 0
-    ) {
-      commandPath.push(finalPoint.clone());
-    }
-
-    return commandPath;
   }
 
   public drawPathPreview(path: Phaser.Math.Vector2[]): void {

@@ -12,7 +12,7 @@ const MAP_IDS = [
   'random-frontier-01',
 ] as const;
 
-const UNIT_BASE_MOVE_SPEED = 120;
+const UNIT_BASE_MOVE_SPEED = 20;
 
 export const GAMEPLAY_CONFIG = {
   map: {
@@ -86,7 +86,6 @@ export const GAMEPLAY_CONFIG = {
   input: {
     dragThreshold: 10,
     previewPathPointSpacing: 4,
-    commandPathPointSpacing: 50,
   },
   movement: {
     // Baseline unit locomotion tuning.

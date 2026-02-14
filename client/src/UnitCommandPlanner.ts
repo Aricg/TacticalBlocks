@@ -116,6 +116,34 @@ export function snapAndCompactPath(
   return compactedPath;
 }
 
+export function buildGridRouteFromWorldPath(
+  path: Phaser.Math.Vector2[],
+  grid: UnitCommandPlannerGridMetrics,
+): GridCoordinate[] {
+  if (path.length === 0) {
+    return [];
+  }
+
+  const snappedTargets = compactGridCoordinates(
+    path.map((point) => worldToGridCoordinate(point.x, point.y, grid)),
+  );
+  if (snappedTargets.length <= 1) {
+    return snappedTargets;
+  }
+
+  const route: GridCoordinate[] = [snappedTargets[0]];
+  for (let i = 1; i < snappedTargets.length; i += 1) {
+    const previous = snappedTargets[i - 1];
+    const next = snappedTargets[i];
+    const segment = traceGridLine(previous, next);
+    for (let segmentIndex = 1; segmentIndex < segment.length; segmentIndex += 1) {
+      route.push(segment[segmentIndex]);
+    }
+  }
+
+  return compactGridCoordinates(route);
+}
+
 export function clipPathTargetsByTerrain({
   start,
   targets,

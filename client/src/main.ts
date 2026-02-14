@@ -44,6 +44,7 @@ import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
 import {
   advancePlannedPaths,
+  buildGridRouteFromWorldPath,
   buildMovementCommandMode,
   clipPathTargetsByTerrain,
   getFormationCenter,
@@ -247,8 +248,6 @@ class BattleScene extends Phaser.Scene {
   private static readonly DRAG_THRESHOLD = GAMEPLAY_CONFIG.input.dragThreshold;
   private static readonly PREVIEW_PATH_POINT_SPACING =
     GAMEPLAY_CONFIG.input.previewPathPointSpacing;
-  private static readonly COMMAND_PATH_POINT_SPACING =
-    GAMEPLAY_CONFIG.input.commandPathPointSpacing;
   private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
   private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
   private static readonly GRID_CELL_WIDTH =
@@ -323,7 +322,6 @@ class BattleScene extends Phaser.Scene {
     this.pathPreviewRenderer = new PathPreviewRenderer(this, {
       depth: 950,
       previewPointSpacing: BattleScene.PREVIEW_PATH_POINT_SPACING,
-      commandPointSpacing: BattleScene.COMMAND_PATH_POINT_SPACING,
       lineThickness: 2,
       lineColor: 0xbad7f7,
       lineAlpha: 0.9,
@@ -1492,10 +1490,12 @@ class BattleScene extends Phaser.Scene {
   }
 
   private buildCommandPath(path: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
-    const commandPath = this.pathPreviewRenderer?.buildCommandPath(path) ?? [];
-    return snapAndCompactPath(
-      commandPath,
+    const gridRoute = buildGridRouteFromWorldPath(
+      path,
       BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
+    return gridRoute.map((cell) =>
+      gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
     );
   }
 
