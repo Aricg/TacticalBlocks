@@ -38,7 +38,7 @@ type BattleInputCallbacks = {
   cancelSelectedUnitMovement: () => void;
   engageSelectedUnitMovement: () => void;
   isShiftHeld: (pointer: Phaser.Input.Pointer) => boolean;
-  exitBattle: () => void;
+  clearAllQueuedMovement: () => void;
 };
 
 type BattleInputConfig = {
@@ -274,6 +274,9 @@ export class BattleInputController {
   };
 
   private readonly handleKeyDownEsc = (): void => {
-    this.callbacks.exitBattle();
+    if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    this.callbacks.clearAllQueuedMovement();
   };
 }

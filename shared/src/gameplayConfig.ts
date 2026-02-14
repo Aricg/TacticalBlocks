@@ -12,7 +12,7 @@ const MAP_IDS = [
   'random-frontier-01',
 ] as const;
 
-const UNIT_BASE_MOVE_SPEED = 200;
+const UNIT_BASE_MOVE_SPEED = 100;
 
 export const GAMEPLAY_CONFIG = {
   map: {
@@ -143,13 +143,13 @@ export const GAMEPLAY_CONFIG = {
   runtimeTuning: {
     defaults: {
       // Slider: Base Unit Health
-      baseUnitHealth: 500,
+      baseUnitHealth: 100,
       // Slider: Health Influence Bonus
       healthInfluenceMultiplier: 0.5,
       // Slider: Unit Speed
       unitMoveSpeed: UNIT_BASE_MOVE_SPEED,
       // Slider: Base Contact DPS
-      baseContactDps: 12,
+      baseContactDps: 10,
       // Slider: DPS Influence Bonus
       dpsInfluenceMultiplier: 0.5,
       // Slider: Update Interval (frames)
