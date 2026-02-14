@@ -2,11 +2,6 @@ import Phaser from 'phaser';
 import { Team } from './Team';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 
-type MovementCommandMode = {
-  speedMultiplier: number;
-  rotateToFace: boolean;
-};
-
 export type TerrainType =
   | 'water'
   | 'grass'
@@ -20,12 +15,6 @@ export class Unit extends Phaser.GameObjects.Container {
   public readonly engagedUnits: Set<Unit>;
   private readonly previouslyEngagedUnits: Set<Unit>;
   public readonly team: Team;
-  private readonly speed: number;
-  private readonly turnSpeed: number;
-  private movementCommandMode: MovementCommandMode;
-  private destination: Phaser.Math.Vector2 | null;
-  private queuedWaypoints: Phaser.Math.Vector2[];
-  private targetRotation: number | null;
 
   private readonly unitBody: Phaser.GameObjects.Rectangle;
   private readonly facingArrow: Phaser.GameObjects.Triangle;
@@ -60,20 +49,6 @@ export class Unit extends Phaser.GameObjects.Container {
     { x: 0, y: -5 },
     { x: 5, y: 3 },
   ] as const;
-
-  // Local forward is drawn upward in unit space.
-  private static readonly FORWARD_OFFSET =
-    GAMEPLAY_CONFIG.movement.unitForwardOffsetRadians;
-  private static readonly REFACE_ANGLE_THRESHOLD =
-    GAMEPLAY_CONFIG.movement.refaceAngleThresholdRadians;
-  private static readonly WAYPOINT_MOVE_ANGLE_TOLERANCE =
-    GAMEPLAY_CONFIG.movement.waypointMoveAngleToleranceRadians;
-  private static readonly MIN_WAYPOINT_DISTANCE =
-    GAMEPLAY_CONFIG.movement.minWaypointDistance;
-  private static readonly DEFAULT_MOVEMENT_COMMAND_MODE: MovementCommandMode = {
-    speedMultiplier: 1,
-    rotateToFace: true,
-  };
   private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
     [Team.RED]: 0xa05555,
     [Team.BLUE]: 0x4e6f9e,
@@ -93,12 +68,6 @@ export class Unit extends Phaser.GameObjects.Container {
     this.engagedUnits = new Set();
     this.previouslyEngagedUnits = new Set();
     this.team = team;
-    this.speed = GAMEPLAY_CONFIG.movement.unitMoveSpeed;
-    this.turnSpeed = GAMEPLAY_CONFIG.movement.unitTurnSpeedRadians;
-    this.movementCommandMode = { ...Unit.DEFAULT_MOVEMENT_COMMAND_MODE };
-    this.destination = null;
-    this.queuedWaypoints = [];
-    this.targetRotation = null;
     this.healthMax = Unit.HEALTH_MAX;
     this.health = Phaser.Math.Clamp(health, 0, this.healthMax);
     this.currentDpsOutput = 0;
@@ -234,62 +203,6 @@ export class Unit extends Phaser.GameObjects.Container {
     );
   }
 
-  public setDestination(
-    x: number,
-    y: number,
-    movementCommandMode?: Partial<MovementCommandMode>,
-  ): void {
-    this.setPath([new Phaser.Math.Vector2(x, y)], movementCommandMode);
-  }
-
-  public setPath(
-    path: Phaser.Math.Vector2[],
-    movementCommandMode?: Partial<MovementCommandMode>,
-  ): void {
-    if (path.length === 0) {
-      this.cancelMovement();
-      return;
-    }
-
-    this.movementCommandMode = {
-      ...Unit.DEFAULT_MOVEMENT_COMMAND_MODE,
-      ...movementCommandMode,
-    };
-
-    let firstUsableWaypointIndex = 0;
-    while (firstUsableWaypointIndex < path.length) {
-      const waypoint = path[firstUsableWaypointIndex];
-      const distanceToWaypoint = Phaser.Math.Distance.Between(
-        this.x,
-        this.y,
-        waypoint.x,
-        waypoint.y,
-      );
-      if (distanceToWaypoint >= Unit.MIN_WAYPOINT_DISTANCE) {
-        break;
-      }
-      firstUsableWaypointIndex += 1;
-    }
-
-    const usablePath = path.slice(firstUsableWaypointIndex);
-    if (usablePath.length === 0) {
-      this.cancelMovement();
-      return;
-    }
-
-    const [first, ...rest] = usablePath;
-    this.destination = first.clone();
-    this.queuedWaypoints = rest.map((point) => point.clone());
-    this.faceCurrentDestination();
-  }
-
-  public cancelMovement(): void {
-    this.destination = null;
-    this.queuedWaypoints = [];
-    this.targetRotation = null;
-    this.movementCommandMode = { ...Unit.DEFAULT_MOVEMENT_COMMAND_MODE };
-  }
-
   public resetCurrentDpsOutput(): void {
     this.currentDpsOutput = 0;
     this.previouslyEngagedUnits.clear();
@@ -376,157 +289,6 @@ export class Unit extends Phaser.GameObjects.Container {
 
   private refreshTerrainDebugVisual(): void {
     this.terrainDebugText.setText(this.terrainType.toUpperCase());
-  }
-
-  private faceCurrentDestination(): void {
-    if (!this.destination) {
-      this.targetRotation = null;
-      return;
-    }
-
-    if (!this.movementCommandMode.rotateToFace) {
-      this.targetRotation = null;
-      return;
-    }
-
-    const angleToTarget = Phaser.Math.Angle.Between(
-      this.x,
-      this.y,
-      this.destination.x,
-      this.destination.y,
-    );
-    this.targetRotation = angleToTarget - Unit.FORWARD_OFFSET;
-  }
-
-  public updateCombatRotation(deltaMs: number): void {
-    if (this.engagedUnits.size === 0) {
-      return;
-    }
-
-    const target = this.engagedUnits.values().next().value;
-    if (!target) {
-      return;
-    }
-
-    const deltaSeconds = deltaMs / 1000;
-    const targetAngle = Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y);
-    const desiredRotation = targetAngle - Unit.FORWARD_OFFSET;
-
-    const angleDelta = Phaser.Math.Angle.Wrap(desiredRotation - this.rotation);
-    const maxTurnStep = this.turnSpeed * deltaSeconds;
-
-    if (Math.abs(angleDelta) <= maxTurnStep) {
-      this.rotation = desiredRotation;
-    } else {
-      this.rotation = Phaser.Math.Angle.Wrap(
-        this.rotation + Math.sign(angleDelta) * maxTurnStep,
-      );
-    }
-  }
-
-  public updateMovement(deltaMs: number): void {
-    if (!this.destination) {
-      return;
-    }
-
-    const deltaSeconds = deltaMs / 1000;
-    const maxStep =
-      this.speed * this.movementCommandMode.speedMultiplier * deltaSeconds;
-
-    if (this.movementCommandMode.rotateToFace) {
-      const desiredRotation =
-        Phaser.Math.Angle.Between(
-          this.x,
-          this.y,
-          this.destination.x,
-          this.destination.y,
-        ) - Unit.FORWARD_OFFSET;
-
-      // Collision separation can shove a unit sideways. If its heading drifts
-      // away from the current waypoint, re-enter rotate state before moving.
-      if (this.targetRotation === null) {
-        const headingError = Phaser.Math.Angle.Wrap(desiredRotation - this.rotation);
-        if (Math.abs(headingError) > Unit.REFACE_ANGLE_THRESHOLD) {
-          this.targetRotation = desiredRotation;
-        }
-      }
-
-      if (this.targetRotation !== null) {
-        const maxTurnStep = this.turnSpeed * deltaSeconds;
-        const angleDelta = Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation);
-
-        if (Math.abs(angleDelta) <= maxTurnStep) {
-          this.rotation = this.targetRotation;
-          this.targetRotation = null;
-        } else {
-          this.rotation = Phaser.Math.Angle.Wrap(
-            this.rotation + Math.sign(angleDelta) * maxTurnStep,
-          );
-        }
-      }
-
-      // Move only after unit has finished turning to face the destination.
-      // We allow movement if the heading is "close enough" to prevent stuttering in crowds.
-      const isFacingDestination =
-        this.targetRotation === null ||
-        Math.abs(Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation)) <=
-          Unit.WAYPOINT_MOVE_ANGLE_TOLERANCE;
-
-      if (!isFacingDestination) {
-        return;
-      }
-    }
-
-    let remainingStep = maxStep;
-    while (this.destination && remainingStep > 0) {
-      const toTargetX = this.destination.x - this.x;
-      const toTargetY = this.destination.y - this.y;
-      const distance = Math.hypot(toTargetX, toTargetY);
-
-      if (distance <= remainingStep) {
-        this.setPosition(this.destination.x, this.destination.y);
-        remainingStep -= distance;
-
-        const nextDestination = this.queuedWaypoints.shift() ?? null;
-        this.destination = nextDestination;
-        this.faceCurrentDestination();
-
-        if (!this.destination) {
-          return;
-        }
-
-        if (this.movementCommandMode.rotateToFace && this.targetRotation !== null) {
-          const headingError = Math.abs(
-            Phaser.Math.Angle.Wrap(this.targetRotation - this.rotation),
-          );
-          if (headingError > Unit.WAYPOINT_MOVE_ANGLE_TOLERANCE) {
-            return;
-          }
-        }
-        continue;
-      }
-
-      const stepScale = remainingStep / distance;
-      const stepX = toTargetX * stepScale;
-      const stepY = toTargetY * stepScale;
-      this.setPosition(this.x + stepX, this.y + stepY);
-      return;
-    }
-  }
-
-  public getDestination(): Phaser.Math.Vector2 | null {
-    return this.destination ? this.destination.clone() : null;
-  }
-
-  public getWaypoints(): Phaser.Math.Vector2[] {
-    const waypoints: Phaser.Math.Vector2[] = [];
-    if (this.destination) {
-      waypoints.push(this.destination.clone());
-    }
-    for (const point of this.queuedWaypoints) {
-      waypoints.push(point.clone());
-    }
-    return waypoints;
   }
 
   private refreshHealthVisuals(): void {
