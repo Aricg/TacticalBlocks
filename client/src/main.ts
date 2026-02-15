@@ -335,6 +335,8 @@ class BattleScene extends Phaser.Scene {
       shroudColor: BattleScene.SHROUD_COLOR,
       shroudAlpha: BattleScene.SHROUD_ALPHA,
       enemyVisibilityPadding: BattleScene.ENEMY_VISIBILITY_PADDING,
+      supplyCellWidth: BattleScene.GRID_CELL_WIDTH,
+      supplyCellHeight: BattleScene.GRID_CELL_HEIGHT,
     });
     this.tuningPanel = new RuntimeTuningPanel(
       this.runtimeTuning,
@@ -1733,10 +1735,26 @@ class BattleScene extends Phaser.Scene {
   }
 
   private refreshFogOfWar(): void {
+    const supplyVisionPositions: Phaser.Math.Vector2[] = [];
+    const seenSupplyCells = new Set<string>();
+    for (const supplyLine of this.supplyLinesByUnitId.values()) {
+      for (const cell of supplyLine.path) {
+        const cellKey = `${cell.col}:${cell.row}`;
+        if (seenSupplyCells.has(cellKey)) {
+          continue;
+        }
+        seenSupplyCells.add(cellKey);
+        supplyVisionPositions.push(
+          gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
+        );
+      }
+    }
+
     this.fogOfWarController?.refresh(
       this.localPlayerTeam,
       this.units,
       this.getOwnedCityPositions(this.localPlayerTeam),
+      supplyVisionPositions,
     );
   }
 

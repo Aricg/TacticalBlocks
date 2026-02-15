@@ -9,12 +9,15 @@ type FogOfWarConfig = {
   shroudColor: number;
   shroudAlpha: number;
   enemyVisibilityPadding: number;
+  supplyCellWidth: number;
+  supplyCellHeight: number;
 };
 
 export class FogOfWarController {
   private readonly layer: Phaser.GameObjects.RenderTexture;
   private readonly unitVisionBrush: Phaser.GameObjects.Arc;
   private readonly cityVisionBrush: Phaser.GameObjects.Arc;
+  private readonly supplyVisionBrush: Phaser.GameObjects.Rectangle;
   private unitVisionRadius = 0;
   private cityVisionRadius = 0;
 
@@ -35,6 +38,15 @@ export class FogOfWarController {
     this.unitVisionBrush.setVisible(false);
     this.cityVisionBrush = scene.add.circle(0, 0, 0, 0xffffff, 1);
     this.cityVisionBrush.setVisible(false);
+    this.supplyVisionBrush = scene.add.rectangle(
+      0,
+      0,
+      Math.max(1, this.config.supplyCellWidth),
+      Math.max(1, this.config.supplyCellHeight),
+      0xffffff,
+      1,
+    );
+    this.supplyVisionBrush.setVisible(false);
   }
 
   public setVisionRadii(unitVisionRadius: number, cityVisionRadius: number): void {
@@ -48,6 +60,7 @@ export class FogOfWarController {
     localPlayerTeam: Team,
     units: Unit[],
     allyCityPositions: Phaser.Math.Vector2[],
+    supplyVisionPositions: Phaser.Math.Vector2[],
   ): void {
     this.layer.clear();
     this.layer.fill(this.config.shroudColor, this.config.shroudAlpha);
@@ -64,6 +77,12 @@ export class FogOfWarController {
       this.layer.erase(this.cityVisionBrush, cityPosition.x, cityPosition.y);
     }
 
+    for (const supplyPosition of supplyVisionPositions) {
+      this.layer.erase(this.supplyVisionBrush, supplyPosition.x, supplyPosition.y);
+    }
+
+    const supplyRevealRadius =
+      Math.max(this.config.supplyCellWidth, this.config.supplyCellHeight) * 0.5;
     const visibilitySources: Array<{ x: number; y: number; radius: number }> = [
       ...allyVisionSources.map((unit) => ({
         x: unit.x,
@@ -74,6 +93,11 @@ export class FogOfWarController {
         x: cityPosition.x,
         y: cityPosition.y,
         radius: this.cityVisionRadius,
+      })),
+      ...supplyVisionPositions.map((supplyPosition) => ({
+        x: supplyPosition.x,
+        y: supplyPosition.y,
+        radius: supplyRevealRadius,
       })),
     ];
 
@@ -101,5 +125,6 @@ export class FogOfWarController {
     this.layer.destroy();
     this.unitVisionBrush.destroy();
     this.cityVisionBrush.destroy();
+    this.supplyVisionBrush.destroy();
   }
 }
