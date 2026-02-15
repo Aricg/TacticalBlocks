@@ -10,6 +10,21 @@ export type InfluenceGridSnapshot = {
   cells: number[];
 };
 
+export type SupplyLinePathCellSnapshot = {
+  col: number;
+  row: number;
+};
+
+export type SupplyLineSnapshot = {
+  unitId: string;
+  team: 'BLUE' | 'RED';
+  connected: boolean;
+  sourceCol: number;
+  sourceRow: number;
+  severIndex: number;
+  path: SupplyLinePathCellSnapshot[];
+};
+
 type GridMeta = {
   width: number;
   height: number;
@@ -43,8 +58,22 @@ type InfluenceLineStyle = {
   lineAlpha: number;
 };
 
+type SupplyLineRenderCell = {
+  x: number;
+  y: number;
+};
+
+type SupplyLineRenderState = {
+  team: 'BLUE' | 'RED';
+  connected: boolean;
+  endIndex: number;
+  cells: SupplyLineRenderCell[];
+};
+
 export class InfluenceRenderer {
+  private readonly scene: Phaser.Scene;
   private readonly frontLineGraphics: Phaser.GameObjects.Graphics;
+  private readonly supplyWaveGraphics: Phaser.GameObjects.Graphics;
   private readonly debugGraphics: Phaser.GameObjects.Graphics;
   private readonly debugCellValueTexts: Phaser.GameObjects.Text[];
   private gridMeta: GridMeta | null = null;
@@ -59,6 +88,8 @@ export class InfluenceRenderer {
   private interpolationElapsedMs = 0;
   private lineThickness: number = GAMEPLAY_CONFIG.influence.lineThickness;
   private lineAlpha: number = GAMEPLAY_CONFIG.influence.lineAlpha;
+  private supplyLines: SupplyLineSnapshot[] = [];
+  private supplyLineRenderStates: SupplyLineRenderState[] = [];
 
   private static readonly EPSILON = 0.0001;
   private static readonly KEY_PRECISION = 1000;
@@ -69,13 +100,25 @@ export class InfluenceRenderer {
   private static readonly DEBUG_DOT_RADIUS = 3;
   private static readonly DEBUG_TEXT_OFFSET_X = 6;
   private static readonly DEBUG_TEXT_OFFSET_Y = 6;
+  private static readonly SUPPLY_WAVE_BLUE_COLOR = 0x65bfff;
+  private static readonly SUPPLY_WAVE_RED_COLOR = 0xff7f6c;
+  private static readonly SUPPLY_SEVER_COLOR = 0xfff3ad;
+  private static readonly SUPPLY_WAVE_RADIUS = 4;
+  private static readonly SUPPLY_WAVE_SPEED_CELLS_PER_MS = 0.006;
+  private static readonly SUPPLY_WAVE_SIGMA_CELLS = 1.6;
+  private static readonly SUPPLY_WAVE_BASE_ALPHA = 0.08;
+  private static readonly SUPPLY_WAVE_PEAK_ALPHA = 0.72;
+  private static readonly SUPPLY_WAVE_OFFSCREEN_PADDING = 24;
   private static readonly INTERPOLATION_DURATION_MS =
     GAMEPLAY_CONFIG.network.positionSyncIntervalMs *
     GAMEPLAY_CONFIG.influence.updateIntervalFrames;
 
   constructor(scene: Phaser.Scene) {
+    this.scene = scene;
     this.frontLineGraphics = scene.add.graphics();
     this.frontLineGraphics.setDepth(910);
+    this.supplyWaveGraphics = scene.add.graphics();
+    this.supplyWaveGraphics.setDepth(979);
     this.debugGraphics = scene.add.graphics();
     this.debugGraphics.setDepth(980);
     this.debugCellValueTexts = Array.from({ length: 4 }, () => {
@@ -139,6 +182,7 @@ export class InfluenceRenderer {
       this.renderCells = nextTargetCells.slice();
       this.interpolationElapsedMs = InfluenceRenderer.INTERPOLATION_DURATION_MS;
       this.latestRevision = influenceGrid.revision;
+      this.rebuildSupplyLineRenderStates();
       return;
     }
 
@@ -148,6 +192,58 @@ export class InfluenceRenderer {
     this.gridMeta = nextGridMeta;
     this.interpolationElapsedMs = 0;
     this.latestRevision = influenceGrid.revision;
+    this.rebuildSupplyLineRenderStates();
+  }
+
+  public setSupplyLines(supplyLines: Iterable<SupplyLineSnapshot>): void {
+    const normalized: SupplyLineSnapshot[] = [];
+    for (const supplyLine of supplyLines) {
+      if (
+        !supplyLine ||
+        typeof supplyLine.unitId !== 'string' ||
+        supplyLine.unitId.length === 0
+      ) {
+        continue;
+      }
+
+      const team = supplyLine.team === 'RED' ? 'RED' : 'BLUE';
+      const path = Array.isArray(supplyLine.path)
+        ? supplyLine.path
+            .map((cell) => {
+              if (
+                !cell ||
+                !Number.isFinite(cell.col) ||
+                !Number.isFinite(cell.row)
+              ) {
+                return null;
+              }
+              return {
+                col: Math.round(cell.col),
+                row: Math.round(cell.row),
+              };
+            })
+            .filter((cell): cell is SupplyLinePathCellSnapshot => cell !== null)
+        : [];
+
+      normalized.push({
+        unitId: supplyLine.unitId,
+        team,
+        connected: supplyLine.connected === true,
+        sourceCol: Number.isFinite(supplyLine.sourceCol)
+          ? Math.round(supplyLine.sourceCol)
+          : -1,
+        sourceRow: Number.isFinite(supplyLine.sourceRow)
+          ? Math.round(supplyLine.sourceRow)
+          : -1,
+        severIndex: Number.isFinite(supplyLine.severIndex)
+          ? Math.round(supplyLine.severIndex)
+          : -1,
+        path,
+      });
+    }
+
+    this.supplyLines = normalized;
+    this.rebuildSupplyLineRenderStates();
   }
 
   public setDebugFocusPoint(
@@ -179,8 +275,9 @@ export class InfluenceRenderer {
     }
   }
 
-  public render(deltaMs: number): void {
+  public render(timeMs: number, deltaMs: number): void {
     this.frontLineGraphics.clear();
+    this.supplyWaveGraphics.clear();
     this.debugGraphics.clear();
     if (
       !this.gridMeta ||
@@ -227,10 +324,12 @@ export class InfluenceRenderer {
     }
 
     this.renderDebugOverlay(this.targetServerCells);
+    this.renderSupplyWave(timeMs, deltaMs);
   }
 
   public destroy(): void {
     this.frontLineGraphics.destroy();
+    this.supplyWaveGraphics.destroy();
     this.debugGraphics.destroy();
     for (const text of this.debugCellValueTexts) {
       text.destroy();
@@ -241,8 +340,129 @@ export class InfluenceRenderer {
     this.displayCells = null;
     this.renderCells = null;
     this.staticInfluenceSources = [];
+    this.supplyLines = [];
+    this.supplyLineRenderStates = [];
     this.debugFocusPoint = null;
     this.debugFocusScoreOverride = null;
+  }
+
+  private rebuildSupplyLineRenderStates(): void {
+    if (!this.gridMeta || this.supplyLines.length === 0) {
+      this.supplyLineRenderStates = [];
+      return;
+    }
+
+    const cellWidth = this.gridMeta.cellWidth;
+    const cellHeight = this.gridMeta.cellHeight;
+    const nextRenderStates: SupplyLineRenderState[] = [];
+
+    for (const supplyLine of this.supplyLines) {
+      if (supplyLine.path.length === 0) {
+        continue;
+      }
+
+      const cells: SupplyLineRenderCell[] = supplyLine.path.map((pathCell) => ({
+        x: (pathCell.col + 0.5) * cellWidth,
+        y: (pathCell.row + 0.5) * cellHeight,
+      }));
+
+      let endIndex = cells.length - 1;
+      if (!supplyLine.connected) {
+        if (supplyLine.severIndex < 0) {
+          continue;
+        }
+        endIndex = Math.min(supplyLine.severIndex, cells.length - 1);
+      }
+      if (endIndex < 0) {
+        continue;
+      }
+
+      nextRenderStates.push({
+        team: supplyLine.team,
+        connected: supplyLine.connected,
+        endIndex,
+        cells,
+      });
+    }
+
+    this.supplyLineRenderStates = nextRenderStates;
+  }
+
+  private renderSupplyWave(timeMs: number, deltaMs: number): void {
+    if (this.supplyLineRenderStates.length === 0) {
+      return;
+    }
+
+    const cameraView = this.scene.cameras.main.worldView;
+    const minX = cameraView.x - InfluenceRenderer.SUPPLY_WAVE_OFFSCREEN_PADDING;
+    const minY = cameraView.y - InfluenceRenderer.SUPPLY_WAVE_OFFSCREEN_PADDING;
+    const maxX =
+      cameraView.right + InfluenceRenderer.SUPPLY_WAVE_OFFSCREEN_PADDING;
+    const maxY =
+      cameraView.bottom + InfluenceRenderer.SUPPLY_WAVE_OFFSCREEN_PADDING;
+    const sigma = InfluenceRenderer.SUPPLY_WAVE_SIGMA_CELLS;
+    const inverseTwoSigmaSquared = 1 / (2 * sigma * sigma);
+    const waveTimeMs = timeMs + deltaMs;
+    const waveTravel =
+      waveTimeMs * InfluenceRenderer.SUPPLY_WAVE_SPEED_CELLS_PER_MS;
+
+    for (const supplyLine of this.supplyLineRenderStates) {
+      const cycleLength = supplyLine.endIndex + 1;
+      if (cycleLength <= 0) {
+        continue;
+      }
+
+      const waveHeadIndex = waveTravel % cycleLength;
+      const teamColor =
+        supplyLine.team === 'BLUE'
+          ? InfluenceRenderer.SUPPLY_WAVE_BLUE_COLOR
+          : InfluenceRenderer.SUPPLY_WAVE_RED_COLOR;
+
+      for (let i = 0; i <= supplyLine.endIndex; i += 1) {
+        const cell = supplyLine.cells[i];
+        if (cell.x < minX || cell.x > maxX || cell.y < minY || cell.y > maxY) {
+          continue;
+        }
+
+        const waveDistance = i - waveHeadIndex;
+        const waveIntensity = Math.exp(
+          -(waveDistance * waveDistance) * inverseTwoSigmaSquared,
+        );
+        const alpha = Phaser.Math.Clamp(
+          InfluenceRenderer.SUPPLY_WAVE_BASE_ALPHA +
+            waveIntensity * InfluenceRenderer.SUPPLY_WAVE_PEAK_ALPHA,
+          0,
+          1,
+        );
+        const radius =
+          InfluenceRenderer.SUPPLY_WAVE_RADIUS + waveIntensity * 1.6;
+
+        this.supplyWaveGraphics.fillStyle(teamColor, alpha);
+        this.supplyWaveGraphics.fillCircle(cell.x, cell.y, radius);
+      }
+
+      if (!supplyLine.connected) {
+        const severCell = supplyLine.cells[supplyLine.endIndex];
+        if (
+          severCell &&
+          severCell.x >= minX &&
+          severCell.x <= maxX &&
+          severCell.y >= minY &&
+          severCell.y <= maxY
+        ) {
+          const severPulse = (Math.sin(waveTimeMs * 0.01) + 1) * 0.5;
+          this.supplyWaveGraphics.fillStyle(
+            InfluenceRenderer.SUPPLY_SEVER_COLOR,
+            0.35 + severPulse * 0.45,
+          );
+          this.supplyWaveGraphics.fillCircle(
+            severCell.x,
+            severCell.y,
+            InfluenceRenderer.SUPPLY_WAVE_RADIUS + 2 + severPulse * 1.5,
+          );
+        }
+      }
+    }
   }
 
   private renderDebugOverlay(rawServerCells: Float32Array): void {

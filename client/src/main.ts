@@ -8,6 +8,7 @@ import {
   type NetworkUnitHealthUpdate,
   type NetworkMatchPhase,
   type NetworkUnitRotationUpdate,
+  type NetworkSupplyLineUpdate,
   type NetworkUnitSnapshot,
   type NetworkUnitPositionUpdate,
   type NetworkUnitPathStateUpdate,
@@ -191,6 +192,8 @@ class BattleScene extends Phaser.Scene {
     new Map<string, number>();
   private readonly moraleScoreByUnitId: Map<string, number> =
     new Map<string, number>();
+  private readonly supplyLinesByUnitId: Map<string, NetworkSupplyLineUpdate> =
+    new Map<string, NetworkSupplyLineUpdate>();
   private readonly cities: City[] = [];
   private readonly cityByHomeTeam: Record<Team, City | null> = {
     [Team.RED]: null,
@@ -324,6 +327,7 @@ class BattleScene extends Phaser.Scene {
     this.impassableOverlay.setDepth(BattleScene.IMPASSABLE_OVERLAY_DEPTH);
     this.drawImpassableOverlay();
     this.influenceRenderer = new InfluenceRenderer(this);
+    this.syncSupplyLinesToInfluenceRenderer();
     this.fogOfWarController = new FogOfWarController(this, {
       mapWidth: BattleScene.MAP_WIDTH,
       mapHeight: BattleScene.MAP_HEIGHT,
@@ -450,6 +454,12 @@ class BattleScene extends Phaser.Scene {
       (cityOwnershipUpdate) => {
         this.applyCityOwnership(cityOwnershipUpdate);
       },
+      (supplyLineUpdate) => {
+        this.applySupplyLineUpdate(supplyLineUpdate);
+      },
+      (unitId) => {
+        this.removeSupplyLine(unitId);
+      },
       (runtimeTuning) => {
         this.applyRuntimeTuning(runtimeTuning);
       },
@@ -500,6 +510,8 @@ class BattleScene extends Phaser.Scene {
       this.lastKnownHealthByUnitId.clear();
       this.combatVisualUntilByUnitId.clear();
       this.moraleScoreByUnitId.clear();
+      this.supplyLinesByUnitId.clear();
+      this.syncSupplyLinesToInfluenceRenderer();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
       this.mapBackground = null;
@@ -753,6 +765,10 @@ class BattleScene extends Phaser.Scene {
         this.clearSelection();
         this.plannedPathsByUnitId.clear();
         this.pendingUnitPathCommandsByUnitId.clear();
+        if (nextPhase !== 'BATTLE') {
+          this.supplyLinesByUnitId.clear();
+          this.syncSupplyLinesToInfluenceRenderer();
+        }
         if (nextPhase === 'BATTLE') {
           this.lastBattleAnnouncement = null;
         }
@@ -769,6 +785,8 @@ class BattleScene extends Phaser.Scene {
     this.clearSelection();
     this.plannedPathsByUnitId.clear();
     this.pendingUnitPathCommandsByUnitId.clear();
+    this.supplyLinesByUnitId.clear();
+    this.syncSupplyLinesToInfluenceRenderer();
     this.refreshLobbyOverlay();
   }
 
@@ -811,6 +829,8 @@ class BattleScene extends Phaser.Scene {
     this.clearSelection();
     this.plannedPathsByUnitId.clear();
     this.pendingUnitPathCommandsByUnitId.clear();
+    this.supplyLinesByUnitId.clear();
+    this.syncSupplyLinesToInfluenceRenderer();
 
     for (const unitId of Array.from(this.unitsById.keys())) {
       this.removeNetworkUnit(unitId);
@@ -866,6 +886,20 @@ class BattleScene extends Phaser.Scene {
       neutralCities: this.neutralCities,
       refreshFogOfWar: () => this.refreshFogOfWar(),
     });
+  }
+
+  private applySupplyLineUpdate(supplyLineUpdate: NetworkSupplyLineUpdate): void {
+    this.supplyLinesByUnitId.set(supplyLineUpdate.unitId, supplyLineUpdate);
+    this.syncSupplyLinesToInfluenceRenderer();
+  }
+
+  private removeSupplyLine(unitId: string): void {
+    this.supplyLinesByUnitId.delete(unitId);
+    this.syncSupplyLinesToInfluenceRenderer();
+  }
+
+  private syncSupplyLinesToInfluenceRenderer(): void {
+    this.influenceRenderer?.setSupplyLines(this.supplyLinesByUnitId.values());
   }
 
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
@@ -925,6 +959,7 @@ class BattleScene extends Phaser.Scene {
     this.pendingUnitPathCommandsByUnitId.delete(unitId);
     this.remoteUnitLatestTransformByUnitId.delete(unitId);
     this.remoteUnitRenderStateByUnitId.delete(unitId);
+    this.removeSupplyLine(unitId);
   }
 
   private applyNetworkUnitPosition(positionUpdate: NetworkUnitPositionUpdate): void {
@@ -1910,7 +1945,8 @@ class BattleScene extends Phaser.Scene {
         refreshFogOfWar: () => this.refreshFogOfWar(),
         renderPlannedPaths: () => this.renderMovementLines(),
         updateInfluenceDebugFocus: () => this.updateInfluenceDebugFocus(),
-        renderInfluence: (deltaMs) => this.influenceRenderer?.render(deltaMs),
+        renderInfluence: (timeMs, deltaMs) =>
+          this.influenceRenderer?.render(timeMs, deltaMs),
       },
     });
   }

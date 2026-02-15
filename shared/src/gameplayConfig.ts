@@ -125,6 +125,9 @@ export const GAMEPLAY_CONFIG = {
     battleJiggleFrequency: 0.018,
     contactDamagePerSecond: 12,
   },
+  supply: {
+    moralePenaltyWhenDisconnected: 25,
+  },
   unit: {
     baseSpeed: UNIT_BASE_MOVE_SPEED,
     bodyWidth: 24,

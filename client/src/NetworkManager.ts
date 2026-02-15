@@ -37,8 +37,24 @@ type ServerInfluenceGridState = {
   cells: ArrayLike<number>;
 };
 
+type ServerGridCellState = {
+  col: number;
+  row: number;
+};
+
+type ServerSupplyLineState = {
+  unitId: string;
+  team: string;
+  connected: boolean;
+  sourceCol: number;
+  sourceRow: number;
+  severIndex: number;
+  path: ArrayLike<ServerGridCellState>;
+};
+
 type BattleRoomState = {
   units: unknown;
+  supplyLines: unknown;
   influenceGrid: ServerInfluenceGridState;
   mapId: string;
   redCityOwner: string;
@@ -94,6 +110,21 @@ export type NetworkCityOwnershipUpdate = {
   neutralCityOwners: string[];
 };
 
+export type NetworkSupplyLinePathCell = {
+  col: number;
+  row: number;
+};
+
+export type NetworkSupplyLineUpdate = {
+  unitId: string;
+  team: 'BLUE' | 'RED';
+  connected: boolean;
+  sourceCol: number;
+  sourceRow: number;
+  severIndex: number;
+  path: NetworkSupplyLinePathCell[];
+};
+
 export type NetworkMatchPhase = MatchPhase;
 
 export type NetworkLobbyPlayer = {
@@ -135,6 +166,10 @@ type InfluenceGridChangedHandler = (
 type CityOwnershipChangedHandler = (
   cityOwnershipUpdate: NetworkCityOwnershipUpdate,
 ) => void;
+type SupplyLineChangedHandler = (
+  supplyLineUpdate: NetworkSupplyLineUpdate,
+) => void;
+type SupplyLineRemovedHandler = (unitId: string) => void;
 type RuntimeTuningChangedHandler = (
   runtimeTuning: RuntimeTuningSnapshotMessage,
 ) => void;
@@ -172,6 +207,8 @@ export class NetworkManager {
     private readonly onUnitMoraleChanged: UnitMoraleChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
     private readonly onCityOwnershipChanged: CityOwnershipChangedHandler,
+    private readonly onSupplyLineChanged: SupplyLineChangedHandler,
+    private readonly onSupplyLineRemoved: SupplyLineRemovedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
     endpoint = 'ws://localhost:2567',
     roomName = 'battle',
@@ -289,6 +326,94 @@ export class NetworkManager {
       );
       emitInfluenceGridUpdate();
       emitCityOwnershipUpdate();
+
+      const supplyLineListenerDetachersByUnitId = new Map<
+        string,
+        Array<() => void>
+      >();
+      const detachSupplyLineListeners = (unitId: string) => {
+        const listeners = supplyLineListenerDetachersByUnitId.get(unitId);
+        if (!listeners) {
+          return;
+        }
+        for (const detach of listeners) {
+          detach();
+        }
+        supplyLineListenerDetachersByUnitId.delete(unitId);
+      };
+      const attachSupplyLineListeners = (
+        serverSupplyLine: ServerSupplyLineState,
+        unitKey: string,
+      ) => {
+        const normalized = this.normalizeSupplyLineUpdate(serverSupplyLine, unitKey);
+        if (!normalized) {
+          return;
+        }
+
+        detachSupplyLineListeners(normalized.unitId);
+
+        let flushQueued = false;
+        const queueSupplyLineUpdate = () => {
+          if (flushQueued) {
+            return;
+          }
+          flushQueued = true;
+          NetworkManager.queuePositionFlush(() => {
+            flushQueued = false;
+            const latest = this.normalizeSupplyLineUpdate(
+              serverSupplyLine,
+              unitKey,
+            );
+            if (!latest) {
+              return;
+            }
+            this.onSupplyLineChanged(latest);
+          });
+        };
+
+        this.onSupplyLineChanged(normalized);
+
+        const detachers: Array<() => void> = [
+          $(serverSupplyLine).listen('team', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('connected', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('sourceCol', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('sourceRow', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('severIndex', queueSupplyLineUpdate),
+          $(serverSupplyLine).path.onChange(() => {
+            queueSupplyLineUpdate();
+          }),
+        ];
+        supplyLineListenerDetachersByUnitId.set(normalized.unitId, detachers);
+      };
+      const detachSupplyLineAdd = $(state).supplyLines.onAdd(
+        (serverSupplyLine: ServerSupplyLineState, unitKey: string) => {
+          attachSupplyLineListeners(serverSupplyLine, unitKey);
+        },
+        true,
+      );
+      const detachSupplyLineRemove = $(state).supplyLines.onRemove(
+        (serverSupplyLine: ServerSupplyLineState, unitKey: string) => {
+          const normalized = this.normalizeSupplyLineUpdate(
+            serverSupplyLine,
+            unitKey,
+          );
+          const unitId = normalized?.unitId ?? unitKey;
+          if (unitId.length === 0) {
+            return;
+          }
+          detachSupplyLineListeners(unitId);
+          this.onSupplyLineRemoved(unitId);
+        },
+      );
+      this.detachCallbacks.push(
+        detachSupplyLineAdd,
+        detachSupplyLineRemove,
+        () => {
+          for (const unitId of supplyLineListenerDetachersByUnitId.keys()) {
+            detachSupplyLineListeners(unitId);
+          }
+        },
+      );
 
       const detachUnitAdd = $(state).units.onAdd(
         (serverUnit: ServerUnitState, unitKey: string) => {
@@ -539,6 +664,52 @@ export class NetworkManager {
       redUnits: safeCount(message?.redUnits),
       blueCities: safeCount(message?.blueCities),
       redCities: safeCount(message?.redCities),
+    };
+  }
+
+  private normalizeSupplyLineUpdate(
+    serverSupplyLine: ServerSupplyLineState,
+    unitKey: string,
+  ): NetworkSupplyLineUpdate | null {
+    const unitId =
+      typeof serverSupplyLine?.unitId === 'string' &&
+      serverSupplyLine.unitId.length > 0
+        ? serverSupplyLine.unitId
+        : unitKey;
+    if (unitId.length === 0) {
+      return null;
+    }
+
+    const normalizedTeam = serverSupplyLine?.team?.toUpperCase() === 'RED'
+      ? 'RED'
+      : 'BLUE';
+    const safeInteger = (
+      value: number | null | undefined,
+      fallback = -1,
+    ): number =>
+      typeof value === 'number' && Number.isFinite(value)
+        ? Math.round(value)
+        : fallback;
+
+    const normalizedPath = Array.from(serverSupplyLine?.path ?? [])
+      .map((cell) => {
+        const col = safeInteger(cell?.col, Number.NaN);
+        const row = safeInteger(cell?.row, Number.NaN);
+        if (!Number.isFinite(col) || !Number.isFinite(row)) {
+          return null;
+        }
+        return { col, row };
+      })
+      .filter((cell): cell is NetworkSupplyLinePathCell => cell !== null);
+
+    return {
+      unitId,
+      team: normalizedTeam,
+      connected: serverSupplyLine?.connected === true,
+      sourceCol: safeInteger(serverSupplyLine?.sourceCol),
+      sourceRow: safeInteger(serverSupplyLine?.sourceRow),
+      severIndex: safeInteger(serverSupplyLine?.severIndex),
+      path: normalizedPath,
     };
   }
 }

@@ -7,7 +7,7 @@ type VisualUpdateCallbacks = {
   refreshFogOfWar: () => void;
   renderPlannedPaths: () => void;
   updateInfluenceDebugFocus: () => void;
-  renderInfluence: (deltaMs: number) => void;
+  renderInfluence: (timeMs: number, deltaMs: number) => void;
 };
 
 export function runVisualUpdatePipeline({
@@ -25,7 +25,7 @@ export function runVisualUpdatePipeline({
   runFogRefresh(callbacks);
   runPlannedPathRendering(callbacks);
   runInfluenceDebugFocusUpdate(callbacks);
-  callbacks.renderInfluence(deltaMs);
+  callbacks.renderInfluence(timeMs, deltaMs);
 }
 
 export function refreshUnitTerrainTint({

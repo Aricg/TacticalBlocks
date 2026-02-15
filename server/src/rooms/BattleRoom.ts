@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
+import { GridCellState } from "../schema/GridCellState.js";
+import { SupplyLineState } from "../schema/SupplyLineState.js";
 import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
 import {
@@ -29,6 +31,10 @@ import {
   normalizePathWaypoints,
 } from "../systems/movement/MovementCommandRouter.js";
 import { simulateMovementTick } from "../systems/movement/MovementSimulation.js";
+import {
+  computeSupplyLinesForUnits,
+  type ComputedSupplyLineState,
+} from "../systems/supply/SupplyLineSystem.js";
 import {
   getUnitMoraleAdvantageNormalized,
   getUnitMoraleScore as getUnitMoraleScoreSystem,
@@ -83,6 +89,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly battleLifecycleService = new BattleLifecycleService();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
+  private readonly supplySignatureByUnitId = new Map<string, string>();
   private readonly engagedUnitIds = new Set<string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private neutralCityCells: GridCoordinate[] = [];
@@ -131,6 +138,8 @@ export class BattleRoom extends Room<BattleState> {
     Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 100;
+  private static readonly SUPPLY_MORALE_PENALTY =
+    GAMEPLAY_CONFIG.supply.moralePenaltyWhenDisconnected;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
 
   onCreate(): void {
@@ -145,6 +154,7 @@ export class BattleRoom extends Room<BattleState> {
     this.syncCityInfluenceSources();
     this.spawnTestUnits();
     this.updateInfluenceGrid(true);
+    this.updateSupplyLines();
 
     this.setSimulationInterval((deltaMs) => {
       if (this.matchPhase !== "BATTLE") {
@@ -157,13 +167,10 @@ export class BattleRoom extends Room<BattleState> {
       if (cityOwnershipChanged) {
         this.syncCityInfluenceSources();
       }
-      const preGenerationBattleOutcome = this.getBattleOutcome();
-      if (preGenerationBattleOutcome) {
-        this.concludeBattle(preGenerationBattleOutcome);
-        return;
-      }
       const generatedCityUnits = this.updateCityUnitGeneration(deltaSeconds);
+      this.updateSupplyLines();
       const engagements = this.updateUnitInteractions(deltaSeconds);
+      this.pruneSupplyLinesForMissingUnits();
       this.syncAllUnitPathStates();
       this.updateCombatRotation(deltaSeconds, engagements);
       const battleOutcome = this.getBattleOutcome();
@@ -235,6 +242,7 @@ export class BattleRoom extends Room<BattleState> {
   onDispose(): void {
     this.movementStateByUnitId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
+    this.clearSupplyLineState();
     this.engagedUnitIds.clear();
     this.lobbyService.dispose();
     this.simulationFrame = 0;
@@ -290,6 +298,35 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     return cells.map((cell) => `${cell.col},${cell.row}`).join(";");
+  }
+
+  private buildSupplyLineSignature(supplyLine: ComputedSupplyLineState): string {
+    const pathSignature = supplyLine.path
+      .map((cell) => `${cell.col},${cell.row}`)
+      .join(";");
+    return [
+      supplyLine.team,
+      `${supplyLine.sourceCol},${supplyLine.sourceRow}`,
+      supplyLine.connected ? "1" : "0",
+      `${supplyLine.severIndex}`,
+      pathSignature,
+    ].join("|");
+  }
+
+  private createSupplyLineState(
+    supplyLine: ComputedSupplyLineState,
+  ): SupplyLineState {
+    const state = new SupplyLineState();
+    state.unitId = supplyLine.unitId;
+    state.team = supplyLine.team;
+    state.connected = supplyLine.connected;
+    state.sourceCol = supplyLine.sourceCol;
+    state.sourceRow = supplyLine.sourceRow;
+    state.severIndex = supplyLine.severIndex;
+    for (const cell of supplyLine.path) {
+      state.path.push(new GridCellState(cell.col, cell.row));
+    }
+    return state;
   }
 
   private buildUnitPathStateMessage(unitId: string): UnitPathStateMessage {
@@ -920,10 +957,18 @@ export class BattleRoom extends Room<BattleState> {
     this.neutralCityCells = getNeutralCityGridCoordinates();
   }
 
+  private clearSupplyLineState(): void {
+    for (const unitId of Array.from(this.state.supplyLines.keys())) {
+      this.state.supplyLines.delete(unitId);
+    }
+    this.supplySignatureByUnitId.clear();
+  }
+
   private clearUnits(): void {
     for (const unitId of Array.from(this.state.units.keys())) {
       this.state.units.delete(unitId);
     }
+    this.clearSupplyLineState();
     this.movementStateByUnitId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
     this.engagedUnitIds.clear();
@@ -968,6 +1013,7 @@ export class BattleRoom extends Room<BattleState> {
     this.spawnTestUnits();
     this.clearInfluenceGrid();
     this.updateInfluenceGrid(true);
+    this.updateSupplyLines();
     this.simulationFrame = 0;
     if (incrementMapRevision) {
       this.mapRevision += 1;
@@ -1213,9 +1259,85 @@ export class BattleRoom extends Room<BattleState> {
     });
   }
 
+  private updateSupplyLines(): void {
+    const computedSupplyLines = computeSupplyLinesForUnits({
+      units: this.state.units.values(),
+      worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
+      getTeamCityCell: (team) => this.getCityCell(team),
+      redCityOwner: this.state.redCityOwner,
+      blueCityOwner: this.state.blueCityOwner,
+      neutralCityOwners: this.state.neutralCityOwners,
+      neutralCityCells: this.neutralCityCells,
+      getInfluenceScoreAtCell: (col, row) => this.getInfluenceScoreAtCell(col, row),
+      isCellImpassable: (cell) => isTerrainBlocked(cell),
+    });
+
+    for (const [unitId, supplyLine] of computedSupplyLines) {
+      const nextSignature = this.buildSupplyLineSignature(supplyLine);
+      const previousSignature = this.supplySignatureByUnitId.get(unitId);
+      if (previousSignature === nextSignature) {
+        continue;
+      }
+
+      this.supplySignatureByUnitId.set(unitId, nextSignature);
+      const existingState = this.state.supplyLines.get(unitId);
+      if (!existingState) {
+        this.state.supplyLines.set(unitId, this.createSupplyLineState(supplyLine));
+        continue;
+      }
+
+      existingState.unitId = supplyLine.unitId;
+      existingState.team = supplyLine.team;
+      existingState.connected = supplyLine.connected;
+      existingState.sourceCol = supplyLine.sourceCol;
+      existingState.sourceRow = supplyLine.sourceRow;
+      existingState.severIndex = supplyLine.severIndex;
+      while (existingState.path.length > 0) {
+        existingState.path.pop();
+      }
+      for (const cell of supplyLine.path) {
+        existingState.path.push(new GridCellState(cell.col, cell.row));
+      }
+    }
+
+    const activeSupplyUnitIds = new Set(computedSupplyLines.keys());
+    for (const unitId of Array.from(this.state.supplyLines.keys())) {
+      if (activeSupplyUnitIds.has(unitId)) {
+        continue;
+      }
+      this.state.supplyLines.delete(unitId);
+      this.supplySignatureByUnitId.delete(unitId);
+    }
+
+    for (const unitId of Array.from(this.supplySignatureByUnitId.keys())) {
+      if (activeSupplyUnitIds.has(unitId)) {
+        continue;
+      }
+      this.supplySignatureByUnitId.delete(unitId);
+    }
+  }
+
+  private pruneSupplyLinesForMissingUnits(): void {
+    const activeUnitIds = new Set<string>(this.state.units.keys());
+    for (const unitId of Array.from(this.state.supplyLines.keys())) {
+      if (activeUnitIds.has(unitId)) {
+        continue;
+      }
+      this.state.supplyLines.delete(unitId);
+      this.supplySignatureByUnitId.delete(unitId);
+    }
+
+    for (const unitId of Array.from(this.supplySignatureByUnitId.keys())) {
+      if (activeUnitIds.has(unitId)) {
+        continue;
+      }
+      this.supplySignatureByUnitId.delete(unitId);
+    }
+  }
+
   private updateUnitInteractions(deltaSeconds: number): Map<string, Set<string>> {
-    const getUnitMoraleScore = (unit: Unit): number =>
-      getUnitMoraleScoreSystem({
+    const getUnitMoraleScore = (unit: Unit): number => {
+      const baseMoraleScore = getUnitMoraleScoreSystem({
         unit,
         moraleSampleRadius: BattleRoom.MORALE_SAMPLE_RADIUS,
         moraleMaxScore: BattleRoom.MORALE_MAX_SCORE,
@@ -1226,6 +1348,17 @@ export class BattleRoom extends Room<BattleState> {
         getTerrainMoraleMultiplierAtCell: (cell) =>
           this.getTerrainMoraleMultiplierAtCell(cell),
       });
+      const supplyLine = this.state.supplyLines.get(unit.unitId);
+      const supplyPenalty =
+        supplyLine && !supplyLine.connected
+          ? BattleRoom.SUPPLY_MORALE_PENALTY
+          : 0;
+      return this.clamp(
+        baseMoraleScore - supplyPenalty,
+        0,
+        BattleRoom.MORALE_MAX_SCORE,
+      );
+    };
 
     const engagements = updateUnitInteractionsSystem({
       deltaSeconds,
@@ -1345,6 +1478,7 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     this.resetCityGenerationTimersForAllSources();
+    this.updateSupplyLines();
     this.matchPhase = "BATTLE";
     this.broadcastLobbyState();
     console.log("Battle started: all lobby players ready.");
