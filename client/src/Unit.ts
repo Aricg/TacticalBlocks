@@ -46,6 +46,8 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly HEALTH_MAX: number = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly HEALTH_RED_THRESHOLD: number =
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
+  private static readonly HEALTH_HIGH_COLOR = 0x63d471;
+  private static readonly HEALTH_LOW_COLOR = 0xe5d85c;
   private static readonly MORALE_MAX_SCORE = 100;
   private static readonly MORALE_LOW_THRESHOLD = 0.35;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
@@ -335,9 +337,24 @@ export class Unit extends Phaser.GameObjects.Container {
       Unit.HEALTH_BOX_INNER_HEIGHT,
     );
     this.healthBoxFill.setFillStyle(
-      healthRatio > Unit.HEALTH_RED_THRESHOLD ? 0x63d471 : 0xd44b4b,
+      Unit.blendColor(Unit.HEALTH_LOW_COLOR, Unit.HEALTH_HIGH_COLOR, healthRatio),
     );
     this.healthBoxFill.setVisible(healthRatio > 0);
+  }
+
+  private static blendColor(startColor: number, endColor: number, t: number): number {
+    const clampedT = Phaser.Math.Clamp(t, 0, 1);
+    const startR = (startColor >> 16) & 0xff;
+    const startG = (startColor >> 8) & 0xff;
+    const startB = startColor & 0xff;
+    const endR = (endColor >> 16) & 0xff;
+    const endG = (endColor >> 8) & 0xff;
+    const endB = endColor & 0xff;
+
+    const red = Math.round(startR + (endR - startR) * clampedT);
+    const green = Math.round(startG + (endG - startG) * clampedT);
+    const blue = Math.round(startB + (endB - startB) * clampedT);
+    return (red << 16) | (green << 8) | blue;
   }
 
   private getHealthRatio(): number {
