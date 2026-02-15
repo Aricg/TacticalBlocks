@@ -32,6 +32,7 @@ export type ComputeSupplyLinesParams = {
   neutralCityCells: readonly GridCoordinate[];
   getInfluenceScoreAtCell: (col: number, row: number) => number;
   isCellImpassable: (cell: GridCoordinate) => boolean;
+  enemyInfluenceSeverThreshold: number;
 };
 
 function normalizeTeam(team: string): PlayerTeam | null {
@@ -146,17 +147,20 @@ export function findSupplySeverIndex({
   team,
   getInfluenceScoreAtCell,
   isCellImpassable,
+  enemyInfluenceSeverThreshold,
 }: {
   path: readonly GridCoordinate[];
   team: PlayerTeam;
   getInfluenceScoreAtCell: (col: number, row: number) => number;
   isCellImpassable: (cell: GridCoordinate) => boolean;
+  enemyInfluenceSeverThreshold: number;
 }): number {
   const teamSign = getTeamSign(team);
+  const severThreshold = Math.max(0, enemyInfluenceSeverThreshold);
   for (let index = 1; index < path.length; index += 1) {
     const cell = path[index];
     const cellScore = getInfluenceScoreAtCell(cell.col, cell.row);
-    if (cellScore * teamSign < 0 || isCellImpassable(cell)) {
+    if (cellScore * teamSign < -severThreshold || isCellImpassable(cell)) {
       return index;
     }
   }
@@ -174,6 +178,7 @@ export function computeSupplyLinesForUnits({
   neutralCityCells,
   getInfluenceScoreAtCell,
   isCellImpassable,
+  enemyInfluenceSeverThreshold,
 }: ComputeSupplyLinesParams): Map<string, ComputedSupplyLineState> {
   const supplyLinesByUnitId = new Map<string, ComputedSupplyLineState>();
   const ownedCityCellsByTeam = collectOwnedCityCellsByTeam({
@@ -211,6 +216,7 @@ export function computeSupplyLinesForUnits({
       team,
       getInfluenceScoreAtCell,
       isCellImpassable,
+      enemyInfluenceSeverThreshold,
     });
 
     supplyLinesByUnitId.set(unit.unitId, {

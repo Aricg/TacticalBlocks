@@ -140,6 +140,8 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly MORALE_MAX_SCORE = 100;
   private static readonly SUPPLY_MORALE_PENALTY =
     GAMEPLAY_CONFIG.supply.moralePenaltyWhenDisconnected;
+  private static readonly SUPPLY_HEALTH_LOSS_PER_SECOND =
+    GAMEPLAY_CONFIG.supply.healthLossPerSecondWhenDisconnected;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
 
   onCreate(): void {
@@ -1270,6 +1272,8 @@ export class BattleRoom extends Room<BattleState> {
       neutralCityCells: this.neutralCityCells,
       getInfluenceScoreAtCell: (col, row) => this.getInfluenceScoreAtCell(col, row),
       isCellImpassable: (cell) => isTerrainBlocked(cell),
+      enemyInfluenceSeverThreshold:
+        GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
     });
 
     for (const [unitId, supplyLine] of computedSupplyLines) {
@@ -1336,6 +1340,8 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateUnitInteractions(deltaSeconds: number): Map<string, Set<string>> {
+    this.applyUnsuppliedHealthDrain(deltaSeconds);
+
     const getUnitMoraleScore = (unit: Unit): number => {
       const baseMoraleScore = getUnitMoraleScoreSystem({
         unit,
@@ -1395,6 +1401,46 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     return engagements;
+  }
+
+  private applyUnsuppliedHealthDrain(deltaSeconds: number): void {
+    if (deltaSeconds <= 0) {
+      return;
+    }
+
+    const healthLossPerSecond = Math.max(
+      0,
+      BattleRoom.SUPPLY_HEALTH_LOSS_PER_SECOND,
+    );
+    if (healthLossPerSecond <= 0) {
+      return;
+    }
+
+    const healthLossPerTick = healthLossPerSecond * deltaSeconds;
+    const deadUnitIds: string[] = [];
+    for (const unit of this.state.units.values()) {
+      if (unit.health <= 0) {
+        continue;
+      }
+
+      const supplyLine = this.state.supplyLines.get(unit.unitId);
+      if (!supplyLine || supplyLine.connected) {
+        continue;
+      }
+
+      unit.health = Math.max(0, unit.health - healthLossPerTick);
+      if (unit.health <= 0) {
+        deadUnitIds.push(unit.unitId);
+      }
+    }
+
+    for (const unitId of deadUnitIds) {
+      this.state.units.delete(unitId);
+      this.movementStateByUnitId.delete(unitId);
+      this.lastBroadcastPathSignatureByUnitId.delete(unitId);
+      this.supplySignatureByUnitId.delete(unitId);
+      this.state.supplyLines.delete(unitId);
+    }
   }
 
   private updateCombatRotation(
