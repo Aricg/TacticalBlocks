@@ -74,8 +74,8 @@ export const GAMEPLAY_CONFIG = {
     staticCityCapGate: 0,
     // Multiplier applied to unit cap threshold checks.
     unitCapThreshold: 1.05,
-    lineColor: 0x111111,
-    lineAlpha: 0.92,
+    lineColor: 0x5a5a5a,
+    lineAlpha: 0.58,
     lineThickness: 8,
     splineDensityMultiplier: 8,
   },
@@ -187,7 +187,7 @@ export const GAMEPLAY_CONFIG = {
       // Slider: Line Thickness
       lineThickness: 8,
       // Slider: Line Alpha
-      lineAlpha: 0.92,
+      lineAlpha: 0.58,
       // Slider: City Influence Power
       cityInfluenceUnitsEquivalent: 1.0,
       // Slider: City Unit Generation (seconds)
