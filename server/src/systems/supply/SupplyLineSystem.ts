@@ -229,6 +229,117 @@ function evaluateSupplyPath({
   return { path, severIndex };
 }
 
+function getManhattanDistance(
+  leftCell: GridCoordinate,
+  rightCell: GridCoordinate,
+): number {
+  return Math.abs(leftCell.col - rightCell.col) + Math.abs(leftCell.row - rightCell.row);
+}
+
+function compareCellsByRowThenCol(
+  leftCell: GridCoordinate,
+  rightCell: GridCoordinate,
+): number {
+  if (leftCell.row !== rightCell.row) {
+    return leftCell.row - rightCell.row;
+  }
+  return leftCell.col - rightCell.col;
+}
+
+function buildRelayConnectedSupplyLine({
+  teamUnits,
+  targetUnitId,
+  team,
+  unitCellByUnitId,
+  supplyLinesByUnitId,
+  getInfluenceScoreAtCell,
+  isCellImpassable,
+  enemyInfluenceSeverThreshold,
+}: {
+  teamUnits: readonly string[];
+  targetUnitId: string;
+  team: PlayerTeam;
+  unitCellByUnitId: ReadonlyMap<string, GridCoordinate>;
+  supplyLinesByUnitId: ReadonlyMap<string, ComputedSupplyLineState>;
+  getInfluenceScoreAtCell: (col: number, row: number) => number;
+  isCellImpassable: (cell: GridCoordinate) => boolean;
+  enemyInfluenceSeverThreshold: number;
+}): ComputedSupplyLineState | null {
+  const targetUnitCell = unitCellByUnitId.get(targetUnitId);
+  if (!targetUnitCell) {
+    return null;
+  }
+
+  const candidateUnitIds: string[] = [];
+  for (const unitId of teamUnits) {
+    if (unitId === targetUnitId) {
+      continue;
+    }
+    const candidateLine = supplyLinesByUnitId.get(unitId);
+    if (!candidateLine || !candidateLine.connected) {
+      continue;
+    }
+    candidateUnitIds.push(unitId);
+  }
+
+  candidateUnitIds.sort((leftUnitId, rightUnitId) => {
+    const leftCell = unitCellByUnitId.get(leftUnitId);
+    const rightCell = unitCellByUnitId.get(rightUnitId);
+    if (!leftCell || !rightCell) {
+      return leftUnitId.localeCompare(rightUnitId);
+    }
+
+    const leftDistance = getManhattanDistance(leftCell, targetUnitCell);
+    const rightDistance = getManhattanDistance(rightCell, targetUnitCell);
+    if (leftDistance !== rightDistance) {
+      return leftDistance - rightDistance;
+    }
+
+    const cellComparison = compareCellsByRowThenCol(leftCell, rightCell);
+    if (cellComparison !== 0) {
+      return cellComparison;
+    }
+    return leftUnitId.localeCompare(rightUnitId);
+  });
+
+  for (const candidateUnitId of candidateUnitIds) {
+    const candidateUnitCell = unitCellByUnitId.get(candidateUnitId);
+    const candidateSupplyLine = supplyLinesByUnitId.get(candidateUnitId);
+    if (!candidateUnitCell || !candidateSupplyLine) {
+      continue;
+    }
+
+    const relayLeg = evaluateSupplyPath({
+      sourceCell: candidateUnitCell,
+      unitCell: targetUnitCell,
+      team,
+      getInfluenceScoreAtCell,
+      isCellImpassable,
+      enemyInfluenceSeverThreshold,
+    });
+    if (relayLeg.severIndex !== -1) {
+      continue;
+    }
+
+    const combinedPath =
+      candidateSupplyLine.path.length === 0
+        ? relayLeg.path
+        : [...candidateSupplyLine.path, ...relayLeg.path.slice(1)];
+
+    return {
+      unitId: targetUnitId,
+      team,
+      connected: true,
+      sourceCol: candidateSupplyLine.sourceCol,
+      sourceRow: candidateSupplyLine.sourceRow,
+      severIndex: -1,
+      path: combinedPath,
+    };
+  }
+
+  return null;
+}
+
 export function findSupplySeverIndex({
   path,
   team,
@@ -283,6 +394,12 @@ export function computeSupplyLinesForUnits({
   const retryIntervalMs = Math.max(0, blockedSourceRetryIntervalMs ?? 3000);
   const resolvedNowMs =
     typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : Date.now();
+  const unitIdsByTeam: Record<PlayerTeam, string[]> = {
+    BLUE: [],
+    RED: [],
+  };
+  const unitCellByUnitId = new Map<string, GridCoordinate>();
+  const teamByUnitId = new Map<string, PlayerTeam>();
 
   for (const unit of units) {
     if (!unit || unit.health <= 0 || unit.unitId.length === 0) {
@@ -295,102 +412,144 @@ export function computeSupplyLinesForUnits({
     }
 
     const unitCell = worldToGridCoordinate(unit.x, unit.y);
+    unitIdsByTeam[team].push(unit.unitId);
+    unitCellByUnitId.set(unit.unitId, unitCell);
+    teamByUnitId.set(unit.unitId, team);
+  }
+
+  for (const team of ["BLUE", "RED"] as const) {
+    const teamUnitIds = unitIdsByTeam[team];
+    teamUnitIds.sort((leftUnitId, rightUnitId) => leftUnitId.localeCompare(rightUnitId));
     const ownedCities = ownedCityCellsByTeam[team];
-    const prioritizedCities = listOwnedCityCellsBySupplyPriority(ownedCities, unitCell);
-    const nearestCityCell = prioritizedCities[0];
-    if (!nearestCityCell) {
-      supplyLinesByUnitId.set(
-        unit.unitId,
-        createDisconnectedSupplyState(unit.unitId, team),
-      );
-      continue;
-    }
 
-    const previousRetry = previousRetryState.get(unit.unitId);
-    let sourceCell = nearestCityCell;
-    let nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
-    if (previousRetry) {
-      const previousSourceIndex = findCityCellIndex(prioritizedCities, {
-        col: previousRetry.sourceCol,
-        row: previousRetry.sourceRow,
-      });
-      if (previousSourceIndex !== -1) {
-        sourceCell = prioritizedCities[previousSourceIndex];
+    for (const unitId of teamUnitIds) {
+      const resolvedTeam = teamByUnitId.get(unitId);
+      const unitCell = unitCellByUnitId.get(unitId);
+      if (!resolvedTeam || !unitCell) {
+        continue;
       }
-      if (Number.isFinite(previousRetry.nextSwitchAtMs)) {
-        nextSwitchAtMs = previousRetry.nextSwitchAtMs;
-      }
-    }
 
-    let supplyPath = evaluateSupplyPath({
-      sourceCell,
-      unitCell,
-      team,
-      getInfluenceScoreAtCell,
-      isCellImpassable,
-      enemyInfluenceSeverThreshold,
-    });
-    if (supplyPath.severIndex !== -1 && prioritizedCities.length > 1) {
-      if (!previousRetry) {
-        nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
+      const prioritizedCities = listOwnedCityCellsBySupplyPriority(ownedCities, unitCell);
+      const nearestCityCell = prioritizedCities[0];
+      if (!nearestCityCell) {
+        supplyLinesByUnitId.set(unitId, createDisconnectedSupplyState(unitId, resolvedTeam));
+        continue;
       }
-      if (resolvedNowMs >= nextSwitchAtMs) {
-        const currentSourceIndex = findCityCellIndex(prioritizedCities, sourceCell);
-        const nextSourceIndex =
-          currentSourceIndex === -1
-            ? 0
-            : (currentSourceIndex + 1) % prioritizedCities.length;
-        sourceCell = prioritizedCities[nextSourceIndex];
-        supplyPath = evaluateSupplyPath({
-          sourceCell,
-          unitCell,
-          team,
-          getInfluenceScoreAtCell,
-          isCellImpassable,
-          enemyInfluenceSeverThreshold,
+
+      const previousRetry = previousRetryState.get(unitId);
+      let sourceCell = nearestCityCell;
+      let nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
+      if (previousRetry) {
+        const previousSourceIndex = findCityCellIndex(prioritizedCities, {
+          col: previousRetry.sourceCol,
+          row: previousRetry.sourceRow,
         });
-        nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
+        if (previousSourceIndex !== -1) {
+          sourceCell = prioritizedCities[previousSourceIndex];
+        }
+        if (Number.isFinite(previousRetry.nextSwitchAtMs)) {
+          nextSwitchAtMs = previousRetry.nextSwitchAtMs;
+        }
       }
-    }
 
-    if (supplyPath.severIndex === -1 && !isSameCell(sourceCell, nearestCityCell)) {
-      const nearestSupplyPath = evaluateSupplyPath({
-        sourceCell: nearestCityCell,
+      let supplyPath = evaluateSupplyPath({
+        sourceCell,
         unitCell,
-        team,
+        team: resolvedTeam,
         getInfluenceScoreAtCell,
         isCellImpassable,
         enemyInfluenceSeverThreshold,
       });
-      if (nearestSupplyPath.severIndex === -1) {
-        sourceCell = nearestCityCell;
-        supplyPath = nearestSupplyPath;
+      if (supplyPath.severIndex !== -1 && prioritizedCities.length > 1) {
+        if (!previousRetry) {
+          nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
+        }
+        if (resolvedNowMs >= nextSwitchAtMs) {
+          const currentSourceIndex = findCityCellIndex(prioritizedCities, sourceCell);
+          const nextSourceIndex =
+            currentSourceIndex === -1
+              ? 0
+              : (currentSourceIndex + 1) % prioritizedCities.length;
+          sourceCell = prioritizedCities[nextSourceIndex];
+          supplyPath = evaluateSupplyPath({
+            sourceCell,
+            unitCell,
+            team: resolvedTeam,
+            getInfluenceScoreAtCell,
+            isCellImpassable,
+            enemyInfluenceSeverThreshold,
+          });
+          nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
+        }
       }
-    }
 
-    if (
-      (supplyPath.severIndex !== -1 && prioritizedCities.length > 1) ||
-      (supplyPath.severIndex === -1 && !isSameCell(sourceCell, nearestCityCell))
-    ) {
-      if (supplyPath.severIndex === -1 && nextSwitchAtMs < resolvedNowMs) {
-        nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
+      if (supplyPath.severIndex === -1 && !isSameCell(sourceCell, nearestCityCell)) {
+        const nearestSupplyPath = evaluateSupplyPath({
+          sourceCell: nearestCityCell,
+          unitCell,
+          team: resolvedTeam,
+          getInfluenceScoreAtCell,
+          isCellImpassable,
+          enemyInfluenceSeverThreshold,
+        });
+        if (nearestSupplyPath.severIndex === -1) {
+          sourceCell = nearestCityCell;
+          supplyPath = nearestSupplyPath;
+        }
       }
-      retryStateByUnitId.set(unit.unitId, {
+
+      if (
+        (supplyPath.severIndex !== -1 && prioritizedCities.length > 1) ||
+        (supplyPath.severIndex === -1 && !isSameCell(sourceCell, nearestCityCell))
+      ) {
+        if (supplyPath.severIndex === -1 && nextSwitchAtMs < resolvedNowMs) {
+          nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
+        }
+        retryStateByUnitId.set(unitId, {
+          sourceCol: sourceCell.col,
+          sourceRow: sourceCell.row,
+          nextSwitchAtMs,
+        });
+      }
+
+      supplyLinesByUnitId.set(unitId, {
+        unitId,
+        team: resolvedTeam,
+        connected: supplyPath.severIndex === -1,
         sourceCol: sourceCell.col,
         sourceRow: sourceCell.row,
-        nextSwitchAtMs,
+        severIndex: supplyPath.severIndex,
+        path: supplyPath.path,
       });
     }
 
-    supplyLinesByUnitId.set(unit.unitId, {
-      unitId: unit.unitId,
-      team,
-      connected: supplyPath.severIndex === -1,
-      sourceCol: sourceCell.col,
-      sourceRow: sourceCell.row,
-      severIndex: supplyPath.severIndex,
-      path: supplyPath.path,
-    });
+    let relayProgressMade = true;
+    while (relayProgressMade) {
+      relayProgressMade = false;
+      for (const unitId of teamUnitIds) {
+        const currentSupplyLine = supplyLinesByUnitId.get(unitId);
+        if (!currentSupplyLine || currentSupplyLine.connected) {
+          continue;
+        }
+
+        const relaySupplyLine = buildRelayConnectedSupplyLine({
+          teamUnits: teamUnitIds,
+          targetUnitId: unitId,
+          team,
+          unitCellByUnitId,
+          supplyLinesByUnitId,
+          getInfluenceScoreAtCell,
+          isCellImpassable,
+          enemyInfluenceSeverThreshold,
+        });
+        if (!relaySupplyLine) {
+          continue;
+        }
+
+        supplyLinesByUnitId.set(unitId, relaySupplyLine);
+        relayProgressMade = true;
+      }
+    }
   }
 
   return { supplyLinesByUnitId, retryStateByUnitId };
