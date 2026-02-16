@@ -128,7 +128,11 @@ export class BattleInputController {
     }
 
     if (pointer.button === 2) {
-      this.callbacks.cancelSelectedUnitMovement();
+      this.callbacks.commandSelectedUnits(
+        pointer.worldX,
+        pointer.worldY,
+        this.callbacks.isShiftHeld(pointer),
+      );
       return;
     }
 

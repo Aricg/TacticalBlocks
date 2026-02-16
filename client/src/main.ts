@@ -1470,32 +1470,25 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const formationCenter = getFormationCenter(this.selectedUnits);
-    if (!formationCenter) {
-      return;
-    }
-
     const movementCommandMode = buildMovementCommandMode(shiftHeld);
+    const sharedTargetCell = worldToGridCoordinate(
+      targetX,
+      targetY,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
 
     for (const [unitId, unit] of this.unitsById) {
       if (!this.selectedUnits.has(unit)) {
         continue;
       }
-      const offsetX = unit.x - formationCenter.x;
-      const offsetY = unit.y - formationCenter.y;
       const unitCell = worldToGridCoordinate(
         unit.x,
         unit.y,
         BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
-      const targetCell = worldToGridCoordinate(
-        targetX + offsetX,
-        targetY + offsetY,
-        BattleScene.UNIT_COMMAND_GRID_METRICS,
-      );
       const clippedTargetCells = clipPathTargetsByTerrain({
         start: unitCell,
-        targets: [targetCell],
+        targets: [sharedTargetCell],
         isGridCellImpassable,
       });
       if (clippedTargetCells.length === 0) {
