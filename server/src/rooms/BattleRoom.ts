@@ -34,6 +34,7 @@ import { simulateMovementTick } from "../systems/movement/MovementSimulation.js"
 import {
   computeSupplyLinesForUnits,
   type ComputedSupplyLineState,
+  type SupplySourceRetryState,
 } from "../systems/supply/SupplyLineSystem.js";
 import {
   getUnitMoraleAdvantageNormalized,
@@ -90,6 +91,10 @@ export class BattleRoom extends Room<BattleState> {
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
   private readonly supplySignatureByUnitId = new Map<string, string>();
+  private readonly supplySourceRetryStateByUnitId = new Map<
+    string,
+    SupplySourceRetryState
+  >();
   private readonly engagedUnitIds = new Set<string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private neutralCityCells: GridCoordinate[] = [];
@@ -142,6 +147,11 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.supply.moralePenaltyWhenDisconnected;
   private static readonly SUPPLY_HEALTH_LOSS_PER_SECOND =
     GAMEPLAY_CONFIG.supply.healthLossPerSecondWhenDisconnected;
+  private static readonly SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS =
+    Number.isFinite(GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds) &&
+    GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds > 0
+      ? GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds * 1000
+      : 3000;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
 
   onCreate(): void {
@@ -964,6 +974,7 @@ export class BattleRoom extends Room<BattleState> {
       this.state.supplyLines.delete(unitId);
     }
     this.supplySignatureByUnitId.clear();
+    this.supplySourceRetryStateByUnitId.clear();
   }
 
   private clearUnits(): void {
@@ -1262,19 +1273,28 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateSupplyLines(): void {
-    const computedSupplyLines = computeSupplyLinesForUnits({
-      units: this.state.units.values(),
-      worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
-      getTeamCityCell: (team) => this.getCityCell(team),
-      redCityOwner: this.state.redCityOwner,
-      blueCityOwner: this.state.blueCityOwner,
-      neutralCityOwners: this.state.neutralCityOwners,
-      neutralCityCells: this.neutralCityCells,
-      getInfluenceScoreAtCell: (col, row) => this.getInfluenceScoreAtCell(col, row),
-      isCellImpassable: (cell) => isTerrainBlocked(cell),
-      enemyInfluenceSeverThreshold:
-        GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
-    });
+    const { supplyLinesByUnitId: computedSupplyLines, retryStateByUnitId } =
+      computeSupplyLinesForUnits({
+        units: this.state.units.values(),
+        worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
+        getTeamCityCell: (team) => this.getCityCell(team),
+        redCityOwner: this.state.redCityOwner,
+        blueCityOwner: this.state.blueCityOwner,
+        neutralCityOwners: this.state.neutralCityOwners,
+        neutralCityCells: this.neutralCityCells,
+        getInfluenceScoreAtCell: (col, row) => this.getInfluenceScoreAtCell(col, row),
+        isCellImpassable: (cell) => isTerrainBlocked(cell),
+        enemyInfluenceSeverThreshold:
+          GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
+        previousRetryStateByUnitId: this.supplySourceRetryStateByUnitId,
+        blockedSourceRetryIntervalMs:
+          BattleRoom.SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS,
+        nowMs: Date.now(),
+      });
+    this.supplySourceRetryStateByUnitId.clear();
+    for (const [unitId, retryState] of retryStateByUnitId) {
+      this.supplySourceRetryStateByUnitId.set(unitId, retryState);
+    }
 
     for (const [unitId, supplyLine] of computedSupplyLines) {
       const nextSignature = this.buildSupplyLineSignature(supplyLine);
@@ -1319,6 +1339,13 @@ export class BattleRoom extends Room<BattleState> {
       }
       this.supplySignatureByUnitId.delete(unitId);
     }
+
+    for (const unitId of Array.from(this.supplySourceRetryStateByUnitId.keys())) {
+      if (activeSupplyUnitIds.has(unitId)) {
+        continue;
+      }
+      this.supplySourceRetryStateByUnitId.delete(unitId);
+    }
   }
 
   private pruneSupplyLinesForMissingUnits(): void {
@@ -1336,6 +1363,13 @@ export class BattleRoom extends Room<BattleState> {
         continue;
       }
       this.supplySignatureByUnitId.delete(unitId);
+    }
+
+    for (const unitId of Array.from(this.supplySourceRetryStateByUnitId.keys())) {
+      if (activeUnitIds.has(unitId)) {
+        continue;
+      }
+      this.supplySourceRetryStateByUnitId.delete(unitId);
     }
   }
 
@@ -1439,6 +1473,7 @@ export class BattleRoom extends Room<BattleState> {
       this.movementStateByUnitId.delete(unitId);
       this.lastBroadcastPathSignatureByUnitId.delete(unitId);
       this.supplySignatureByUnitId.delete(unitId);
+      this.supplySourceRetryStateByUnitId.delete(unitId);
       this.state.supplyLines.delete(unitId);
     }
   }

@@ -129,6 +129,7 @@ export const GAMEPLAY_CONFIG = {
     moralePenaltyWhenDisconnected: 25,
     healthLossPerSecondWhenDisconnected: 1,
     enemyInfluenceSeverThreshold: 0.0001,
+    blockedSourceRetryIntervalSeconds: 3,
   },
   unit: {
     baseSpeed: UNIT_BASE_MOVE_SPEED,
