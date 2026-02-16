@@ -1738,6 +1738,9 @@ class BattleScene extends Phaser.Scene {
     const supplyVisionPositions: Phaser.Math.Vector2[] = [];
     const seenSupplyCells = new Set<string>();
     for (const supplyLine of this.supplyLinesByUnitId.values()) {
+      if (supplyLine.team !== this.localPlayerTeam) {
+        continue;
+      }
       for (const cell of supplyLine.path) {
         const cellKey = `${cell.col}:${cell.row}`;
         if (seenSupplyCells.has(cellKey)) {
