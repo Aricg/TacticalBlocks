@@ -1767,6 +1767,9 @@ class BattleScene extends Phaser.Scene {
     this.movementLines.fillStyle(0xf4e7b2, 0.9);
 
     for (const [unitId, unit] of this.unitsById) {
+      if (unit.team !== this.localPlayerTeam) {
+        continue;
+      }
       const waypoints = this.plannedPathsByUnitId.get(unitId);
       if (!waypoints || waypoints.length === 0) {
         continue;
