@@ -185,6 +185,8 @@ export class NetworkManager {
   private readonly roomName: string;
   private room: Room<BattleRoomState> | null = null;
   private detachCallbacks: Array<() => void> = [];
+  private assignedTeam: PlayerTeam | null = null;
+  private resyncSupplyLineVisibility: (() => void) | null = null;
 
   private static queuePositionFlush(flush: () => void): void {
     if (typeof queueMicrotask === 'function') {
@@ -222,13 +224,18 @@ export class NetworkManager {
       return;
     }
 
+    this.assignedTeam = null;
+    this.resyncSupplyLineVisibility = null;
     const room = await this.client.joinOrCreate<BattleRoomState>(this.roomName);
     this.room = room;
 
     room.onMessage(
       NETWORK_MESSAGE_TYPES.teamAssigned,
       (message: TeamAssignedMessage) => {
-        this.onTeamAssigned(message.team);
+        const assignedTeam: PlayerTeam = message.team === 'RED' ? 'RED' : 'BLUE';
+        this.assignedTeam = assignedTeam;
+        this.onTeamAssigned(assignedTeam);
+        this.resyncSupplyLineVisibility?.();
       },
     );
     room.onMessage(
@@ -331,6 +338,17 @@ export class NetworkManager {
         string,
         Array<() => void>
       >();
+      const supplyLineEmitterByUnitId = new Map<string, () => void>();
+      const emitVisibleSupplyLineUpdate = (update: NetworkSupplyLineUpdate): void => {
+        if (!this.assignedTeam) {
+          return;
+        }
+        if (update.team === this.assignedTeam) {
+          this.onSupplyLineChanged(update);
+          return;
+        }
+        this.onSupplyLineRemoved(update.unitId);
+      };
       const detachSupplyLineListeners = (unitId: string) => {
         const listeners = supplyLineListenerDetachersByUnitId.get(unitId);
         if (!listeners) {
@@ -340,6 +358,7 @@ export class NetworkManager {
           detach();
         }
         supplyLineListenerDetachersByUnitId.delete(unitId);
+        supplyLineEmitterByUnitId.delete(unitId);
       };
       const attachSupplyLineListeners = (
         serverSupplyLine: ServerSupplyLineState,
@@ -367,11 +386,19 @@ export class NetworkManager {
             if (!latest) {
               return;
             }
-            this.onSupplyLineChanged(latest);
+            emitVisibleSupplyLineUpdate(latest);
           });
         };
 
-        this.onSupplyLineChanged(normalized);
+        supplyLineEmitterByUnitId.set(normalized.unitId, () => {
+          const latest = this.normalizeSupplyLineUpdate(serverSupplyLine, unitKey);
+          if (!latest) {
+            return;
+          }
+          emitVisibleSupplyLineUpdate(latest);
+        });
+
+        emitVisibleSupplyLineUpdate(normalized);
 
         const detachers: Array<() => void> = [
           $(serverSupplyLine).listen('team', queueSupplyLineUpdate),
@@ -405,6 +432,11 @@ export class NetworkManager {
           this.onSupplyLineRemoved(unitId);
         },
       );
+      this.resyncSupplyLineVisibility = () => {
+        for (const emitSupplyLine of supplyLineEmitterByUnitId.values()) {
+          emitSupplyLine();
+        }
+      };
       this.detachCallbacks.push(
         detachSupplyLineAdd,
         detachSupplyLineRemove,
@@ -412,6 +444,7 @@ export class NetworkManager {
           for (const unitId of supplyLineListenerDetachersByUnitId.keys()) {
             detachSupplyLineListeners(unitId);
           }
+          this.resyncSupplyLineVisibility = null;
         },
       );
 
@@ -583,6 +616,8 @@ export class NetworkManager {
 
     const room = this.room;
     this.room = null;
+    this.resyncSupplyLineVisibility = null;
+    this.assignedTeam = null;
     await room.leave();
   }
 
