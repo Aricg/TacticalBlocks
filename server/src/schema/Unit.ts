@@ -1,4 +1,8 @@
 import { Schema, type } from "@colyseus/schema";
+import {
+  DEFAULT_UNIT_TYPE,
+  type UnitType,
+} from "../../../shared/src/unitTypes.js";
 
 export class Unit extends Schema {
   @type("number") x = 0;
@@ -8,6 +12,7 @@ export class Unit extends Schema {
   @type("number") moraleScore = 0;
   @type("string") team = "";
   @type("string") unitId = "";
+  @type("string") unitType = DEFAULT_UNIT_TYPE;
 
   constructor(
     unitId: string,
@@ -16,6 +21,7 @@ export class Unit extends Schema {
     y: number,
     rotation = 0,
     health = 100,
+    unitType: UnitType = DEFAULT_UNIT_TYPE,
   ) {
     super();
     this.unitId = unitId;
@@ -24,5 +30,6 @@ export class Unit extends Schema {
     this.y = y;
     this.rotation = rotation;
     this.health = health;
+    this.unitType = unitType;
   }
 }

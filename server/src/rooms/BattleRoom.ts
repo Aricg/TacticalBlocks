@@ -60,6 +60,11 @@ import {
   DEFAULT_RUNTIME_TUNING,
   type RuntimeTuning,
 } from "../../../shared/src/runtimeTuning.js";
+import {
+  DEFAULT_UNIT_TYPE,
+  getUnitHealthMax,
+  normalizeUnitType,
+} from "../../../shared/src/unitTypes.js";
 import type {
   BattleEndedMessage,
   CityOwner,
@@ -148,6 +153,9 @@ export class BattleRoom extends Room<BattleState> {
     Math.hypot(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 100;
+  // Radius 2 in each axis yields a 5x5 commander aura area.
+  private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
+  private static readonly COMMANDER_MORALE_AURA_BONUS = 10;
   private static readonly SUPPLY_MORALE_PENALTY =
     GAMEPLAY_CONFIG.supply.moralePenaltyWhenDisconnected;
   private static readonly SUPPLY_HEALTH_LOSS_PER_SECOND =
@@ -954,14 +962,19 @@ export class BattleRoom extends Room<BattleState> {
     nextBaseUnitHealth: number,
   ): void {
     const safePreviousBase = Math.max(1, previousBaseUnitHealth);
-    const safeNextBase = Math.max(1, nextBaseUnitHealth);
     for (const unit of this.state.units.values()) {
       if (unit.health <= 0) {
         continue;
       }
 
-      const healthRatio = this.clamp(unit.health / safePreviousBase, 0, 1);
-      unit.health = healthRatio * safeNextBase;
+      const unitType = normalizeUnitType(unit.unitType);
+      const previousMaxHealth = Math.max(
+        1,
+        getUnitHealthMax(safePreviousBase, unitType),
+      );
+      const nextMaxHealth = Math.max(1, getUnitHealthMax(nextBaseUnitHealth, unitType));
+      const healthRatio = this.clamp(unit.health / previousMaxHealth, 0, 1);
+      unit.health = healthRatio * nextMaxHealth;
     }
   }
 
@@ -1180,6 +1193,45 @@ export class BattleRoom extends Room<BattleState> {
       blueSpawnCandidates.length,
     );
 
+    const commanderHealth = getUnitHealthMax(
+      this.runtimeTuning.baseUnitHealth,
+      "COMMANDER",
+    );
+    const redCommanderSpawnCell =
+      this.findOpenSpawnCellNearCity(this.getCityCell("RED")) ?? this.getCityCell("RED");
+    const blueCommanderSpawnCell =
+      this.findOpenSpawnCellNearCity(this.getCityCell("BLUE")) ?? this.getCityCell("BLUE");
+    const redCommanderSpawn = this.gridToWorldCenter(redCommanderSpawnCell);
+    const blueCommanderSpawn = this.gridToWorldCenter(blueCommanderSpawnCell);
+    const redCommander = new Unit(
+      "red-commander",
+      "red",
+      redCommanderSpawn.x,
+      redCommanderSpawn.y,
+      redRotation,
+      commanderHealth,
+      "COMMANDER",
+    );
+    const blueCommander = new Unit(
+      "blue-commander",
+      "blue",
+      blueCommanderSpawn.x,
+      blueCommanderSpawn.y,
+      blueRotation,
+      commanderHealth,
+      "COMMANDER",
+    );
+    this.state.units.set(redCommander.unitId, redCommander);
+    this.state.units.set(blueCommander.unitId, blueCommander);
+    this.movementStateByUnitId.set(
+      redCommander.unitId,
+      this.createMovementState(),
+    );
+    this.movementStateByUnitId.set(
+      blueCommander.unitId,
+      this.createMovementState(),
+    );
+
     for (let i = 0; i < mirroredUnitsPerSide; i += 1) {
       const redPosition = redSpawnCandidates[i];
       const bluePosition = blueSpawnCandidates[i];
@@ -1191,6 +1243,7 @@ export class BattleRoom extends Room<BattleState> {
         redPosition.y,
         redRotation,
         this.runtimeTuning.baseUnitHealth,
+        DEFAULT_UNIT_TYPE,
       );
       const blueUnit = new Unit(
         `blue-${i + 1}`,
@@ -1199,6 +1252,7 @@ export class BattleRoom extends Room<BattleState> {
         bluePosition.y,
         blueRotation,
         this.runtimeTuning.baseUnitHealth,
+        DEFAULT_UNIT_TYPE,
       );
 
       this.state.units.set(redUnit.unitId, redUnit);
@@ -1473,6 +1527,46 @@ export class BattleRoom extends Room<BattleState> {
 
   private updateUnitInteractions(deltaSeconds: number): Map<string, Set<string>> {
     this.applySupplyHealthEffects(deltaSeconds);
+    const commanderCellsByTeam: Record<PlayerTeam, GridCoordinate[]> = {
+      BLUE: [],
+      RED: [],
+    };
+    for (const candidateUnit of this.state.units.values()) {
+      if (
+        candidateUnit.health <= 0 ||
+        normalizeUnitType(candidateUnit.unitType) !== "COMMANDER"
+      ) {
+        continue;
+      }
+
+      const commanderTeam = this.normalizeTeam(candidateUnit.team);
+      commanderCellsByTeam[commanderTeam].push(
+        this.worldToGridCoordinate(candidateUnit.x, candidateUnit.y),
+      );
+    }
+
+    const getCommanderAuraBonus = (unit: Unit): number => {
+      const unitTeam = this.normalizeTeam(unit.team);
+      const friendlyCommanderCells = commanderCellsByTeam[unitTeam];
+      if (friendlyCommanderCells.length === 0) {
+        return 0;
+      }
+
+      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+      let commandersInRange = 0;
+      for (const commanderCell of friendlyCommanderCells) {
+        const colDelta = Math.abs(commanderCell.col - unitCell.col);
+        const rowDelta = Math.abs(commanderCell.row - unitCell.row);
+        if (
+          colDelta <= BattleRoom.COMMANDER_MORALE_AURA_RADIUS_CELLS &&
+          rowDelta <= BattleRoom.COMMANDER_MORALE_AURA_RADIUS_CELLS
+        ) {
+          commandersInRange += 1;
+        }
+      }
+
+      return commandersInRange * BattleRoom.COMMANDER_MORALE_AURA_BONUS;
+    };
 
     const getUnitMoraleScore = (unit: Unit): number => {
       const baseMoraleScore = getUnitMoraleScoreSystem({
@@ -1491,8 +1585,9 @@ export class BattleRoom extends Room<BattleState> {
         supplyLine && !supplyLine.connected
           ? BattleRoom.SUPPLY_MORALE_PENALTY
           : 0;
+      const commanderAuraBonus = getCommanderAuraBonus(unit);
       return this.clamp(
-        baseMoraleScore - supplyPenalty,
+        baseMoraleScore + commanderAuraBonus - supplyPenalty,
         0,
         BattleRoom.MORALE_MAX_SCORE,
       );
@@ -1550,7 +1645,6 @@ export class BattleRoom extends Room<BattleState> {
       BattleRoom.SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED,
     );
     const healthGainPerTick = healthGainPerSecond * deltaSeconds;
-    const maxUnitHealth = Math.max(0, this.runtimeTuning.baseUnitHealth);
     const deadUnitIds: string[] = [];
 
     for (const unit of this.state.units.values()) {
@@ -1562,6 +1656,8 @@ export class BattleRoom extends Room<BattleState> {
       if (!supplyLine) {
         continue;
       }
+      const unitType = normalizeUnitType(unit.unitType);
+      const maxUnitHealth = getUnitHealthMax(this.runtimeTuning.baseUnitHealth, unitType);
 
       if (supplyLine.connected) {
         if (healthGainPerTick > 0) {

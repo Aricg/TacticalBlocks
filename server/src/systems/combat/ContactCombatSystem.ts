@@ -1,5 +1,9 @@
 import type { Unit } from "../../schema/Unit.js";
 import type { UnitMovementState } from "../../rooms/BattleRoomTypes.js";
+import {
+  getUnitDamageMultiplier,
+  normalizeUnitType,
+} from "../../../../shared/src/unitTypes.js";
 
 type Engagements = Map<string, Set<string>>;
 
@@ -110,8 +114,12 @@ export function updateUnitInteractions({
 
       const aMoraleAdvantage = getMoraleAdvantageNormalized(a);
       const bMoraleAdvantage = getMoraleAdvantageNormalized(b);
-      const aContactDps = getUnitContactDps(aMoraleAdvantage);
-      const bContactDps = getUnitContactDps(bMoraleAdvantage);
+      const aContactDps =
+        getUnitContactDps(aMoraleAdvantage) *
+        getUnitDamageMultiplier(normalizeUnitType(a.unitType));
+      const bContactDps =
+        getUnitContactDps(bMoraleAdvantage) *
+        getUnitDamageMultiplier(normalizeUnitType(b.unitType));
       const aHealthMitigation =
         getUnitHealthMitigationMultiplier(aMoraleAdvantage);
       const bHealthMitigation =

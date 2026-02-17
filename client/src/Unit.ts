@@ -1,6 +1,10 @@
 import Phaser from 'phaser';
 import { Team } from './Team';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
+import {
+  DEFAULT_UNIT_TYPE,
+  type UnitType,
+} from '../../shared/src/unitTypes.js';
 
 export type TerrainType =
   | 'water'
@@ -15,9 +19,11 @@ export class Unit extends Phaser.GameObjects.Container {
   public readonly engagedUnits: Set<Unit>;
   private readonly previouslyEngagedUnits: Set<Unit>;
   public readonly team: Team;
+  public readonly unitType: UnitType;
 
   private readonly unitBody: Phaser.GameObjects.Rectangle;
   private readonly facingArrow: Phaser.GameObjects.Triangle;
+  private readonly commanderChevron: Phaser.GameObjects.Graphics | null;
   private readonly healthBoxBg: Phaser.GameObjects.Rectangle;
   private readonly healthBoxFill: Phaser.GameObjects.Rectangle;
   private readonly moraleBoxBg: Phaser.GameObjects.Rectangle;
@@ -34,6 +40,7 @@ export class Unit extends Phaser.GameObjects.Container {
 
   private static readonly BODY_WIDTH: number = GAMEPLAY_CONFIG.unit.bodyWidth;
   private static readonly BODY_HEIGHT: number = GAMEPLAY_CONFIG.unit.bodyHeight;
+  private static readonly COMMANDER_BODY_SIZE = Math.round(Unit.BODY_HEIGHT * 1.1);
   private static readonly OUTLINE_WIDTH = 2;
   private static readonly HEALTH_BOX_WIDTH = Unit.BODY_WIDTH;
   private static readonly HEALTH_BOX_HEIGHT = Math.max(
@@ -56,6 +63,10 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly HEALTH_FILL_BASE_X = -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1;
   private static readonly COMBAT_STATS_TEXT_BASE_Y = Unit.BODY_HEIGHT * 0.5 - 6;
+  private static readonly COMMANDER_CHEVRON_HALF_WIDTH = 7;
+  private static readonly COMMANDER_CHEVRON_HEIGHT = 5;
+  private static readonly COMMANDER_CHEVRON_BASE_Y =
+    -(Unit.COMMANDER_BODY_SIZE * 0.5) - 2;
   private static readonly ARROW_VERTICES = [
     { x: -5, y: 3 },
     { x: 0, y: -5 },
@@ -82,6 +93,7 @@ export class Unit extends Phaser.GameObjects.Container {
     team: Team,
     rotation = 0,
     health = Unit.HEALTH_MAX,
+    unitType: UnitType = DEFAULT_UNIT_TYPE,
   ) {
     super(scene, x, y);
 
@@ -89,6 +101,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.engagedUnits = new Set();
     this.previouslyEngagedUnits = new Set();
     this.team = team;
+    this.unitType = unitType;
     this.healthMax = Unit.HEALTH_MAX;
     this.health = Phaser.Math.Clamp(health, 0, this.healthMax);
     this.moraleScore = null;
@@ -97,15 +110,23 @@ export class Unit extends Phaser.GameObjects.Container {
     this.terrainType = 'unknown';
     this.rotation = rotation;
 
+    const isCommander = this.unitType === 'COMMANDER';
+    const bodyWidth = isCommander ? Unit.COMMANDER_BODY_SIZE : Unit.BODY_WIDTH;
+    const bodyHeight = isCommander ? Unit.COMMANDER_BODY_SIZE : Unit.BODY_HEIGHT;
+    const statusBarScaleX = bodyWidth / Unit.BODY_WIDTH;
+
     // Rectangle source-of-truth: centered at local (0,0).
     this.unitBody = new Phaser.GameObjects.Rectangle(
       scene,
       0,
       0,
-      Unit.BODY_WIDTH,
-      Unit.BODY_HEIGHT,
+      bodyWidth,
+      bodyHeight,
       Unit.TEAM_FILL_COLORS[this.team],
     );
+    if (isCommander) {
+      this.unitBody.setFillStyle(Unit.TEAM_FILL_COLORS[this.team], 0.78);
+    }
     this.unitBody.setOrigin(0.5, 0.5);
     this.unitBody.setStrokeStyle(Unit.OUTLINE_WIDTH, 0x222222, 0.8);
     this.unitBody.setInteractive({ cursor: 'pointer' });
@@ -135,6 +156,42 @@ export class Unit extends Phaser.GameObjects.Container {
     this.facingArrow.setDisplayOrigin(0, 0);
     this.facingArrow.setStrokeStyle(1, 0x222222, 1);
 
+    if (this.unitType === 'COMMANDER') {
+      this.commanderChevron = new Phaser.GameObjects.Graphics(scene);
+      this.commanderChevron.lineStyle(4, 0x111111, 0.9);
+      this.commanderChevron.beginPath();
+      this.commanderChevron.moveTo(
+        -Unit.COMMANDER_CHEVRON_HALF_WIDTH,
+        Unit.COMMANDER_CHEVRON_BASE_Y,
+      );
+      this.commanderChevron.lineTo(
+        0,
+        Unit.COMMANDER_CHEVRON_BASE_Y + Unit.COMMANDER_CHEVRON_HEIGHT,
+      );
+      this.commanderChevron.lineTo(
+        Unit.COMMANDER_CHEVRON_HALF_WIDTH,
+        Unit.COMMANDER_CHEVRON_BASE_Y,
+      );
+      this.commanderChevron.strokePath();
+      this.commanderChevron.lineStyle(2, 0xfff6c4, 1);
+      this.commanderChevron.beginPath();
+      this.commanderChevron.moveTo(
+        -Unit.COMMANDER_CHEVRON_HALF_WIDTH,
+        Unit.COMMANDER_CHEVRON_BASE_Y,
+      );
+      this.commanderChevron.lineTo(
+        0,
+        Unit.COMMANDER_CHEVRON_BASE_Y + Unit.COMMANDER_CHEVRON_HEIGHT,
+      );
+      this.commanderChevron.lineTo(
+        Unit.COMMANDER_CHEVRON_HALF_WIDTH,
+        Unit.COMMANDER_CHEVRON_BASE_Y,
+      );
+      this.commanderChevron.strokePath();
+    } else {
+      this.commanderChevron = null;
+    }
+
     this.healthBoxBg = new Phaser.GameObjects.Rectangle(
       scene,
       0,
@@ -145,6 +202,7 @@ export class Unit extends Phaser.GameObjects.Container {
     );
     this.healthBoxBg.setOrigin(0.5, 0.5);
     this.healthBoxBg.setStrokeStyle(1, 0xffffff, 0.7);
+    this.healthBoxBg.setScale(statusBarScaleX, 1);
 
     this.healthBoxFill = new Phaser.GameObjects.Rectangle(
       scene,
@@ -155,6 +213,7 @@ export class Unit extends Phaser.GameObjects.Container {
       0x63d471,
     );
     this.healthBoxFill.setOrigin(0, 0.5);
+    this.healthBoxFill.setScale(statusBarScaleX, 1);
 
     this.moraleBoxBg = new Phaser.GameObjects.Rectangle(
       scene,
@@ -166,6 +225,7 @@ export class Unit extends Phaser.GameObjects.Container {
     );
     this.moraleBoxBg.setOrigin(0.5, 0.5);
     this.moraleBoxBg.setStrokeStyle(1, 0xffffff, 0.7);
+    this.moraleBoxBg.setScale(statusBarScaleX, 1);
 
     this.moraleBoxFill = new Phaser.GameObjects.Rectangle(
       scene,
@@ -176,6 +236,7 @@ export class Unit extends Phaser.GameObjects.Container {
       Unit.TEAM_MORALE_FILL_COLORS[this.team].high,
     );
     this.moraleBoxFill.setOrigin(0, 0.5);
+    this.moraleBoxFill.setScale(statusBarScaleX, 1);
 
     this.combatStatsText = new Phaser.GameObjects.Text(
       scene,
@@ -194,15 +255,22 @@ export class Unit extends Phaser.GameObjects.Container {
     this.combatStatsText.setOrigin(0.5, 0.5);
     this.combatStatsText.setVisible(false);
 
-    this.add([
+    const containerChildren: Phaser.GameObjects.GameObject[] = [
       this.unitBody,
       this.facingArrow,
+    ];
+    containerChildren.push(
       this.healthBoxBg,
       this.healthBoxFill,
       this.moraleBoxBg,
       this.moraleBoxFill,
       this.combatStatsText,
-    ]);
+    );
+    if (this.commanderChevron) {
+      containerChildren.push(this.commanderChevron);
+    }
+
+    this.add(containerChildren);
 
     scene.add.existing(this);
     this.refreshHealthVisuals();
@@ -291,6 +359,7 @@ export class Unit extends Phaser.GameObjects.Container {
   public setCombatVisualOffset(offsetX: number, offsetY: number): void {
     this.unitBody.setPosition(offsetX, offsetY);
     this.facingArrow.setPosition(offsetX, offsetY);
+    this.commanderChevron?.setPosition(offsetX, offsetY);
     this.healthBoxBg.setPosition(offsetX, Unit.HEALTH_BOX_BASE_Y + offsetY);
     this.healthBoxFill.setPosition(
       Unit.HEALTH_FILL_BASE_X + offsetX,

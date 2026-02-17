@@ -26,6 +26,10 @@ import {
   DEFAULT_RUNTIME_TUNING,
   type RuntimeTuning,
 } from '../../shared/src/runtimeTuning.js';
+import {
+  getUnitDamageMultiplier,
+  getUnitHealthMax,
+} from '../../shared/src/unitTypes.js';
 import { City, type CityOwner } from './City';
 import { BattleInputController } from './BattleInputController';
 import { FogOfWarController } from './FogOfWarController';
@@ -870,7 +874,9 @@ class BattleScene extends Phaser.Scene {
       this.runtimeTuning.cityVisionRadius,
     );
     for (const unit of this.unitsById.values()) {
-      unit.setHealthMax(this.runtimeTuning.baseUnitHealth);
+      unit.setHealthMax(
+        Math.max(1, getUnitHealthMax(this.runtimeTuning.baseUnitHealth, unit.unitType)),
+      );
     }
     this.refreshUnitCombatStatsLabels();
     this.influenceRenderer?.setLineStyle({
@@ -1068,11 +1074,11 @@ class BattleScene extends Phaser.Scene {
     }
 
     const moraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
-    const calculatedDps = this.calculateUnitContactDps(moraleScore);
+    const calculatedDps = this.calculateUnitContactDps(unit, moraleScore);
     unit.setCombatStats(moraleScore, calculatedDps);
   }
 
-  private calculateUnitContactDps(moraleScore: number | null): number | null {
+  private calculateUnitContactDps(unit: Unit, moraleScore: number | null): number | null {
     if (moraleScore === null || !Number.isFinite(moraleScore)) {
       return null;
     }
@@ -1083,7 +1089,11 @@ class BattleScene extends Phaser.Scene {
       1,
     );
     const safeBaseDps = Math.max(0, this.runtimeTuning.baseContactDps);
-    return safeBaseDps * (1 + normalizedMorale * this.runtimeTuning.dpsInfluenceMultiplier);
+    return (
+      safeBaseDps *
+      getUnitDamageMultiplier(unit.unitType) *
+      (1 + normalizedMorale * this.runtimeTuning.dpsInfluenceMultiplier)
+    );
   }
 
   private setCombatStatsOverlayVisible(visible: boolean): void {

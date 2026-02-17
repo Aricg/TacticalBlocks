@@ -17,6 +17,7 @@ import {
   type UnitPathMessage,
   type UnitPathStateMessage,
 } from '../../shared/src/networkContracts.js';
+import { DEFAULT_UNIT_TYPE } from '../../shared/src/unitTypes.js';
 
 type ServerUnitState = {
   x: number;
@@ -26,6 +27,7 @@ type ServerUnitState = {
   unitId: string;
   health: number;
   moraleScore: number;
+  unitType?: string;
 };
 
 type ServerInfluenceGridState = {
@@ -70,6 +72,7 @@ export type NetworkUnitSnapshot = {
   rotation: number;
   health: number;
   moraleScore: number;
+  unitType: string;
 };
 
 export type NetworkUnitPositionUpdate = {
@@ -461,6 +464,10 @@ export class NetworkManager {
             moraleScore: Number.isFinite(serverUnit.moraleScore)
               ? serverUnit.moraleScore
               : 0,
+            unitType:
+              typeof serverUnit.unitType === 'string'
+                ? serverUnit.unitType
+                : DEFAULT_UNIT_TYPE,
           });
 
           let positionFlushQueued = false;

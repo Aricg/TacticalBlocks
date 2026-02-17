@@ -1,5 +1,9 @@
 import { Unit } from "../../schema/Unit.js";
 import { UnitContributionSource } from "./types.js";
+import {
+  getUnitInfluencePowerMultiplier,
+  normalizeUnitType,
+} from "../../../../shared/src/unitTypes.js";
 
 export type Position = {
   x: number;
@@ -37,7 +41,13 @@ export function collectActiveUnits(
 
     const normalizedTeam = unit.team.toUpperCase();
     const teamSign = normalizedTeam === "BLUE" ? 1 : -1;
-    const power = Math.max(0, unit.health * unitInfluenceMultiplier);
+    const unitType = normalizeUnitType(unit.unitType);
+    const power = Math.max(
+      0,
+      unit.health *
+        unitInfluenceMultiplier *
+        getUnitInfluencePowerMultiplier(unitType),
+    );
     const previousPosition = previousUnitPositionById.get(unit.unitId);
     const isStatic =
       previousPosition !== undefined &&

@@ -8,6 +8,10 @@ import type {
 } from '../NetworkManager';
 import { Team } from '../Team';
 import { Unit } from '../Unit';
+import {
+  getUnitHealthMax,
+  normalizeUnitType,
+} from '../../../shared/src/unitTypes.js';
 
 type ApplyNetworkUnitPositionSnapshot = (
   unit: Unit,
@@ -53,9 +57,11 @@ export function upsertNetworkUnitState({
   applyNetworkUnitPositionSnapshot: ApplyNetworkUnitPositionSnapshot;
   applyNetworkUnitRotationSnapshot: ApplyNetworkUnitRotationSnapshot;
 }): void {
+  const unitType = normalizeUnitType(networkUnit.unitType);
+  const unitHealthMax = Math.max(1, getUnitHealthMax(baseUnitHealth, unitType));
   const existingUnit = unitsById.get(networkUnit.unitId);
   if (existingUnit) {
-    existingUnit.setHealthMax(baseUnitHealth);
+    existingUnit.setHealthMax(unitHealthMax);
     applyNetworkUnitRotationSnapshot(
       existingUnit,
       networkUnit.unitId,
@@ -82,8 +88,9 @@ export function upsertNetworkUnitState({
     normalizeNetworkTeam(networkUnit.team),
     networkUnit.rotation,
     networkUnit.health,
+    unitType,
   );
-  spawnedUnit.setHealthMax(baseUnitHealth);
+  spawnedUnit.setHealthMax(unitHealthMax);
   units.push(spawnedUnit);
   unitsById.set(networkUnit.unitId, spawnedUnit);
   lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);

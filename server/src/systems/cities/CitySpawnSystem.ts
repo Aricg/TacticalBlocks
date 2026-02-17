@@ -6,6 +6,7 @@ import type {
   Vector2,
 } from "../../rooms/BattleRoomTypes.js";
 import { Unit } from "../../schema/Unit.js";
+import { DEFAULT_UNIT_TYPE } from "../../../../shared/src/unitTypes.js";
 
 export interface CollectCitySpawnSourcesParams {
   neutralCityCount: number;
@@ -230,5 +231,6 @@ export function createSpawnedCityUnit(
     spawnPosition.y,
     rotation,
     baseUnitHealth,
+    DEFAULT_UNIT_TYPE,
   );
 }
