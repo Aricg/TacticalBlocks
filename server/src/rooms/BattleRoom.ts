@@ -1061,11 +1061,6 @@ export class BattleRoom extends Room<BattleState> {
   private spawnTestUnits(): void {
     const redSpawn = this.getCityWorldPosition("RED");
     const blueSpawn = this.getCityWorldPosition("BLUE");
-    const unitsPerSide = GAMEPLAY_CONFIG.spawn.unitsPerSide;
-    const lineWidth = Math.max(1, GAMEPLAY_CONFIG.spawn.lineWidth);
-    const spacingAcross = GAMEPLAY_CONFIG.spawn.spacingAcross;
-    const spacingDepth = GAMEPLAY_CONFIG.spawn.spacingDepth;
-    const centeredAcrossOffset = ((lineWidth - 1) * spacingAcross) / 2;
     const axisX = blueSpawn.x - redSpawn.x;
     const axisY = blueSpawn.y - redSpawn.y;
     const axisLength = Math.hypot(axisX, axisY);
@@ -1079,32 +1074,124 @@ export class BattleRoom extends Room<BattleState> {
       Math.atan2(redForwardY, redForwardX) - BattleRoom.UNIT_FORWARD_OFFSET;
     const blueRotation =
       Math.atan2(blueForwardY, blueForwardX) - BattleRoom.UNIT_FORWARD_OFFSET;
+    const battleLineCenterX = (redSpawn.x + blueSpawn.x) * 0.5;
+    const battleLineCenterY = (redSpawn.y + blueSpawn.y) * 0.5;
+    const blockSize = Math.min(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT);
+    const oneBlockBackOffset = blockSize * 2;
+    const spacingAcross = Math.max(1, blockSize);
+    const redLineX = battleLineCenterX - redForwardX * oneBlockBackOffset;
+    const redLineY = battleLineCenterY - redForwardY * oneBlockBackOffset;
+    const blueLineX = battleLineCenterX - blueForwardX * oneBlockBackOffset;
+    const blueLineY = battleLineCenterY - blueForwardY * oneBlockBackOffset;
+    const mapMinX = BattleRoom.CELL_WIDTH * 0.5;
+    const mapMaxX = GAMEPLAY_CONFIG.map.width - BattleRoom.CELL_WIDTH * 0.5;
+    const mapMinY = BattleRoom.CELL_HEIGHT * 0.5;
+    const mapMaxY = GAMEPLAY_CONFIG.map.height - BattleRoom.CELL_HEIGHT * 0.5;
+    const resolveLineInterval = (
+      origin: number,
+      direction: number,
+      min: number,
+      max: number,
+    ): { min: number; max: number } | null => {
+      if (Math.abs(direction) <= 0.0001) {
+        if (origin < min || origin > max) {
+          return null;
+        }
+
+        return {
+          min: Number.NEGATIVE_INFINITY,
+          max: Number.POSITIVE_INFINITY,
+        };
+      }
+
+      const intervalA = (min - origin) / direction;
+      const intervalB = (max - origin) / direction;
+      return {
+        min: Math.min(intervalA, intervalB),
+        max: Math.max(intervalA, intervalB),
+      };
+    };
+    const xInterval = resolveLineInterval(
+      battleLineCenterX,
+      lateralX,
+      mapMinX,
+      mapMaxX,
+    );
+    const yInterval = resolveLineInterval(
+      battleLineCenterY,
+      lateralY,
+      mapMinY,
+      mapMaxY,
+    );
+    if (!xInterval || !yInterval) {
+      return;
+    }
+    const minAcrossOffset = Math.max(xInterval.min, yInterval.min);
+    const maxAcrossOffset = Math.min(xInterval.max, yInterval.max);
+    if (
+      !Number.isFinite(minAcrossOffset) ||
+      !Number.isFinite(maxAcrossOffset) ||
+      minAcrossOffset > maxAcrossOffset
+    ) {
+      return;
+    }
+    const lineLengthAcross = maxAcrossOffset - minAcrossOffset;
+    const unitsPerSide = Math.max(1, Math.floor(lineLengthAcross / spacingAcross) + 1);
+    const usedAcrossLength = (unitsPerSide - 1) * spacingAcross;
+    const centeredAcrossStart =
+      (minAcrossOffset + maxAcrossOffset - usedAcrossLength) * 0.5;
+
+    const redSpawnCandidates: Vector2[] = [];
+    const blueSpawnCandidates: Vector2[] = [];
+    const isBlockedSpawnTerrain = (terrainType: TerrainType): boolean =>
+      terrainType === "mountains" || terrainType === "water";
 
     for (let i = 0; i < unitsPerSide; i += 1) {
-      const file = i % lineWidth;
-      const rank = Math.floor(i / lineWidth);
-      const acrossOffset = file * spacingAcross - centeredAcrossOffset;
-      const depthOffset = rank * spacingDepth;
+      const acrossOffset = centeredAcrossStart + i * spacingAcross;
+      const redCell = this.worldToGridCoordinate(
+        redLineX + lateralX * acrossOffset,
+        redLineY + lateralY * acrossOffset,
+      );
+      const redTerrain = this.getTerrainTypeAtCell(redCell);
+      if (!isBlockedSpawnTerrain(redTerrain)) {
+        redSpawnCandidates.push(this.gridToWorldCenter(redCell));
+      }
+
+      const blueCell = this.worldToGridCoordinate(
+        blueLineX + lateralX * acrossOffset,
+        blueLineY + lateralY * acrossOffset,
+      );
+      const blueTerrain = this.getTerrainTypeAtCell(blueCell);
+      if (!isBlockedSpawnTerrain(blueTerrain)) {
+        blueSpawnCandidates.push(this.gridToWorldCenter(blueCell));
+      }
+    }
+
+    const mirroredUnitsPerSide = Math.min(
+      redSpawnCandidates.length,
+      blueSpawnCandidates.length,
+    );
+
+    for (let i = 0; i < mirroredUnitsPerSide; i += 1) {
+      const redPosition = redSpawnCandidates[i];
+      const bluePosition = blueSpawnCandidates[i];
 
       const redUnit = new Unit(
         `red-${i + 1}`,
         "red",
-        redSpawn.x - redForwardX * depthOffset + lateralX * acrossOffset,
-        redSpawn.y - redForwardY * depthOffset + lateralY * acrossOffset,
+        redPosition.x,
+        redPosition.y,
         redRotation,
         this.runtimeTuning.baseUnitHealth,
       );
       const blueUnit = new Unit(
         `blue-${i + 1}`,
         "blue",
-        blueSpawn.x - blueForwardX * depthOffset + lateralX * acrossOffset,
-        blueSpawn.y - blueForwardY * depthOffset + lateralY * acrossOffset,
+        bluePosition.x,
+        bluePosition.y,
         blueRotation,
         this.runtimeTuning.baseUnitHealth,
       );
-
-      this.snapUnitToGrid(redUnit);
-      this.snapUnitToGrid(blueUnit);
 
       this.state.units.set(redUnit.unitId, redUnit);
       this.state.units.set(blueUnit.unitId, blueUnit);
