@@ -152,6 +152,7 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.supply.moralePenaltyWhenDisconnected;
   private static readonly SUPPLY_HEALTH_LOSS_PER_SECOND =
     GAMEPLAY_CONFIG.supply.healthLossPerSecondWhenDisconnected;
+  private static readonly SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED = 1;
   private static readonly SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS =
     Number.isFinite(GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds) &&
     GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds > 0
@@ -1471,7 +1472,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateUnitInteractions(deltaSeconds: number): Map<string, Set<string>> {
-    this.applyUnsuppliedHealthDrain(deltaSeconds);
+    this.applySupplyHealthEffects(deltaSeconds);
 
     const getUnitMoraleScore = (unit: Unit): number => {
       const baseMoraleScore = getUnitMoraleScoreSystem({
@@ -1534,7 +1535,7 @@ export class BattleRoom extends Room<BattleState> {
     return engagements;
   }
 
-  private applyUnsuppliedHealthDrain(deltaSeconds: number): void {
+  private applySupplyHealthEffects(deltaSeconds: number): void {
     if (deltaSeconds <= 0) {
       return;
     }
@@ -1543,19 +1544,33 @@ export class BattleRoom extends Room<BattleState> {
       0,
       BattleRoom.SUPPLY_HEALTH_LOSS_PER_SECOND,
     );
-    if (healthLossPerSecond <= 0) {
-      return;
-    }
-
     const healthLossPerTick = healthLossPerSecond * deltaSeconds;
+    const healthGainPerSecond = Math.max(
+      0,
+      BattleRoom.SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED,
+    );
+    const healthGainPerTick = healthGainPerSecond * deltaSeconds;
+    const maxUnitHealth = Math.max(0, this.runtimeTuning.baseUnitHealth);
     const deadUnitIds: string[] = [];
+
     for (const unit of this.state.units.values()) {
       if (unit.health <= 0) {
         continue;
       }
 
       const supplyLine = this.state.supplyLines.get(unit.unitId);
-      if (!supplyLine || supplyLine.connected) {
+      if (!supplyLine) {
+        continue;
+      }
+
+      if (supplyLine.connected) {
+        if (healthGainPerTick > 0) {
+          unit.health = Math.min(maxUnitHealth, unit.health + healthGainPerTick);
+        }
+        continue;
+      }
+
+      if (healthLossPerTick <= 0) {
         continue;
       }
 
