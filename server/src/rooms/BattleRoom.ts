@@ -140,7 +140,7 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly CELL_HEIGHT =
     GAMEPLAY_CONFIG.map.height / BattleRoom.GRID_HEIGHT;
   private static readonly GRID_CONTACT_DISTANCE =
-    Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
+    Math.hypot(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 100;
   private static readonly SUPPLY_MORALE_PENALTY =
