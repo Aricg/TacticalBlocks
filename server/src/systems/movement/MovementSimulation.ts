@@ -57,6 +57,8 @@ export interface MovementSimulationParams {
   snapUnitToGrid: (unit: Unit) => GridCoordinate;
   worldToGridCoordinate: (x: number, y: number) => GridCoordinate;
   getTerrainSpeedMultiplierAtCell: (cell: GridCoordinate) => number;
+  isWaterCell: (cell: GridCoordinate) => boolean;
+  waterTransitionPauseSeconds: number;
   gridToWorldCenter: (cell: GridCoordinate) => Vector2;
   clearMovementForUnit: (unitId: string) => void;
   isUnitMovementSuppressed: (unitId: string) => boolean;
@@ -77,6 +79,8 @@ export function simulateMovementTick({
   snapUnitToGrid,
   worldToGridCoordinate,
   getTerrainSpeedMultiplierAtCell,
+  isWaterCell,
+  waterTransitionPauseSeconds,
   gridToWorldCenter,
   clearMovementForUnit,
   isUnitMovementSuppressed,
@@ -86,6 +90,11 @@ export function simulateMovementTick({
   if (deltaSeconds <= 0) {
     return;
   }
+  const normalizedWaterTransitionPauseSeconds =
+    Number.isFinite(waterTransitionPauseSeconds) &&
+    waterTransitionPauseSeconds > 0
+      ? waterTransitionPauseSeconds
+      : 0;
 
   const aliveUnits: Unit[] = [];
   const cellByUnitId = new Map<string, GridCoordinate>();
@@ -105,6 +114,15 @@ export function simulateMovementTick({
   for (const unit of aliveUnits) {
     const movementState = movementStateByUnitId.get(unit.unitId);
     if (!movementState) {
+      continue;
+    }
+
+    if (movementState.terrainTransitionPauseRemainingSeconds > 0) {
+      movementState.terrainTransitionPauseRemainingSeconds = Math.max(
+        0,
+        movementState.terrainTransitionPauseRemainingSeconds - deltaSeconds,
+      );
+      movementState.movementBudget = 0;
       continue;
     }
 
@@ -204,6 +222,8 @@ export function simulateMovementTick({
 
       const currentCell =
         cellByUnitId.get(unit.unitId) ?? worldToGridCoordinate(unit.x, unit.y);
+      const crossedWaterBoundary =
+        isWaterCell(currentCell) !== isWaterCell(destinationCell);
       removeOccupancy(occupiedByCellKey, currentCell, unit.unitId);
 
       unit.x = destination.x;
@@ -216,6 +236,12 @@ export function simulateMovementTick({
 
       movementState.destinationCell = movementState.queuedCells.shift() ?? null;
       faceCurrentDestination(unit, movementState);
+      if (crossedWaterBoundary && normalizedWaterTransitionPauseSeconds > 0) {
+        movementState.terrainTransitionPauseRemainingSeconds =
+          normalizedWaterTransitionPauseSeconds;
+        movementState.movementBudget = 0;
+        break;
+      }
 
       if (
         movementState.movementCommandMode.rotateToFace &&

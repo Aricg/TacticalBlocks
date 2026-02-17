@@ -3,6 +3,7 @@ import type { TerrainType, Unit } from './Unit';
 type VisualUpdateCallbacks = {
   smoothRemoteUnitPositions: (deltaMs: number) => void;
   applyCombatVisualWiggle: (timeMs: number) => void;
+  updateTerrainTransitionFlash: (timeMs: number) => void;
   refreshTerrainTint: () => void;
   refreshFogOfWar: () => void;
   renderPlannedPaths: () => void;
@@ -22,6 +23,7 @@ export function runVisualUpdatePipeline({
   callbacks.smoothRemoteUnitPositions(deltaMs);
   callbacks.applyCombatVisualWiggle(timeMs);
   runTerrainTintRefresh(callbacks);
+  callbacks.updateTerrainTransitionFlash(timeMs);
   runFogRefresh(callbacks);
   runPlannedPathRendering(callbacks);
   runInfluenceDebugFocusUpdate(callbacks);

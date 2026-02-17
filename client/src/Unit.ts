@@ -29,6 +29,8 @@ export class Unit extends Phaser.GameObjects.Container {
   private calculatedDps: number | null;
   private terrainColor: number | null;
   private terrainType: TerrainType;
+  private waterTransitionFlashStartedAtMs = 0;
+  private waterTransitionFlashUntilMs = 0;
 
   private static readonly BODY_WIDTH: number = GAMEPLAY_CONFIG.unit.bodyWidth;
   private static readonly BODY_HEIGHT: number = GAMEPLAY_CONFIG.unit.bodyHeight;
@@ -59,6 +61,8 @@ export class Unit extends Phaser.GameObjects.Container {
     { x: 0, y: -5 },
     { x: 5, y: 3 },
   ] as const;
+  private static readonly WATER_TRANSITION_FLASH_INTERVAL_MS = 120;
+  private static readonly WATER_TRANSITION_FLASH_DIM_ALPHA = 0.28;
   private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
     [Team.RED]: 0xa05555,
     [Team.BLUE]: 0x4e6f9e,
@@ -328,6 +332,40 @@ export class Unit extends Phaser.GameObjects.Container {
 
   public getTerrainType(): TerrainType {
     return this.terrainType;
+  }
+
+  public triggerWaterTransitionFlash(nowMs: number, durationMs: number): void {
+    if (!Number.isFinite(nowMs) || !Number.isFinite(durationMs) || durationMs <= 0) {
+      this.clearWaterTransitionFlash();
+      return;
+    }
+
+    this.waterTransitionFlashStartedAtMs = nowMs;
+    this.waterTransitionFlashUntilMs = nowMs + durationMs;
+    this.setAlpha(1);
+  }
+
+  public updateWaterTransitionFlash(nowMs: number): void {
+    if (nowMs >= this.waterTransitionFlashUntilMs || this.waterTransitionFlashUntilMs <= 0) {
+      this.clearWaterTransitionFlash();
+      return;
+    }
+
+    const elapsedMs = Math.max(0, nowMs - this.waterTransitionFlashStartedAtMs);
+    const flashPhase = Math.floor(
+      elapsedMs / Unit.WATER_TRANSITION_FLASH_INTERVAL_MS,
+    );
+    this.setAlpha(
+      flashPhase % 2 === 0 ? 1 : Unit.WATER_TRANSITION_FLASH_DIM_ALPHA,
+    );
+  }
+
+  public clearWaterTransitionFlash(): void {
+    this.waterTransitionFlashStartedAtMs = 0;
+    this.waterTransitionFlashUntilMs = 0;
+    if (this.alpha !== 1) {
+      this.setAlpha(1);
+    }
   }
 
   private refreshHealthVisuals(): void {

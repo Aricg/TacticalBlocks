@@ -37,6 +37,7 @@ export type UnitMovementState = {
   movementCommandMode: MovementCommandMode;
   movementBudget: number;
   isPaused: boolean;
+  terrainTransitionPauseRemainingSeconds: number;
 };
 export type CitySpawnSource = {
   sourceId: string;

@@ -129,6 +129,11 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.movement.rotateToFaceDisabledSpeedMultiplier > 0
       ? GAMEPLAY_CONFIG.movement.rotateToFaceDisabledSpeedMultiplier
       : BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE.speedMultiplier;
+  private static readonly WATER_TRANSITION_PAUSE_SECONDS =
+    Number.isFinite(GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds) &&
+    GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds > 0
+      ? GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds
+      : 3;
   private static readonly TERRAIN_SPEED_MULTIPLIER: Record<TerrainType, number> =
     GAMEPLAY_CONFIG.terrain.movementMultiplierByType;
   private static readonly TERRAIN_MORALE_MULTIPLIER: Record<TerrainType, number> =
@@ -269,6 +274,7 @@ export class BattleRoom extends Room<BattleState> {
       movementCommandMode: { ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE },
       movementBudget: 0,
       isPaused: false,
+      terrainTransitionPauseRemainingSeconds: 0,
     };
   }
 
@@ -297,6 +303,7 @@ export class BattleRoom extends Room<BattleState> {
     };
     movementState.movementBudget = 0;
     movementState.isPaused = false;
+    movementState.terrainTransitionPauseRemainingSeconds = 0;
   }
 
   private buildPathSignature(movementState: UnitMovementState): string {
@@ -1235,6 +1242,7 @@ export class BattleRoom extends Room<BattleState> {
     movementState.targetRotation = null;
     movementState.movementBudget = 0;
     movementState.isPaused = false;
+    movementState.terrainTransitionPauseRemainingSeconds = 0;
 
     if (normalizedPath.length === 0) {
       this.clearMovementForUnit(unit.unitId);
@@ -1350,6 +1358,8 @@ export class BattleRoom extends Room<BattleState> {
       worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
       getTerrainSpeedMultiplierAtCell: (cell) =>
         this.getTerrainSpeedMultiplierAtCell(cell),
+      isWaterCell: (cell) => this.getTerrainTypeAtCell(cell) === "water",
+      waterTransitionPauseSeconds: BattleRoom.WATER_TRANSITION_PAUSE_SECONDS,
       gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
       clearMovementForUnit: (unitId) => this.clearMovementForUnit(unitId),
       isUnitMovementSuppressed: (unitId) => this.engagedUnitIds.has(unitId),
