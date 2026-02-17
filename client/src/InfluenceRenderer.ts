@@ -70,6 +70,8 @@ type SupplyLineRenderState = {
   cells: SupplyLineRenderCell[];
 };
 
+type PlayerTeam = 'BLUE' | 'RED';
+
 export class InfluenceRenderer {
   private readonly scene: Phaser.Scene;
   private readonly frontLineGraphics: Phaser.GameObjects.Graphics;
@@ -88,12 +90,14 @@ export class InfluenceRenderer {
   private interpolationElapsedMs = 0;
   private lineThickness: number = GAMEPLAY_CONFIG.influence.lineThickness;
   private lineAlpha: number = GAMEPLAY_CONFIG.influence.lineAlpha;
+  private visibleTeam: PlayerTeam | null = null;
   private supplyLines: SupplyLineSnapshot[] = [];
   private supplyLineRenderStates: SupplyLineRenderState[] = [];
 
   private static readonly EPSILON = 0.0001;
   private static readonly KEY_PRECISION = 1000;
-  private static readonly DEBUG_OVERLAY_ENABLED = true;
+  private static readonly DEBUG_OVERLAY_ENABLED =
+    GAMEPLAY_CONFIG.influence.debugDotsEnabled;
   private static readonly DEBUG_POSITIVE_COLOR = 0x1e8bff;
   private static readonly DEBUG_NEGATIVE_COLOR = 0xff3030;
   private static readonly DEBUG_NEUTRAL_COLOR = 0xd9d9d9;
@@ -273,6 +277,10 @@ export class InfluenceRenderer {
     if (Number.isFinite(style.lineAlpha)) {
       this.lineAlpha = Phaser.Math.Clamp(style.lineAlpha, 0, 1);
     }
+  }
+
+  public setVisibleTeam(team: PlayerTeam | null): void {
+    this.visibleTeam = team;
   }
 
   public render(timeMs: number, deltaMs: number): void {
@@ -480,6 +488,9 @@ export class InfluenceRenderer {
       for (let col = 0; col < width; col += 1) {
         const index = row * width + col;
         const score = rawServerCells[index] ?? 0;
+        if (!this.shouldRenderDotForScore(score)) {
+          continue;
+        }
         const color = this.getDebugColor(score);
         const alpha = Phaser.Math.Clamp(Math.abs(score) / 8, 0.25, 0.95);
         const centerX = (col + 0.5) * cellWidth;
@@ -567,6 +578,19 @@ export class InfluenceRenderer {
 
   private toCssColor(color: number): string {
     return `#${color.toString(16).padStart(6, '0')}`;
+  }
+
+  private shouldRenderDotForScore(score: number): boolean {
+    if (this.visibleTeam === null) {
+      return true;
+    }
+    if (Math.abs(score) <= InfluenceRenderer.EPSILON) {
+      return false;
+    }
+    if (this.visibleTeam === 'BLUE') {
+      return score > 0;
+    }
+    return score < 0;
   }
 
   private interpolateDisplayGrid(deltaMs: number): void {

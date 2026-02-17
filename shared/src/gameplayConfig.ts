@@ -78,6 +78,8 @@ export const GAMEPLAY_CONFIG = {
     lineAlpha: 0.58,
     lineThickness: 8,
     splineDensityMultiplier: 8,
+    // Show per-cell influence dots in the client debug overlay.
+    debugDotsEnabled: false,
   },
   cities: {
     backlineOffset: 140,

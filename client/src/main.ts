@@ -327,6 +327,9 @@ class BattleScene extends Phaser.Scene {
     this.impassableOverlay.setDepth(BattleScene.IMPASSABLE_OVERLAY_DEPTH);
     this.drawImpassableOverlay();
     this.influenceRenderer = new InfluenceRenderer(this);
+    this.influenceRenderer.setVisibleTeam(
+      this.localPlayerTeam === Team.RED ? 'RED' : 'BLUE',
+    );
     this.syncSupplyLinesToInfluenceRenderer();
     this.fogOfWarController = new FogOfWarController(this, {
       mapWidth: BattleScene.MAP_WIDTH,
@@ -1089,6 +1092,9 @@ class BattleScene extends Phaser.Scene {
       this.rebuildRemoteRenderState();
       this.refreshFogOfWar();
     }
+    this.influenceRenderer?.setVisibleTeam(
+      this.localPlayerTeam === Team.RED ? 'RED' : 'BLUE',
+    );
     this.refreshLobbyOverlay();
   }
 
