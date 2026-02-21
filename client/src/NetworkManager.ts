@@ -20,6 +20,40 @@ import {
 } from '../../shared/src/networkContracts.js';
 import { DEFAULT_UNIT_TYPE } from '../../shared/src/unitTypes.js';
 
+const DEFAULT_SERVER_HOST = 'localhost';
+const DEFAULT_SERVER_PORT = 2567;
+
+const getNonEmptyString = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : null;
+};
+
+const parseConfiguredPort = (configuredPort: unknown): number => {
+  const configuredPortValue = getNonEmptyString(configuredPort);
+  if (!configuredPortValue) {
+    return DEFAULT_SERVER_PORT;
+  }
+  const parsedPort = Number.parseInt(configuredPortValue, 10);
+  if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    return DEFAULT_SERVER_PORT;
+  }
+  return parsedPort;
+};
+
+const resolveServerEndpoint = (): string => {
+  const explicitEndpoint = getNonEmptyString(import.meta.env.VITE_SERVER_ENDPOINT);
+  if (explicitEndpoint) {
+    return explicitEndpoint;
+  }
+  const host = getNonEmptyString(import.meta.env.VITE_SERVER_HOST)
+    ?? DEFAULT_SERVER_HOST;
+  const port = parseConfiguredPort(import.meta.env.VITE_SERVER_PORT);
+  return `ws://${host}:${port}`;
+};
+
 type ServerUnitState = {
   x: number;
   y: number;
@@ -216,7 +250,7 @@ export class NetworkManager {
     private readonly onSupplyLineChanged: SupplyLineChangedHandler,
     private readonly onSupplyLineRemoved: SupplyLineRemovedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
-    endpoint = 'ws://localhost:2567',
+    endpoint = resolveServerEndpoint(),
     roomName = 'battle',
   ) {
     this.client = new Client(endpoint);
