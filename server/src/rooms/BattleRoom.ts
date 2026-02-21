@@ -39,7 +39,6 @@ import {
 import {
   getUnitMoraleAdvantageNormalized,
   getUnitMoraleScore as getUnitMoraleScoreSystem,
-  updateUnitMoraleScores as updateUnitMoraleScoresSystem,
 } from "../systems/morale/MoraleSystem.js";
 import {
   getUnitContactDps as getUnitContactDpsSystem,
@@ -101,6 +100,7 @@ export class BattleRoom extends Room<BattleState> {
     string,
     SupplySourceRetryState
   >();
+  private readonly moraleStepElapsedSecondsByUnitId = new Map<string, number>();
   private readonly engagedUnitIds = new Set<string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private neutralCityCells: GridCoordinate[] = [];
@@ -154,6 +154,7 @@ export class BattleRoom extends Room<BattleState> {
     Math.hypot(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 100;
+  private static readonly MORALE_STEP_INTERVAL_SECONDS = 3;
   // Radius 2 in each axis yields a 5x5 commander aura area.
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 10;
@@ -1053,6 +1054,7 @@ export class BattleRoom extends Room<BattleState> {
       this.state.units.delete(unitId);
     }
     this.clearSupplyLineState();
+    this.moraleStepElapsedSecondsByUnitId.clear();
     this.movementStateByUnitId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
     this.engagedUnitIds.clear();
@@ -1650,7 +1652,7 @@ export class BattleRoom extends Room<BattleState> {
       gridContactDistance: BattleRoom.GRID_CONTACT_DISTANCE,
       ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
       updateUnitMoraleScores: (units) =>
-        updateUnitMoraleScoresSystem(units, getUnitMoraleScore),
+        this.updateUnitMoraleScoresStepped(units, getUnitMoraleScore, deltaSeconds),
       getMoraleAdvantageNormalized: (unit) =>
         getUnitMoraleAdvantageNormalized(
           unit,
@@ -1678,6 +1680,54 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     return engagements;
+  }
+
+  private updateUnitMoraleScoresStepped(
+    units: Unit[],
+    getUnitMoraleScore: (unit: Unit) => number,
+    deltaSeconds: number,
+  ): void {
+    const activeUnitIds = new Set<string>();
+    for (const unit of units) {
+      activeUnitIds.add(unit.unitId);
+    }
+    for (const unitId of Array.from(this.moraleStepElapsedSecondsByUnitId.keys())) {
+      if (activeUnitIds.has(unitId)) {
+        continue;
+      }
+      this.moraleStepElapsedSecondsByUnitId.delete(unitId);
+    }
+
+    for (const unit of units) {
+      const targetMoraleScore = getUnitMoraleScore(unit);
+      if (!this.moraleStepElapsedSecondsByUnitId.has(unit.unitId)) {
+        unit.moraleScore = targetMoraleScore;
+        this.moraleStepElapsedSecondsByUnitId.set(unit.unitId, 0);
+        continue;
+      }
+
+      const currentMoraleScore = Number.isFinite(unit.moraleScore)
+        ? unit.moraleScore
+        : targetMoraleScore;
+      if (currentMoraleScore === targetMoraleScore) {
+        this.moraleStepElapsedSecondsByUnitId.set(unit.unitId, 0);
+        continue;
+      }
+
+      const elapsedSeconds =
+        (this.moraleStepElapsedSecondsByUnitId.get(unit.unitId) ?? 0) +
+        deltaSeconds;
+      if (elapsedSeconds < BattleRoom.MORALE_STEP_INTERVAL_SECONDS) {
+        this.moraleStepElapsedSecondsByUnitId.set(unit.unitId, elapsedSeconds);
+        continue;
+      }
+
+      unit.moraleScore = targetMoraleScore;
+      this.moraleStepElapsedSecondsByUnitId.set(
+        unit.unitId,
+        elapsedSeconds - BattleRoom.MORALE_STEP_INTERVAL_SECONDS,
+      );
+    }
   }
 
   private applySupplyHealthEffects(deltaSeconds: number): void {
