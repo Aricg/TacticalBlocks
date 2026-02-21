@@ -25,6 +25,11 @@ const SLIDERS: SliderDescriptor[] = [
     group: 'Combat',
   },
   {
+    key: 'moraleInfluenceCurveExponent',
+    label: 'Morale Influence Curve',
+    group: 'Combat',
+  },
+  {
     key: 'influenceUpdateIntervalFrames',
     label: 'Update Interval (frames)',
     group: 'Influence',
@@ -42,16 +47,6 @@ const SLIDERS: SliderDescriptor[] = [
     group: 'Influence',
   },
   {
-    key: 'staticCityCapGate',
-    label: 'Static City Cap Gate',
-    group: 'Influence',
-  },
-  {
-    key: 'unitCapThreshold',
-    label: 'Unit Cap Threshold',
-    group: 'Influence',
-  },
-  {
     key: 'unitInfluenceMultiplier',
     label: 'Unit Influence Power',
     group: 'Influence',
@@ -59,31 +54,6 @@ const SLIDERS: SliderDescriptor[] = [
   {
     key: 'cityEnemyGateAlpha',
     label: 'City Enemy Gate',
-    group: 'Influence',
-  },
-  {
-    key: 'isolatedUnitInfluenceFloor',
-    label: 'Isolated Unit Floor',
-    group: 'Influence',
-  },
-  {
-    key: 'supportPressureReference',
-    label: 'Support Pressure Ref',
-    group: 'Influence',
-  },
-  {
-    key: 'influenceEnemyPressureDebuffFloor',
-    label: 'Enemy Pressure Floor',
-    group: 'Influence',
-  },
-  {
-    key: 'influenceCoreMinInfluenceFactor',
-    label: 'Core Min Influence',
-    group: 'Influence',
-  },
-  {
-    key: 'influenceMaxExtraDecayAtZero',
-    label: 'Extra Decay @ Zero',
     group: 'Influence',
   },
   { key: 'fogVisionRadius', label: 'Vision Radius', group: 'Fog' },
@@ -106,7 +76,7 @@ export class RuntimeTuningPanel {
   private readonly root: HTMLDivElement;
   private readonly content: HTMLDivElement;
   private readonly toggleButton: HTMLButtonElement;
-  private readonly combatStatsOverlayInput: HTMLInputElement;
+  private readonly moraleBreakdownOverlayInput: HTMLInputElement;
   private readonly inputByKey = new Map<RuntimeTuningKey, HTMLInputElement>();
   private readonly valueByKey = new Map<RuntimeTuningKey, HTMLSpanElement>();
   private isMinimized = false;
@@ -116,8 +86,8 @@ export class RuntimeTuningPanel {
     initialValues: RuntimeTuning,
     private readonly onSliderInput: (update: Partial<RuntimeTuning>) => void,
     options?: {
-      initialCombatStatsOverlayVisible?: boolean;
-      onCombatStatsOverlayVisibilityChange?: (visible: boolean) => void;
+      initialMoraleBreakdownOverlayVisible?: boolean;
+      onMoraleBreakdownOverlayVisibilityChange?: (visible: boolean) => void;
     },
   ) {
     const existingPanel = document.getElementById('runtime-tuning-panel');
@@ -152,7 +122,7 @@ export class RuntimeTuningPanel {
     this.root.appendChild(header);
 
     const title = document.createElement('div');
-    title.textContent = 'Runtime Tuning';
+    title.textContent = 'Debug Controls';
     title.style.fontWeight = '700';
     header.appendChild(title);
 
@@ -181,27 +151,27 @@ export class RuntimeTuningPanel {
     subtitle.style.marginBottom = '8px';
     this.content.appendChild(subtitle);
 
-    const combatStatsOverlayRow = document.createElement('label');
-    combatStatsOverlayRow.style.display = 'flex';
-    combatStatsOverlayRow.style.alignItems = 'center';
-    combatStatsOverlayRow.style.justifyContent = 'space-between';
-    combatStatsOverlayRow.style.gap = '8px';
-    combatStatsOverlayRow.style.marginBottom = '10px';
-    combatStatsOverlayRow.style.opacity = '0.92';
-    combatStatsOverlayRow.textContent = 'Show Unit Stats Overlay';
-    this.content.appendChild(combatStatsOverlayRow);
+    const moraleBreakdownOverlayRow = document.createElement('label');
+    moraleBreakdownOverlayRow.style.display = 'flex';
+    moraleBreakdownOverlayRow.style.alignItems = 'center';
+    moraleBreakdownOverlayRow.style.justifyContent = 'space-between';
+    moraleBreakdownOverlayRow.style.gap = '8px';
+    moraleBreakdownOverlayRow.style.marginBottom = '10px';
+    moraleBreakdownOverlayRow.style.opacity = '0.92';
+    moraleBreakdownOverlayRow.textContent = 'Show Morale Breakdown';
+    this.content.appendChild(moraleBreakdownOverlayRow);
 
-    this.combatStatsOverlayInput = document.createElement('input');
-    this.combatStatsOverlayInput.type = 'checkbox';
-    this.combatStatsOverlayInput.checked = Boolean(
-      options?.initialCombatStatsOverlayVisible,
+    this.moraleBreakdownOverlayInput = document.createElement('input');
+    this.moraleBreakdownOverlayInput.type = 'checkbox';
+    this.moraleBreakdownOverlayInput.checked = Boolean(
+      options?.initialMoraleBreakdownOverlayVisible,
     );
-    this.combatStatsOverlayInput.addEventListener('input', () => {
-      options?.onCombatStatsOverlayVisibilityChange?.(
-        this.combatStatsOverlayInput.checked,
+    this.moraleBreakdownOverlayInput.addEventListener('input', () => {
+      options?.onMoraleBreakdownOverlayVisibilityChange?.(
+        this.moraleBreakdownOverlayInput.checked,
       );
     });
-    combatStatsOverlayRow.appendChild(this.combatStatsOverlayInput);
+    moraleBreakdownOverlayRow.appendChild(this.moraleBreakdownOverlayInput);
 
     const groupContainerByName = new Map<string, HTMLDivElement>();
     for (const slider of SLIDERS) {
@@ -295,7 +265,7 @@ export class RuntimeTuningPanel {
     this.toggleButton.textContent = minimized ? 'Expand' : 'Minimize';
     this.toggleButton.setAttribute(
       'aria-label',
-      minimized ? 'Expand runtime tuning panel' : 'Minimize runtime tuning panel',
+      minimized ? 'Expand debug controls panel' : 'Minimize debug controls panel',
     );
   }
 

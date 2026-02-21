@@ -28,11 +28,9 @@ export class Unit extends Phaser.GameObjects.Container {
   private readonly healthBoxFill: Phaser.GameObjects.Rectangle;
   private readonly moraleBoxBg: Phaser.GameObjects.Rectangle;
   private readonly moraleBoxFill: Phaser.GameObjects.Rectangle;
-  private readonly combatStatsText: Phaser.GameObjects.Text;
   private health: number;
   private healthMax: number;
   private moraleScore: number | null;
-  private calculatedDps: number | null;
   private terrainColor: number | null;
   private terrainType: TerrainType;
   private waterTransitionFlashStartedAtMs = 0;
@@ -62,7 +60,6 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
   private static readonly HEALTH_FILL_BASE_X = -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1;
-  private static readonly COMBAT_STATS_TEXT_BASE_Y = Unit.BODY_HEIGHT * 0.5 - 6;
   private static readonly COMMANDER_CHEVRON_HALF_WIDTH = 7;
   private static readonly COMMANDER_CHEVRON_HEIGHT = 5;
   private static readonly COMMANDER_CHEVRON_BASE_Y =
@@ -105,7 +102,6 @@ export class Unit extends Phaser.GameObjects.Container {
     this.healthMax = Unit.HEALTH_MAX;
     this.health = Phaser.Math.Clamp(health, 0, this.healthMax);
     this.moraleScore = null;
-    this.calculatedDps = null;
     this.terrainColor = null;
     this.terrainType = 'unknown';
     this.rotation = rotation;
@@ -238,23 +234,6 @@ export class Unit extends Phaser.GameObjects.Container {
     this.moraleBoxFill.setOrigin(0, 0.5);
     this.moraleBoxFill.setScale(statusBarScaleX, 1);
 
-    this.combatStatsText = new Phaser.GameObjects.Text(
-      scene,
-      0,
-      Unit.COMBAT_STATS_TEXT_BASE_Y,
-      '',
-      {
-        fontFamily: 'monospace',
-        fontSize: '11px',
-        color: '#ffffff',
-        backgroundColor: '#000000',
-        align: 'center',
-        padding: { x: 3, y: 2 },
-      },
-    );
-    this.combatStatsText.setOrigin(0.5, 0.5);
-    this.combatStatsText.setVisible(false);
-
     const containerChildren: Phaser.GameObjects.GameObject[] = [
       this.unitBody,
       this.facingArrow,
@@ -264,7 +243,6 @@ export class Unit extends Phaser.GameObjects.Container {
       this.healthBoxFill,
       this.moraleBoxBg,
       this.moraleBoxFill,
-      this.combatStatsText,
     );
     if (this.commanderChevron) {
       containerChildren.push(this.commanderChevron);
@@ -275,7 +253,6 @@ export class Unit extends Phaser.GameObjects.Container {
     scene.add.existing(this);
     this.refreshHealthVisuals();
     this.refreshMoraleVisuals();
-    this.refreshCombatStatsVisual();
   }
 
   public static fromGameObject(
@@ -345,15 +322,9 @@ export class Unit extends Phaser.GameObjects.Container {
     this.refreshHealthVisuals();
   }
 
-  public setCombatStats(moraleScore: number | null, calculatedDps: number | null): void {
+  public setMoraleScore(moraleScore: number | null): void {
     this.moraleScore = Number.isFinite(moraleScore) ? moraleScore : null;
-    this.calculatedDps = Number.isFinite(calculatedDps) ? calculatedDps : null;
     this.refreshMoraleVisuals();
-    this.refreshCombatStatsVisual();
-  }
-
-  public setCombatStatsVisible(visible: boolean): void {
-    this.combatStatsText.setVisible(visible);
   }
 
   public setCombatVisualOffset(offsetX: number, offsetY: number): void {
@@ -369,10 +340,6 @@ export class Unit extends Phaser.GameObjects.Container {
     this.moraleBoxFill.setPosition(
       Unit.HEALTH_FILL_BASE_X + offsetX,
       Unit.MORALE_BOX_BASE_Y + offsetY,
-    );
-    this.combatStatsText.setPosition(
-      offsetX,
-      Unit.COMBAT_STATS_TEXT_BASE_Y + offsetY,
     );
   }
 
@@ -486,15 +453,5 @@ export class Unit extends Phaser.GameObjects.Container {
       return 0;
     }
     return Phaser.Math.Clamp(this.moraleScore / Unit.MORALE_MAX_SCORE, 0, 1);
-  }
-
-  private refreshCombatStatsVisual(): void {
-    const moraleLabel =
-      this.moraleScore === null ? '--' : Math.round(this.moraleScore).toString();
-    const dpsLabel =
-      this.calculatedDps === null
-        ? '--'
-        : this.calculatedDps.toFixed(1).replace(/\.0$/, '');
-    this.combatStatsText.setText(`M ${moraleLabel}\nD ${dpsLabel}`);
   }
 }

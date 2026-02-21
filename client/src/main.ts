@@ -18,6 +18,7 @@ import {
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
   getNeutralCityGridCoordinates,
+  getGridCellElevation,
   getTeamCityGridCoordinate,
   isGridCellImpassable,
 } from '../../shared/src/terrainGrid.js';
@@ -27,7 +28,6 @@ import {
   type RuntimeTuning,
 } from '../../shared/src/runtimeTuning.js';
 import {
-  getUnitDamageMultiplier,
   getUnitHealthMax,
 } from '../../shared/src/unitTypes.js';
 import { City, type CityOwner } from './City';
@@ -45,6 +45,10 @@ import {
   LobbyOverlayController,
   type LobbyOverlayPlayerView,
 } from './LobbyOverlayController';
+import {
+  MoraleBreakdownOverlay,
+  type MoraleBreakdownOverlayData,
+} from './MoraleBreakdownOverlay';
 import { PathPreviewRenderer } from './PathPreviewRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
@@ -234,10 +238,12 @@ class BattleScene extends Phaser.Scene {
   private movementLines!: Phaser.GameObjects.Graphics;
   private impassableOverlay!: Phaser.GameObjects.Graphics;
   private influenceRenderer: InfluenceRenderer | null = null;
+  private moraleBreakdownOverlay: MoraleBreakdownOverlay | null = null;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
-  private showCombatStatsOverlay = false;
+  private showMoraleBreakdownOverlay = true;
+  private latestInfluenceGrid: NetworkInfluenceGridUpdate | null = null;
   private mapSamplingWidth = 0;
   private mapSamplingHeight = 0;
 
@@ -278,7 +284,13 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
   private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
+  private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 9;
+  private static readonly MORALE_INFLUENCE_MIN = 1;
+  private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
+  private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
+  private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
+  private static readonly SLOPE_ELEVATION_BYTE_THRESHOLD = 2;
   private static readonly SHOW_IMPASSABLE_OVERLAY = true;
   private static readonly IMPASSABLE_OVERLAY_DEPTH = 930;
   private static readonly IMPASSABLE_OVERLAY_FILL_COLOR = 0xff1f1f;
@@ -361,11 +373,14 @@ class BattleScene extends Phaser.Scene {
         this.networkManager.sendRuntimeTuningUpdate(update);
       },
       {
-        initialCombatStatsOverlayVisible: this.showCombatStatsOverlay,
-        onCombatStatsOverlayVisibilityChange: (visible) => {
-          this.setCombatStatsOverlayVisible(visible);
+        initialMoraleBreakdownOverlayVisible: this.showMoraleBreakdownOverlay,
+        onMoraleBreakdownOverlayVisibilityChange: (visible) => {
+          this.setMoraleBreakdownOverlayVisible(visible);
         },
       },
+    );
+    this.moraleBreakdownOverlay = new MoraleBreakdownOverlay(
+      this.showMoraleBreakdownOverlay,
     );
     this.applyRuntimeTuning(this.runtimeTuning);
     this.refreshFogOfWar();
@@ -527,6 +542,9 @@ class BattleScene extends Phaser.Scene {
       this.syncSupplyLinesToInfluenceRenderer();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
+      this.moraleBreakdownOverlay?.destroy();
+      this.moraleBreakdownOverlay = null;
+      this.latestInfluenceGrid = null;
       this.mapBackground = null;
     });
   }
@@ -876,17 +894,19 @@ class BattleScene extends Phaser.Scene {
         Math.max(1, getUnitHealthMax(this.runtimeTuning.baseUnitHealth, unit.unitType)),
       );
     }
-    this.refreshUnitCombatStatsLabels();
     this.influenceRenderer?.setLineStyle({
       lineThickness: this.runtimeTuning.lineThickness,
       lineAlpha: this.runtimeTuning.lineAlpha,
     });
+    this.updateMoraleBreakdownOverlay();
   }
 
   private applyInfluenceGrid(
     influenceGridUpdate: NetworkInfluenceGridUpdate,
   ): void {
+    this.latestInfluenceGrid = influenceGridUpdate;
     this.influenceRenderer?.setInfluenceGrid(influenceGridUpdate);
+    this.updateMoraleBreakdownOverlay();
   }
 
   private applyCityOwnership(
@@ -958,10 +978,8 @@ class BattleScene extends Phaser.Scene {
           snapImmediately,
         ),
     });
-    this.refreshUnitCombatStatsLabel(networkUnit.unitId);
-    this.unitsById
-      .get(networkUnit.unitId)
-      ?.setCombatStatsVisible(this.showCombatStatsOverlay);
+    this.refreshUnitMoraleVisual(networkUnit.unitId);
+    this.updateMoraleBreakdownOverlay();
   }
 
   private removeNetworkUnit(unitId: string): void {
@@ -980,6 +998,7 @@ class BattleScene extends Phaser.Scene {
     this.remoteUnitRenderStateByUnitId.delete(unitId);
     this.authoritativeTerrainByUnitId.delete(unitId);
     this.removeSupplyLine(unitId);
+    this.updateMoraleBreakdownOverlay();
   }
 
   private applyNetworkUnitPosition(positionUpdate: NetworkUnitPositionUpdate): void {
@@ -1056,49 +1075,24 @@ class BattleScene extends Phaser.Scene {
       unitsById: this.unitsById,
       moraleScoreByUnitId: this.moraleScoreByUnitId,
     });
-    this.refreshUnitCombatStatsLabel(moraleUpdate.unitId);
+    this.refreshUnitMoraleVisual(moraleUpdate.unitId);
+    this.updateMoraleBreakdownOverlay();
   }
 
-  private refreshUnitCombatStatsLabels(): void {
-    for (const unitId of this.unitsById.keys()) {
-      this.refreshUnitCombatStatsLabel(unitId);
-    }
-  }
-
-  private refreshUnitCombatStatsLabel(unitId: string): void {
+  private refreshUnitMoraleVisual(unitId: string): void {
     const unit = this.unitsById.get(unitId);
     if (!unit) {
       return;
     }
 
     const moraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
-    const calculatedDps = this.calculateUnitContactDps(unit, moraleScore);
-    unit.setCombatStats(moraleScore, calculatedDps);
+    unit.setMoraleScore(moraleScore);
   }
 
-  private calculateUnitContactDps(unit: Unit, moraleScore: number | null): number | null {
-    if (moraleScore === null || !Number.isFinite(moraleScore)) {
-      return null;
-    }
-
-    const normalizedMorale = Phaser.Math.Clamp(
-      moraleScore / BattleScene.MORALE_MAX_SCORE,
-      0,
-      1,
-    );
-    const safeBaseDps = Math.max(0, this.runtimeTuning.baseContactDps);
-    return (
-      safeBaseDps *
-      getUnitDamageMultiplier(unit.unitType) *
-      (1 + normalizedMorale * this.runtimeTuning.dpsInfluenceMultiplier)
-    );
-  }
-
-  private setCombatStatsOverlayVisible(visible: boolean): void {
-    this.showCombatStatsOverlay = visible;
-    for (const unit of this.unitsById.values()) {
-      unit.setCombatStatsVisible(visible);
-    }
+  private setMoraleBreakdownOverlayVisible(visible: boolean): void {
+    this.showMoraleBreakdownOverlay = visible;
+    this.moraleBreakdownOverlay?.setVisible(visible);
+    this.updateMoraleBreakdownOverlay();
   }
 
   private applyAssignedTeam(teamValue: string): void {
@@ -2007,6 +2001,226 @@ class BattleScene extends Phaser.Scene {
     return null;
   }
 
+  private updateMoraleBreakdownOverlay(): void {
+    if (!this.moraleBreakdownOverlay || !this.showMoraleBreakdownOverlay) {
+      return;
+    }
+
+    const focusUnit = this.getInfluenceDebugFocusUnit();
+    if (!focusUnit) {
+      this.moraleBreakdownOverlay.render(null);
+      return;
+    }
+
+    const focusUnitId = this.getUnitId(focusUnit);
+    if (!focusUnitId) {
+      this.moraleBreakdownOverlay.render(null);
+      return;
+    }
+
+    this.moraleBreakdownOverlay.render(
+      this.buildMoraleBreakdownOverlayData(focusUnit, focusUnitId),
+    );
+  }
+
+  private buildMoraleBreakdownOverlayData(
+    unit: Unit,
+    unitId: string,
+  ): MoraleBreakdownOverlayData {
+    const maxAbsInfluenceScore = Math.max(
+      1,
+      GAMEPLAY_CONFIG.influence.maxAbsTacticalScore,
+    );
+    const influenceCurveExponent = Math.max(
+      0.001,
+      this.runtimeTuning.moraleInfluenceCurveExponent,
+    );
+    const sampleRadius = BattleScene.MORALE_SAMPLE_RADIUS;
+    const authoritativePosition = this.getAuthoritativeUnitPosition(unit);
+    const centerCell = worldToGridCoordinate(
+      authoritativePosition.x,
+      authoritativePosition.y,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
+    const teamSign = unit.team === Team.BLUE ? 1 : -1;
+
+    let accumulatedFriendlyWeight = 0;
+    let sampledCells = 0;
+    for (let rowOffset = -sampleRadius; rowOffset <= sampleRadius; rowOffset += 1) {
+      for (let colOffset = -sampleRadius; colOffset <= sampleRadius; colOffset += 1) {
+        const sampleCol = Phaser.Math.Clamp(
+          centerCell.col + colOffset,
+          0,
+          BattleScene.GRID_WIDTH - 1,
+        );
+        const sampleRow = Phaser.Math.Clamp(
+          centerCell.row + rowOffset,
+          0,
+          BattleScene.GRID_HEIGHT - 1,
+        );
+        const alignedCellScore =
+          this.getInfluenceScoreAtGridCell(sampleCol, sampleRow) * teamSign;
+        const normalizedAlignedScore = Phaser.Math.Clamp(
+          alignedCellScore / maxAbsInfluenceScore,
+          -1,
+          1,
+        );
+        const curvedAlignedScore =
+          Math.sign(normalizedAlignedScore) *
+          Math.pow(Math.abs(normalizedAlignedScore), influenceCurveExponent);
+        accumulatedFriendlyWeight += (curvedAlignedScore + 1) * 0.5;
+        sampledCells += 1;
+      }
+    }
+
+    const influenceBaseScore =
+      sampledCells <= 0
+        ? BattleScene.MORALE_INFLUENCE_MIN
+        : (accumulatedFriendlyWeight / sampledCells) * BattleScene.MORALE_MAX_SCORE;
+    const terrainType = unit.getTerrainType();
+    const terrainBonus = GAMEPLAY_CONFIG.terrain.moraleBonusByType[terrainType] ?? 0;
+    const influenceWithTerrainScore = Phaser.Math.Clamp(
+      influenceBaseScore + terrainBonus,
+      BattleScene.MORALE_INFLUENCE_MIN,
+      BattleScene.MORALE_MAX_SCORE,
+    );
+
+    const commanderAuraBonus = this.getCommanderAuraBonusForUnit(
+      unit,
+      unitId,
+      centerCell,
+    );
+    const slopeDelta = this.getSlopeMoraleDeltaForUnit(unitId, centerCell);
+    const supplyLine = this.supplyLinesByUnitId.get(unitId);
+    const supplyBlocked = Boolean(supplyLine && !supplyLine.connected);
+    const estimatedMoraleScore = supplyBlocked
+      ? 0
+      : Phaser.Math.Clamp(
+          influenceWithTerrainScore + commanderAuraBonus + slopeDelta,
+          0,
+          BattleScene.MORALE_MAX_SCORE,
+        );
+
+    return {
+      unitId,
+      team: unit.team === Team.RED ? 'RED' : 'BLUE',
+      serverMoraleScore: this.moraleScoreByUnitId.get(unitId) ?? null,
+      estimatedMoraleScore,
+      influenceBaseScore,
+      terrainType,
+      terrainBonus,
+      influenceWithTerrainScore,
+      commanderAuraBonus,
+      slopeDelta,
+      supplyBlocked,
+      curveExponent: influenceCurveExponent,
+    };
+  }
+
+  private getInfluenceScoreAtGridCell(col: number, row: number): number {
+    const grid = this.latestInfluenceGrid;
+    if (!grid || grid.width <= 0 || grid.height <= 0 || grid.cells.length === 0) {
+      return 0;
+    }
+
+    const clampedCol = Phaser.Math.Clamp(col, 0, grid.width - 1);
+    const clampedRow = Phaser.Math.Clamp(row, 0, grid.height - 1);
+    const index = clampedRow * grid.width + clampedCol;
+    const value = grid.cells[index];
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  private getCommanderAuraBonusForUnit(
+    unit: Unit,
+    unitId: string,
+    unitCell: GridCoordinate,
+  ): number {
+    if (unit.team !== Team.BLUE && unit.team !== Team.RED) {
+      return 0;
+    }
+
+    let commandersInRange = 0;
+    for (const [candidateUnitId, candidateUnit] of this.unitsById) {
+      if (
+        !candidateUnit.isAlive() ||
+        candidateUnit.unitType !== 'COMMANDER' ||
+        candidateUnit.team !== unit.team
+      ) {
+        continue;
+      }
+
+      const candidatePosition =
+        candidateUnitId === unitId
+          ? this.getAuthoritativeUnitPosition(unit)
+          : this.getAuthoritativeUnitPosition(candidateUnit);
+      const commanderCell = worldToGridCoordinate(
+        candidatePosition.x,
+        candidatePosition.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
+      const colDelta = Math.abs(commanderCell.col - unitCell.col);
+      const rowDelta = Math.abs(commanderCell.row - unitCell.row);
+      if (
+        colDelta <= BattleScene.COMMANDER_MORALE_AURA_RADIUS_CELLS &&
+        rowDelta <= BattleScene.COMMANDER_MORALE_AURA_RADIUS_CELLS
+      ) {
+        commandersInRange += 1;
+      }
+    }
+
+    return commandersInRange * BattleScene.COMMANDER_MORALE_AURA_BONUS;
+  }
+
+  private getSlopeMoraleDeltaForUnit(
+    unitId: string,
+    currentCell: GridCoordinate,
+  ): number {
+    const currentRotation = this.getAuthoritativeUnitRotation(unitId);
+    const facingAngle =
+      currentRotation + GAMEPLAY_CONFIG.movement.unitForwardOffsetRadians;
+    const forwardCell: GridCoordinate = {
+      col: Phaser.Math.Clamp(
+        currentCell.col + Math.round(Math.cos(facingAngle)),
+        0,
+        BattleScene.GRID_WIDTH - 1,
+      ),
+      row: Phaser.Math.Clamp(
+        currentCell.row + Math.round(Math.sin(facingAngle)),
+        0,
+        BattleScene.GRID_HEIGHT - 1,
+      ),
+    };
+    const currentElevation = getGridCellElevation(currentCell.col, currentCell.row);
+    const forwardElevation = getGridCellElevation(forwardCell.col, forwardCell.row);
+    const elevationDeltaBytes = Math.round(
+      (forwardElevation - currentElevation) * 255,
+    );
+    const moralePerInfluenceDot =
+      BattleScene.MORALE_MAX_SCORE /
+      Math.max(
+        1,
+        (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1) *
+          (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1),
+      );
+    if (elevationDeltaBytes >= BattleScene.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+      return -moralePerInfluenceDot * BattleScene.SLOPE_MORALE_DOT_EQUIVALENT;
+    }
+    if (elevationDeltaBytes <= -BattleScene.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+      return moralePerInfluenceDot * BattleScene.SLOPE_MORALE_DOT_EQUIVALENT;
+    }
+    return 0;
+  }
+
+  private getAuthoritativeUnitRotation(unitId: string): number {
+    const transform = this.remoteUnitLatestTransformByUnitId.get(unitId);
+    if (transform && Number.isFinite(transform.rotation)) {
+      return transform.rotation;
+    }
+
+    const unit = this.unitsById.get(unitId);
+    return unit ? unit.rotation : 0;
+  }
+
   update(time: number, delta: number): void {
     runVisualUpdatePipeline({
       timeMs: time,
@@ -2024,6 +2238,7 @@ class BattleScene extends Phaser.Scene {
           this.influenceRenderer?.render(timeMs, deltaMs),
       },
     });
+    this.updateMoraleBreakdownOverlay();
   }
 }
 
