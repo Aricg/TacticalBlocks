@@ -157,8 +157,6 @@ class BattleScene extends Phaser.Scene {
     { color: 0x0f2232, type: 'water' },
     { color: 0x102236, type: 'water' },
     { color: 0x71844b, type: 'grass' },
-    { color: 0x70834e, type: 'grass' },
-    { color: 0x748764, type: 'grass' },
     { color: 0x364d31, type: 'forest' },
     { color: 0x122115, type: 'forest' },
     { color: 0xc4a771, type: 'hills' },

@@ -116,8 +116,8 @@ export const GAMEPLAY_CONFIG = {
     },
     moraleMultiplierByType: {
       water: 0.3,
-      forest: 0.7,
-      hills: 0.5,
+      forest: 1.0,
+      hills: 1.0,
       grass: 1.0,
       unknown: 1.0,
       mountains: 1.0,
