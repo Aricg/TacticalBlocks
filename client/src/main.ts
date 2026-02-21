@@ -18,10 +18,10 @@ import {
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
   getNeutralCityGridCoordinates,
-  getGridCellElevation,
   getTeamCityGridCoordinate,
   isGridCellImpassable,
 } from '../../shared/src/terrainGrid.js';
+import { getGridCellPaletteElevationByte } from '../../shared/src/terrainPaletteElevation.js';
 import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
@@ -290,7 +290,6 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
-  private static readonly SLOPE_ELEVATION_BYTE_THRESHOLD = 2;
   private static readonly SHOW_IMPASSABLE_OVERLAY = true;
   private static readonly IMPASSABLE_OVERLAY_DEPTH = 930;
   private static readonly IMPASSABLE_OVERLAY_FILL_COLOR = 0xff1f1f;
@@ -2190,11 +2189,15 @@ class BattleScene extends Phaser.Scene {
         BattleScene.GRID_HEIGHT - 1,
       ),
     };
-    const currentElevation = getGridCellElevation(currentCell.col, currentCell.row);
-    const forwardElevation = getGridCellElevation(forwardCell.col, forwardCell.row);
-    const elevationDeltaBytes = Math.round(
-      (forwardElevation - currentElevation) * 255,
+    const currentElevationByte = getGridCellPaletteElevationByte(
+      currentCell.col,
+      currentCell.row,
     );
+    const forwardElevationByte = getGridCellPaletteElevationByte(
+      forwardCell.col,
+      forwardCell.row,
+    );
+    const elevationDeltaBytes = forwardElevationByte - currentElevationByte;
     const moralePerInfluenceDot =
       BattleScene.MORALE_MAX_SCORE /
       Math.max(
@@ -2202,10 +2205,10 @@ class BattleScene extends Phaser.Scene {
         (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1) *
           (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1),
       );
-    if (elevationDeltaBytes >= BattleScene.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+    if (elevationDeltaBytes > 0) {
       return -moralePerInfluenceDot * BattleScene.SLOPE_MORALE_DOT_EQUIVALENT;
     }
-    if (elevationDeltaBytes <= -BattleScene.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+    if (elevationDeltaBytes < 0) {
       return moralePerInfluenceDot * BattleScene.SLOPE_MORALE_DOT_EQUIVALENT;
     }
     return 0;

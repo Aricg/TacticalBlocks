@@ -48,8 +48,8 @@ import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
+import { getGridCellPaletteElevationByte } from "../../../shared/src/terrainPaletteElevation.js";
 import {
-  getGridCellElevation,
   getGridCellTerrainType,
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
@@ -163,7 +163,6 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
-  private static readonly SLOPE_ELEVATION_BYTE_THRESHOLD = 2;
   private static readonly SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED = 1;
   private static readonly SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS =
     Number.isFinite(GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds) &&
@@ -581,11 +580,15 @@ export class BattleRoom extends Room<BattleState> {
         BattleRoom.GRID_HEIGHT - 1,
       ),
     };
-    const currentElevation = getGridCellElevation(currentCell.col, currentCell.row);
-    const forwardElevation = getGridCellElevation(forwardCell.col, forwardCell.row);
-    const elevationDeltaBytes = Math.round(
-      (forwardElevation - currentElevation) * 255,
+    const currentElevationByte = getGridCellPaletteElevationByte(
+      currentCell.col,
+      currentCell.row,
     );
+    const forwardElevationByte = getGridCellPaletteElevationByte(
+      forwardCell.col,
+      forwardCell.row,
+    );
+    const elevationDeltaBytes = forwardElevationByte - currentElevationByte;
     const moralePerInfluenceDot =
       BattleRoom.MORALE_MAX_SCORE /
       Math.max(
@@ -593,10 +596,10 @@ export class BattleRoom extends Room<BattleState> {
         (BattleRoom.MORALE_SAMPLE_RADIUS * 2 + 1) *
           (BattleRoom.MORALE_SAMPLE_RADIUS * 2 + 1),
       );
-    if (elevationDeltaBytes >= BattleRoom.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+    if (elevationDeltaBytes > 0) {
       return -moralePerInfluenceDot * BattleRoom.SLOPE_MORALE_DOT_EQUIVALENT;
     }
-    if (elevationDeltaBytes <= -BattleRoom.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+    if (elevationDeltaBytes < 0) {
       return moralePerInfluenceDot * BattleRoom.SLOPE_MORALE_DOT_EQUIVALENT;
     }
     return 0;
@@ -1630,6 +1633,7 @@ export class BattleRoom extends Room<BattleState> {
         moraleSampleRadius: BattleRoom.MORALE_SAMPLE_RADIUS,
         moraleMaxScore: BattleRoom.MORALE_MAX_SCORE,
         maxAbsInfluenceScore: BattleRoom.MAX_ABS_INFLUENCE_SCORE,
+        moraleInfluenceCurveExponent: this.runtimeTuning.moraleInfluenceCurveExponent,
         gridWidth: this.state.influenceGrid.width,
         gridHeight: this.state.influenceGrid.height,
         worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),

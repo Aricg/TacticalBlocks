@@ -21,6 +21,7 @@ export interface UnitMoraleScoreParams {
   moraleSampleRadius: number;
   moraleMaxScore: number;
   maxAbsInfluenceScore: number;
+  moraleInfluenceCurveExponent: number;
   gridWidth: number;
   gridHeight: number;
   worldToGridCoordinate: (x: number, y: number) => GridCoordinate;
@@ -33,6 +34,7 @@ export function getUnitMoraleScore({
   moraleSampleRadius,
   moraleMaxScore,
   maxAbsInfluenceScore,
+  moraleInfluenceCurveExponent,
   gridWidth,
   gridHeight,
   worldToGridCoordinate,
@@ -42,6 +44,7 @@ export function getUnitMoraleScore({
   const sampleCenter = worldToGridCoordinate(unit.x, unit.y);
   const teamSign = getTeamSign(unit.team);
   const influenceNormalization = Math.max(1, maxAbsInfluenceScore);
+  const influenceCurveExponent = Math.max(0.001, moraleInfluenceCurveExponent);
   let accumulatedFriendlyWeight = 0;
   let sampledCells = 0;
 
@@ -66,7 +69,10 @@ export function getUnitMoraleScore({
         -1,
         1,
       );
-      accumulatedFriendlyWeight += (normalizedAlignedScore + 1) * 0.5;
+      const curvedAlignedScore =
+        Math.sign(normalizedAlignedScore) *
+        Math.pow(Math.abs(normalizedAlignedScore), influenceCurveExponent);
+      accumulatedFriendlyWeight += (curvedAlignedScore + 1) * 0.5;
       sampledCells += 1;
     }
   }

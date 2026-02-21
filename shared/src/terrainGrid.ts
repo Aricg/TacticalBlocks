@@ -465,50 +465,50 @@ const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
     'gffgfgfffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' +
     'ggggghhgghgggghggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg',
   'random-frontier-01':
-    'gggggggggggggggggggggggggwwffwwggfwfghgggwgggggggggggggggfhhhfhgggggggfggghmhmhh' +
-    'ggggggggggggggggggggggggggwggfwwwwwfffggggggggggggggggggggfhhhgggggggggggfhhmmmh' +
-    'hffhggggggggggggggggggggggggggfwwwwfffggggggggggggggggggggggffffgggggggggffhmmmm' +
-    'gghfgggggggggggggggggggggggggggfwwwwffggggggggggggggggggggggffffggggggggggfhmmmh' +
-    'gggggggggggggggggggggggggggggggfwwwwfwgggfffggggggggggggggggfffffggggggggghmmmmm' +
-    'ggggggggggggggggggggggggggggggfwwwwwggggffffhggggggggggggggggfffffggggggggghmmmh' +
-    'ggggggggggggggggggggggggggggggfwwwwwggggffhhmhgggggggggggggggffffffggggggggghhhg' +
-    'gggggggggggggggggggggggggggggfgwwwwwgggggfhmmmhgggggggggggggffffffhggggggggggggg' +
-    'ggggggggggggggggggggggggggggfffwwwwwfgggghhhmmmhgggggggggggfffffghgggggggggggggg' +
-    'ggggggggggggggggggggggggggggffgwwwwwffggghhhmmhggggggggggggfffgggggggggggggggggg' +
-    'gggggggggggggggggggggggggggghfwwwwwgffhggghhhhhhgggggggggggfffgggggggggggggggggg' +
-    'ggggggggggggggggggggggggggggfwwwwwwfghfggghhhhhhggggggggggfffffffggggggggggggggg' +
-    'ggggggggggggggggggggggggggggfwwwwwwfhmhggfhhhhmhgggggggggffffffffggggggggggggggg' +
-    'fggggggggggggggggggggggggggggwwwwwfffhgfhhhhgggggggggggggfffffffgggggggggggggggg' +
-    'hggggggggggggggggggggggggggggwwwwwgggffffgggggggggggggggfffffffggggggggggggggggg' +
-    'gggggggggggggggggggggggggggggwwwwwghfffffggggggggggggggffffffffggggggggggggggggg' +
-    'ggggggggggggggggggggggggggggggwwwwfffffffggggggggggggggfffggfffggggggggggggggggg' +
-    'ggggggggggggggggggggggggggggggwwwwgfffgggggggggggggggghggggggffggggggggggggggggg' +
-    'gggggggggggggggggggggggggggggggwwwwfgggggggggggggggggghfggggffhggggggggggggggggg' +
-    'ggggggggggggggggggggggggggggggggwwwwwgfggggggggggggggghhgggfffhggghggggggggggggg' +
-    'ggggggggggggghgggggggggggggggggggggwwwwwgggggggggggggghhgffffhfgfhhhgggggggggggg' +
-    'hggggggggggggffggggggggggggggggggghgghghgggggggggggggffffhfffgghhhhhhhgggggggggg' +
-    'fgggggggggggghhggggggggggggggggggggggggggggggggggggfffffhhffffhhhhhhhhhggggggggg' +
-    'hgggghhhhgggfhhggggggggggggggggggggggggggggggggggffffffhhhfffhggghhhhhhggggggggg' +
-    'fggffhhhfhhhfgggggggggggggggggggggggggggwwwggggggffggfhmhhhffggghffgghfggggggggg' +
-    'gghfffhgghhhfggggggggggghhggggggggggggggwwwwwgggggggghmhhggffggggfggfffggggggggg' +
-    'gggffffhhhhhggghhgggggghhhhggggggggggggggggwwwgggggggghhhggffggggggggfgggggggfhg' +
-    'gggfffffhhhggghhhhhmhfhhhhggggggggggggggggggwwwwwggggghhhhhfggggggggggggggggghhf' +
-    'ggggfffghhhgggghhhhhhhhhhgggggggggggggggggggfwwwwwgggghhhhhhfggggggggggggggggghf' +
-    'ggggggggfhhhgggghhhhhhhfgggggggggggggggggghhhfgwwwwfggfhhhhhhhggggggggggggggggfh' +
-    'gggggggghhhhggggghhhhhhggggggggghgggggggghhhhhggwwwwwwfhhhhhhfhgggggggggggggggff' +
-    'gggggggghhhhhhhhfhhhhhhghffghhghhhgggggghhhhhggggwwwwwwghfhffffgggggggggggggggfh' +
-    'gggggggghhhhhhhhhfhhhhhhmhhhhhffhhhgggggghhhhhggggwwwwwgffgfffffgggggggggggggggg' +
-    'ggggggggfhhhhhgggghhhhhmmhhhmmhgfhhhggggghhhhhggggwwwwwghggggghffggggggggggggggg' +
-    'ggfhhgggghhhhggggggghhmmmmmmmmhhfghhhghfhghhhhhggggwwwwfhgggghhhffgggggggggggggg' +
-    'ggfhhhghfhhhhhgggggggghmmmmmmmhhhgfhfhfhmggghhhggggwwwwffggghmhhffgggggggggggggf' +
-    'gghhhmmmhhhhhfggggggggghhmmmmhhhhhhfggffgggggggggggwwwwwfffhmmmhfhgggggggggggggh' +
-    'gghhhmmmmhhhfggggggggggghhmmmhhhhhhhgggggggggggfhggwwwwwffghmmmmhggggggggggggggh' +
-    'gghhhhhmmhhhgggggggggggggfhmmhhhgggggggggggggggffgggwwwwfgghhmmhgggggggggggggggh' +
-    'ggffhhhhhmhggggggggggggggghmhhhgggggggggggggggggggggwwwfggghhhhhhgggggggggggggfh' +
-    'gggffhgffhgggggggggggggggghhhhgggggggggggggggggggggwwwgggggghhhhhgggggggggggggfh' +
-    'ggggggggfghhgggggggggggghhhhhgggggggggggggggggggggwwwggggggghhhhgggggggggggggggf' +
-    'ggggggggghmhfgggggggggghhhhhhggggggggggggggggggggwwwwggggggggfhggggggggggggggggg' +
-    'gggggggghmmmhfggggggggghhmhhffggggfhgggfggggggggfwwwwwfgggggggfggggggggggggggggg',
+    'ggggfhgfwgghfhgghfgggffwfhfgwwwwwwwwwggggggggwfhmmmhhhhggggggggggggggggwgggggfhg' +
+    'ggggggggggggggggfggggggfhgwwwwwwwwwwwwggggggffhhmmmmmhhhggggggggggggggggggggggfg' +
+    'wgggggggggggggggggggggggggwwwwwwwwwwwwwfgggffhhhmmmmmmhhhhhggggggggggggggggggggh' +
+    'wgggggwgggggggggggggggggggwwwwwwwwwwwwwwggggghhhmmmmmmmhhhhhhgggggggggggggggggff' +
+    'ggggggggggggggggggggggggggwwwwwwwwwwwwwwwggggghmmmhhmmmhhhhhgggfggggghhggggggggf' +
+    'ggggggggggggggggggggwgggggwwwwwwwwwwwwwwwwffggfhmmhhhmhhhhhhfggfgggggmhhgggggggh' +
+    'gggggggggggggggggggggggggfwwwwwwwwwwwwwwwwggggfghhhhfhghghggggggggggggmmgggggggg' +
+    'ggggggggggggggggggggggggffwwwwwwwwwwwwwwwwfggggfhhhhgfgggghggggggggggggggggggggw' +
+    'gggmhgggggggggggggggggggfgwwwwwwwwwwwwwwwwwgggfhhhhmhhggfhhhggfwgggggggggggggggf' +
+    'ggghfggggggggggggggggggggfwwwwwwwwwwwwwwwwwhgghmhhmmmmhghhhhhhfggggggggggggggggg' +
+    'wgggffgggggggggggggggggggwwwwwwwwwwwwwwwwwwwghmmhmmmmmhhfhhhhhhggggggggggggggggh' +
+    'ggggffggggggggfffffgggggggwwwwwwwwwwwwwwwwwwffhhghmmmmhhggfhmmhfgggggggggggggggf' +
+    'gggghhhggghhfffffhfwgggggggwwwwwwwwwwwwwwwwwghhhgghmmmhhgghhmmhfgggggggggggggggg' +
+    'ggghhhhhhhhgffhfwgwwwggggggwwwwwwwwwwwwwwwwwghhmgghhhhhhhgghhmmhggggggggggmggggg' +
+    'fgghhghhhffhhghgggggggggggffwwwwwwwwwwwwwwwwwghhgggghhhhhhggghhggggggggggggggggg' +
+    'hfggggghffffggggwggggggggggffwwwwwwwwwwwwwwwwwggggggfggghggggggggggggggggggggggg' +
+    'ffgggggghfgggggfwgggwggfwgggggwwwwwwwwwwwwwwwfgggwgggggghggggggggggggggggggfhggg' +
+    'hhgggghhhggggggfgggwgggffffffffwwwwwwwwwwwwwggggggggggghhhgggggfgfggggghhggwffgg' +
+    'ggggggfhhhgggggggggghggfggffffggwwwwwwwwwwwwggggggggggghhhgggfffffggghfhhffghhgg' +
+    'ggggggfhhggggggggggghfggggffffggwwwwwwwwwwwwgggggggggggfhmhfffffffhghffgfhhhmmhf' +
+    'ggggggghhfwggggggggwffggggggffgggwwwwwwwwwwgggggggggggfhhhhhfffffffffffwghhhmmmh' +
+    'gwgggggghhfhhhgggggwfhggggghhfgggwwwwwwwwwggggggggggggfhhhhfgffffffffhfghhhhhmmm' +
+    'ggggggggggghhhhgggggghhgggghhggfffgfwwgggggggggggggggggghhgggffffgghhhhffffhhhhm' +
+    'gggggggggffhhhhhhhhfwghfggghhfhfffggggggggggggggggggggggggggghffhgghhfggffgfhfgh' +
+    'ggggggggffhhhhhhhhhffffffhfhhgffffgggggggggggggggggggggggggggggghgffffgghgggffgg' +
+    'ghhggggghhhhfhhhhhhfffffffgfgffggfhgggggggggfgggfffggggggghffgggffgfffhhfggggwgw' +
+    'hhhhggggghhgwfhfhhhffffffwwwffhggffgggwgggggfggwgwfgggggghhhgfggfffhhffhgggggggg' +
+    'hhhhhhfgghfgghghghfffffwwwwwwwfgggwgggwggggggggfhgggggggghhhhfhfgfhhhghmhggggggf' +
+    'mmmmmmhfhgggghffhhhfwfwwwwwwwwfffwgggwggwfgggffwfhggggggghhhhhfhfgghfgghfggggggh' +
+    'hmmmmhmhhgggggfffhfffwwwwwwwwwwfgggggffffffgggwfhhgggggghfhhffghhggfgghhfggggggg' +
+    'fhhmhghfgggggggffffffwwwwwwwwwwfggggffffffhgggghggggggghmhhhgfhhhggffhhhfggggghh' +
+    'ggghgggggggggfhhfhfffwwwwwwwwwwgggggwfwwhghggghffwfggghhmmhhhghhhhhhfffgggggghmm' +
+    'fghfgggggggggwggwfgfffwwwwwwwwgggggggggghhgggghfhfgggghhmmhhhhmmmmhhhfffgfhhfhmm' +
+    'fhmhhggggggggggffwgffffwwwwwwwgggggggggghffhggggggghfhfhhhhghmmmmmhhhffggfffhmmm' +
+    'fhmmmggggggggggghgfffffwwwwwwffgggggggwggwffgggggggfffhfhhgghmmmmhggffggggghghmm' +
+    'wghmggggggggggggffwggggggwwwffggwffgggffggghfggfggghfffffhgghmmmhgggggggfghhhfhm' +
+    'ggghgggggggggggfhgggggggggggwwggwwfhgwfhfhhhhhffgggggffffggghhmhmhggggggfhhhhffh' +
+    'gggfhggggggggggwfwfwfgggggggffgfffgfgghhghhhhfffhgggghfgggggghhghfgggggghmmhgghm' +
+    'gggfhgfgggggggggggwwfggffhggwwfffffhgwgggfggfffhffggggffgggggggggfggggghmmmhhffh' +
+    'ggghmhfggggggggggfwwggghffffgwffhggggfhggfggffhhhggggffffgggggggggggggghmmhhmhfg' +
+    'wggfhgggggggggggwfggggggfwfwggfhmgggghfgffgghhhhhhghfggfffgggggggggggghmmhhghfff' +
+    'gfffffggghfgggggfwwggggggwggwfhmggggggffffgggfhhhhhffgggffgggggggggggfhhmhhgggfg' +
+    'hhfffffgghhgggwfgwggggggggggwfgggggggffffffgfffhhhhffhhfffggggggggggghhhmmhhgggg' +
+    'gfhggfgggfgfwgghfgggwgggggggggggggghfhfhghgfhfghhhhgffghffggggggggggggfghmmhfgwf',
 };
 
 const ELEVATION_HEX_GRID_BY_MAP_ID: Record<string, string> = {
@@ -963,50 +963,50 @@ const ELEVATION_HEX_GRID_BY_MAP_ID: Record<string, string> = {
     '707c7c707c707c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070' +
     '7070707070b4b47070b470707070b47070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070',
   'random-frontier-01':
-    '70706e6b6c6f6e6b6b6c6c6c6d6e6d6f7373706d6c6d6f727414168d8b1314777585107f6b986f737714737272737475767879797876767674849898d08a986e6e6d69686d72876e6b6c98e7b4e69898' +
-    '7273706f7172706d6d6d6e7071727172737473706d6b6d707274137472851111100f0e7f7f806e71757774706e6f71727376777673706f7173718298b4b46e6b6d6e6c6c6f74736f6c8198b4eaeae998' +
-    'b48785b473726f6e6e6e6f7375767676757575736f6c6c6e6f706f6e6e6f84110f0e0e8080816f71757674706d6d6f6f6f727474726e6c6f72716e6e84827d7d6d6f6f6d6f7373706e8387b4ecedeeec' +
-    '7674b485716e6b6c6e6f6f72757676767573727271706f706f6e6c6c6e7072850f0e0f0f7f817174757372716f6e6f6e6d6e717474716e7072716f6e82807e806f71706e6e7172706e7088d0ebedefd0' +
-    '7874706f6e6b696a6d6e6e6f71737373716f6f707274757573706d6d6f7171840d0c0c0d7f0f727575858686706f6f6f6d6c6f73767572727270717285818184857272706f7171706f71b4eae9eaeceb' +
-    '77736e6b6c6c6b6b6d6d6b6c6e717372706f6f707275787876716e6c6d6f830d0b0a0b0c6d6f717487868788d06e6f716f6d6d70747473747371707372838284848472727373737271707198e5e5e698' +
-    '7674706c6c6f6e6d6d6c6b6c6f747776747474737274767875706c6a6b6e830d0c0c0c0c6c6d6f718483d0d0f0986e70706e6d6e6f6f707374706e6f6f8383828181847374747474716d6d6d9898986d' +
-    '7676736f6e70706f6f6d6d6e717578777777767676777776726e6c6c6e84720f0f10100d6a6a6c6f6f80b4f0eeec986d6e6f6e6d6c6c6d7173716f6d818284848281b47474727374726d6c6d6b6a6968' +
-    '7574726f6f71706f6e6e7071717274747476777879797874706e6f71858888121213120f7f6a6b6c6db4b4b4efeceb986d6f706e6d6d6d6e717372838183888a74b4737573707073727070716f6b6764' +
-    '716f6f6f70716e6b6a6c70716f6e6f71727577767575757370717374868977151414121082816d6b6dd0d0d0f3ef986c6e7071706f706f6c6d727485848677787774737473706e7071727576736d6764' +
-    '6d6f717171706d68686c6f6f6c6c6e7072737473706e70707072747298851415141313738685b46d6e73d0d0d0d0b4b46f71716f6f71716d6c7073868689787774717070706e6d6e7072767875706a65' +
-    '6e7273716e6d6b696b6f716f6d6c6d6f717171716e6c6e6f707173707f0d10111111138875d0856f6f72d0d0d0d0d0b46f706f6c6c7071707072868586898b8a856e6d6d6d6c6b6d7071737675726c67' +
-    '7172716e6b6a6a6a6e727472706e6c6d707070737270717170707372800c0c0d0d0e1087d0f1d0726f81b4d0d0d0f2b46d6f6e6b6b6e70727387878584868988846f6f6f6e6c6c6f6f6f71757775706a' +
-    '86716e6c6b69696b6e727473726f6c6c6f717274767676736f6f72736f0d0d0d0b0b7e8283b47387b498b4b47374726f6e6e6e6e6e6f7072738687858383858672737373716e6f706e6e71767878746f' +
-    '986e6c6c6b69686a6c6e70706e6d6c6c6f717171747777726c6b6e71700e0e0e0d0d6d6d6c7e8284826e6f6f707272716e6c6e7073737272848687848283867475767674727071717071737475767471' +
-    '73706d6d6d6a67696b6c6c6c6c6c6d6d6e6f6f6d6f73746f6a696c6f700f0e0e0e0e6f987e7d7f81826f6f6d6e7072706e6c6d70747675878587888583858a787877767573716f6f7173737170706f6d' +
-    '77736f6f716f6b6b6d6e6d6c6d6e706e6c6b6c6c6d70706d6b6b6d6f72710e0d0e0e8281818283838471706d6e7172716f6d6d6f7374748684867675888a8b787777787674716d6d7074736f6d6e6c68' +
-    '78746f6f72726f6e717272706f70716f6b6a6a6b6c6e7070706f6e6f72710f0e0e0d6d80828775747473716f71727373716e6b6d7172986d6d707477788d8a747476787774726f6e7174726e6d6e6c68' +
-    '73706c6c71726f7073757674706e6e6e6d6b6a6a6b6d6f7172716e6e717170100f0d0c81707377777573717173747574716d6a6d717298806e7173758c8ed07372747675747574727374726d6d6e6e6d' +
-    '6e6c6a6a6f706e6e73757674716e6c6c6e6e6d6d6c6c6c6d6f706e6f717271700f0d0d0f107289777673707072737373716e6d707372989872747184888bd0737273d075767879777574716f6e6f7071' +
-    '6a6c6c6c6e706e6e7072747473986e6d6f71706f6e6c6967696c6e717373716e6d6c6d0e0f0f11147774706f6f6f707171707173736f98987388838083d0887487d0d0d075777a797572717272707071' +
-    '986e6f6e6f706f6e6e6f71737386826e70706f6f6f6e6b67686c6f7172726f6c6a6a986f70b475d07673706e6d6e717475737474707c7a7e84b48281837476d0d0d0d0b4b4d07878736f6f72716e6e6f' +
-    '8471707071706f6e6d6e6f707298987071706e6d6f706e6c6d6f7071706e6d6c6b6c6f72737576767573706e6d6e7377777675857f7a797b98b484848688d0d0d0d0b4b4b4b4d076716d6c6d6d6c6c6e' +
-    'b471717272989898986d6e6e8498987071706e6e7071707272717173726e6d6e6e6f7173747574737373716f6d6e7275758988847e7e7f9898b4858686d0737272d0b498b4b4b4726f6d6b6b6c6d6c6d' +
-    '88717186859898987d989898846e6d6f706e6e71737270727471717574706d6e6f70717272716f6e0f1111716f6f7071718585706f84d0efb4d0b48588747272d086846f6e98816c6b6b6a6b6e6f6e6e' +
-    '727098818081986f6c989898856f7072706d6f7476726e70b4b46f71716f6d6d6e7072716f6e6c6c0f1113131170707070706f6f71d0f2d0d07271878b77757472836d6c81817f6968696b6d70727274' +
-    '6e6d6b7d7d81859898989898717273b4b46f727777726eb4b498986d6c6b6b6b6d707374726f6e6e7175771312117171706f6e6f7273d0b4d07170878b7876736f6d6b6c6f856f6c6a6b6e707389d07a' +
-    '6d6c6b7d7f8386869898986d7071989898b4d0f5d084b4b4b498696a6b6a6a6a6b6e737675706e707375757412121111116f6f727371b4b4b4d0b485757572706f6f6d6e707272706d6c6f7172d0d090' +
-    '71706d6d83848572b498986d6d6c6c98b4b4d0d0d0b4b4d0d06c68696d6e6d6b6a6d7175746f6c6e7174737286111213131171737270b4d0d0d0d0d087716d6d70716f6e6f7172716c6a6c6e6f72d08c' +
-    '7574706e6f6f6f7188d0b4b46f6d6d71b4d0d0d0b4b4b483706c68696e71706d6c6d6f72726f6d6d6e71d0d0d085731313131183707082d0d0d0d0d0d0b46c6d6f716f6c6d7073706b686a6e70718598' +
-    '7674706d6d6d6e71b4b4d0d07472727475d0d0d0b4b4986c6c6a68696d70706f986e6e70717273706ed0d0d0d0d073731112100e0e1083b4d0d0d0d0d083b46f7172706d6d70716e6a696a6d7171817d' +
-    '72726f6d6e7072729898b4d0d0d0d0d08ad0d0d0b4b4986a987d7e6cb4b470b4b4b4706f7175767398d0d0b4b4727373721111101011106fb484d08787848373747373716f6f6d6a696a6a6b6f6f8098' +
-    '6c6f707072757573989898b4d0d0d0d0d087d0d0b4b49898edb4b4b4b4b48381b4d0d071717577746fb4989898b473767775141311100f6e818373878787868876747474726e6b696a6c6a6a6c6d6d6e' +
-    '696e71737474737284b4b4b4b4b472747471b4d0d0b4b4f1f3d0d0b4eeefb46f85d0d0d0737575726e989898989871777b7a1513100e0e6eb47275757576d08988727172716e6b6b6e6f6c696a6b6c6e' +
-    '6a6d8398b4706f7072b4d0d0b470707273707072d0d0f4f5f8faf8f2edeb98988576d0d0d074d084b46d98989898b4757a7b77120f0e0f84d074767675d0d0d085816e6f6f6f6d6d70706c69686a6b6d' +
-    '6c6c7f9898986d9885b4d0b4b4986e6f707070727272d0f4f6fbfcf6efea9898b47389d086d084b4ed6f6d6d98989872767775131110118788747576d0f2d0d0817e6e7070707070716f6c69696b6e82' +
-    '6d6b989898e5e3e398b4b4b498826e6d6d6d6e70717272d0d0f7f9f6f09898989898b488727283816e707171706f70717172751613111112868788d0eeeceb987e986f717070717271706e6d6c6e72d0' +
-    '6c6c9898b4e8e6e5e8b4b498816f6f6d6c6b6c6e72727271d0d0f1efec9898989898b4d07474726f6f71727171717183b471751715131212868572b4ece9e7e6986e717270707070707171706f6f74d0' +
-    '6d6fb4b4d0b498e3e6b4b4986f7071706e6d6c6f727270707082b4eae89898b470707274767776737272706e6f716f818373757716161514887271b4b4ece8986f70717271706e6d6f717272707173b4' +
-    '6e70878ad0b4989898e6987170727472706f6e70727270707171b4e998989871727374767878767474726f6d6f706d6e737676761516158a757371b4d0d0b498b471707172726f6e6f72737371728698' +
-    '6d6e708789b472848298717172757673706f7071737473727270989898986e70717275777776747272716e6e706f6d70757776121111737273747475d0b49898b4716f6f717373727173747371738598' +
-    '6f6f7071737474738571b4b4737675716e6f717275767472b4989898986e6d6d6e707274737272717070706f6e6d6c70757713110f70706f71757776d0b4b4986f6f6e6c6d7175757271727171737280' +
-    '6e6e70707071747573b4e8b4867575716e6f7172737473b4b4b4b4b4986d6c6c6d6e707272737473707172706d6b6c70751413100e6f7071747878767488b4706e6f6e6a6a717777736f70727374716c' +
-    '696a6d6f6d6f7475b4e7e3e398897774706f6f7071727198b4f2d0d0827e6b6d6e6e83b47477788a717073726d6a6d728a15130f0d0d8374787a79757374866e6e716f6a6a707778736f71747676706a',
+    '6f6e6f7184b4778a157775b483986a6c987f6b6e718584108dd08c7314171814100f1011117271727476797874108198e7e8e9b4b498b47375747374777977747374757573726f0d6c6f717372849870' +
+    '6f7173716e6e7071727473706d6a6a6c806d6e7173716f82d07a1714131516141110101212127272747779798a87d0b4e9eaecebebb4d0d0767573727475726e6f7274747472706e6e707272706f816d' +
+    '117475706b6a6a6b6d7071716e6a6a6e6f6e6f7172706d6b707718151313131211101113131211857274788e8bd0d0d0ececededeef0d0d0d0d0b47172716e6b6d71737374737170717273726f6e6e98' +
+    '1274736f6d6c0c6a6a6c7072706b6c7072706f6f706f6d6b6e741615111010100f101213131210106f71757775d0d0d0efedecedeff0f0d0b4b4b4b4b46f6e6e7071717172727070727373716e6d8386' +
+    '70717070706f6d6a696b6f72706d6e71727170717171716f6f7213120e0d0e0d0c0e111211100f11117172737373d0f0efedb4b4edeeeeb4b49898b46f6f6f8472726f6e7098986f7172716e6c6c6e85' +
+    '6e6f707171706d6a6a6c70737270707171717374117271706f6f0f0d0b0c0d0c0b0c0e0e0f0f0f1213128484727589d0ececb4b498e9b4d0d09898988070718673726e6c6ee498987172716e6b6a6c98' +
+    '6d707271706f6d6c6c6e73767572707070707273716f6d6e6f810c0a090a0c0b0b0b0c0c0e0f1012131372717174897098b4b4987d986cb471b46b6b6e72737373726f6d6e6ee1e16f7274716d6b6c6c' +
+    '6f7273716f70706e6d6e727474726f6e6d6e6f6f6e6c6a6b82830b09090b0c0b0b0d0d0c0e0f0f0f111185706e71717f98b4b4986a7e6d707170986d71737270717171706f6e6c6c6c707575716e6e0c' +
+    '6f7274e69871726f6c6c6e7071706e6d6c6b6c6d6e6e6c6c816f0d0b0b0e0f0e0e0f0e0d0e0f0f0e0e0f106f6d6e81b4b4d0b4ed98b4717184d0b4b47372830d6e6e6f6f6e6d6d6b696b717574706d7f' +
+    '6b6f71988272726e6a6a6c6f71706e6d6c6c6e707374726f6e820e0d0e10111111100e0d0d0e0e0d0c0e11987170b4eed0d0f3f2f1f3d071b4b4b4b4d0b4826e6c6b6c6d6c6c6b6a67676c71726f6b69' +
+    '0b6d6e6d8185716d6a6b6c6f7272706f6e707274767777736f0d0e0f1012111010100f0e0d0d0e0d0b0d111474d0eff1d0f8f8f7f5f6d0d081b4b4b4b498986d6b6a6b6c6c6b6b6a69686a6d6e6d6b98' +
+    '6b6d6e6d8184716f6e6f6e6f727487858283867476777876716f0e0f1011100e0d0e10100e0e0f0e0c0c10138784b4d073d0f9f8f5f4d0b46e6f83b4e8e5987e6a6b6e6f6e6e6f6f6d6b6b6c6d6f6f81' +
+    '716f6e6e9898b4727373b4b48585848280988411757575747270700e0e0f0e0c0b0e11110f1012100c0c0e0f71b4d0d07273d0f5f3f2d0d0706fb4b4e7e698816d6d6f70717374736f6d6c6e71747471' +
+    '76726f989898b4d0d0d0d0748683987e0a6e1012127271717272720e0d0d0e0c0c0e100e0e101211100e0c0c6fd0d0f37473d0d0d0d0d0d0d072709898e5e9b46f6d6c6e707273716e6ce37377787775' +
+    '887373b49870b4b4d08887b4b46f986b6b6f7475726f6e70727388870d0d0e0f10100f0c0b0d1012120f0a090c71d0d07776726fb4b4b4d0d0d0746f6b9898716f6b6b6d6f706f6d6b6b707679797879' +
+    '98857574706f70b4868784826f6e6e6e0d6e70716f6d6e7173737387860e101314120e0a090b0d10110f0a070a0d717275757370846f6e6cb47476726d6c6f71706d6f72726f6d6b6a6a6e757776787b' +
+    '8183747572707071b486706e6e6f70840f6d6d6d0c6c6d83117271717172121415120d0a0a0b0c0d0f0e0b08087e6d6e6f0f727271716f6b987074726e6c6f71706f727575726e6c6b6a6c85d074767a' +
+    '9898737473709898b472716f6f7070826e6c6a0b6c6c6b808385848385878912110f0d0b0c0c0d0e0f0f0e0c6a6a6c6d6e7071727273709898986f6e6d6d6e816e81707375747198986b6c0e84857578' +
+    '6c707474726f809898b4737271716f6d6c6a696b986c6c8070718383868772710f0f0e0e0d0d0e0e0f1010106f6e6f70717170707273709898986d6c6d81807e8082707072d085989881816d98987477' +
+    '70747675726e80989871747574726f6e6e6c6b6d98806d707271838487887270101011100e0c0d0e0f1012127270717373726f707374708098e9b482828482808286b4709884836f83b4b498e2e4d08c' +
+    '75777876726f6fb4b48711747573707072706d0e82806c6e717171728786706f711111100d0c0d0e0f1112747371707274716f707272829898d0d0d086858383858684828282810c70d0d0d0e5e5ead0' +
+    '7815767472707175d0d083b4b4b4707175736e0c81986b6b6f7171b4b4846e6d6d0f100f0d0e0f0f0f11747473706e7072706e6e6f6f809898d0d088728382838482828384b4816c98d0d0d0b4e6e9ef' +
+    '767573716f70717576726f98b4b4b47377746d696b98986b6e706f98b472707f7d7f70830f10747472727170706e6c6f716f6d6d6d6e6e6e98b472716f818182816d6e9898b4b48182878bd0d098b4ec' +
+    '7474716e6e6e6e6f718383b4b4b4b4d0d0d0987c0a69987c6d6e6e98b487b4837e7e6f717173767675716d6b6b6b6d707271706f6e6f72727070717171b48384b46e6e98988472728487768ab48371d0' +
+    '7373716f70716e6c7f83d0d0d0b4b4b4d0d0b481807d7a7a7c98829898728886817e6e717374757675706c696a6c6e717373727170707374716f707172717172d072828081847474d075767587857374' +
+    '71b4b4717375726e98b4d0d088989898b4d0d08886817c79797f72856f8386726f7f986f74767675736f6c6a7f6f71718585836f6f6f7172706e988284706f71878771828386d0d08774757575117311' +
+    '9898b4b47376767372d0d074107e9880b4d0d0898885817d7c0e1212828098706e7e7d6e74771374726f6d6c817374116e0c7f6c6e6e6f6f6f98989870826d6f868786d0b48486d0747271727272716f' +
+    '9898b4b4b4d08a75729882706f986998709883868887860f0d0e100f0e0d806e6d6c0c6f7373107171706f6d6e73748198696a6c6d6f6f6f70b4b4b4d083b4837489d0d0b46fd0f2d0726e6c6c6e6e7f' +
+    'e4e6e9ebeaecd087986b6c6f71987f8198989884108712110f0e0d0c0c0e8282810e6f70710f6e7010836f6f7186850e7a986b6d6e7171706fb4b4d0d0d084d08c7978d0836f73d08a716c68686a6d98' +
+    '98e5eaeeefd0efb4986a6b707371838384988486881110100e0d0c0a0b0e10836f7071706e808185868280717474128198986b6e71737270b482b4d0858573d0d07876856f6fd0d088716d69686a6f71' +
+    '8298b4eed079d0846e6d6f71727171878787888a8a11100e0d0d0c0a0a0d10816e70716f8181858988829870737473b46e6a6b70737372b4e9b4d0d07184d0d0d074728383b4b4d087726f6c6b6db4b4' +
+    '6e6f72d07675716e707273747387d0d08ad08a8a8a12110f0e0e0e0d0c0d0d6c6c6e6e6f0f8211149871986e7172b486840f7f6f7171b4b4e9edd0d0d071d0d0d0d0d0d086848473747271706e98e8e8' +
+    '7f6d9884706f6c6b6f73757675127677138975878687110f0f10111110106d6b6b6b6b6e6f6f7176d0d070717372b485b4846e6d6f71b4b4eceed0d0d0d0fafcf9f4d0d0d08585887588d0d083b4e7e6' +
+    '7c98e098986a696a6e727374747576898612738483858610101111111111706d6c6a696d70717274d08988d07774717070706e9882d085b4b4b4986dd0f5fcfffbf4d0d0d084857475898887d0eae7e3' +
+    '7998dddcdb68696a6d706f6d6e727472987082828283861212100f0e0e8385726f6a686b717512737210898b7774706e6e7171818184d08298986a6bb4f3fafffbd06e6e82847172737375d075d0e5df' +
+    '096998de696a6b6c6e6f6d6a6b70727183810f6e6e6f727474110e0d7e8071730e7d7a6b71748684707273d0877270806e7172987e8083817d986a6cb4f2f6fad0716f6e6e6f71708370d0d0b48198dd' +
+    '6a6d6e986c6e6e6e6f6e6c6b6d707082b471706f6e6f71727171706e0d0d6f700c097b987111819882b4b4b4b4b482806f71716c687b7f7f7d6a6c6fd0d0f4d0f5d072706e6f71718298b4b4987d7d98' +
+    '71717082987070706f6d6d6e6f6f6e0e82118610826f71706f6f6f6f807f6d7e7d7c6b80706f989870b4b49898848382b4716f6a66987d6b6b6d707071d0d071d086727170717271b4e8e9b46e6c98e0' +
+    '77757386b4728571706e6f6f6f6e6c6b6d6f111084717284839870711212827f7e7f80986d0c6c6f748a7370828383b483836d69676a7e7f6c6e706f6e7071706e827070717272b4e9e8eab4b4828098' +
+    '787676d0ecb48371706f70706f6d6a68697e0e0f717273b48485878877158581986e6e6c6a7c9871778e76728382b4b4b46f6c6b6c8183827f6d6e6e6d6f706e6c6c6e6e6f7071b4eae8b4d0ebb48371' +
+    '13747388b46e6d6e6d6d71716e6c69670b7c6b6c6f7272708310881477768598e5706e6c6b987f718c8e77739898b4b4b4986e9883737484807e6c6e6f6f6e6c6c6e6f707070d0efedb4b47198828486' +
+    '74848282817e6b6c6b9886736e6b69687a0d0c6b6e71716f6f107373128598e572726e6c6d6f83878b8c75716e8198989898988486747371817d6a6c6f6f6d6c6e7072727285d0d0edb4986d6c6d8473' +
+    'd0b48181807f7f6c6eb4d0746f6c0b7c6a0d6b6d707271707071706f0f83717274726d6c7087898b8d8d8a72848483989898b48685b4b48483806c6c6e6f6f6d6e71727171b4b4b4e6e398986a6b7074' +
+    '7a89b46f70836e6e718774870e6e6d987c6a6c701274737272726f6c6c6f727574706d9885d08dd07cd0788bd08971b4b4d0d074817e6c9883826f6d6e71716d6c6f716f6e6e806a98dde0987b690e87',
 };
 
 const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
@@ -1017,6 +1017,87 @@ const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
   m: 'mountains',
   u: 'unknown',
 };
+
+type TerrainElevationQuantizationConfig = {
+  min: number;
+  max: number;
+  swatchCount: number;
+};
+
+const ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE: Record<
+  TerrainType,
+  TerrainElevationQuantizationConfig
+> = {
+  water: { min: 8, max: 28, swatchCount: 2 },
+  grass: { min: 104, max: 120, swatchCount: 1 },
+  forest: { min: 116, max: 138, swatchCount: 2 },
+  hills: { min: 152, max: 208, swatchCount: 5 },
+  mountains: { min: 218, max: 248, swatchCount: 18 },
+  unknown: { min: 112, max: 112, swatchCount: 1 },
+};
+
+function buildTerrainElevationLevels({
+  min,
+  max,
+  swatchCount,
+}: TerrainElevationQuantizationConfig): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || swatchCount <= 0) {
+    return [112];
+  }
+
+  const levels: number[] = [];
+  for (let index = 0; index < swatchCount; index += 1) {
+    const ratio = swatchCount <= 1 ? 1 : 1 - index / (swatchCount - 1);
+    const byteValue = Math.round(min + (max - min) * ratio);
+    levels.push(Math.max(0, Math.min(255, byteValue)));
+  }
+
+  return Array.from(new Set(levels)).sort((a, b) => a - b);
+}
+
+const ELEVATION_LEVELS_BY_TERRAIN_TYPE: Record<TerrainType, number[]> = {
+  water: buildTerrainElevationLevels(
+    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.water,
+  ),
+  grass: buildTerrainElevationLevels(
+    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.grass,
+  ),
+  forest: buildTerrainElevationLevels(
+    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.forest,
+  ),
+  hills: buildTerrainElevationLevels(
+    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.hills,
+  ),
+  mountains: buildTerrainElevationLevels(
+    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.mountains,
+  ),
+  unknown: buildTerrainElevationLevels(
+    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.unknown,
+  ),
+};
+
+function quantizeElevationByteToPaletteLevel(
+  elevationByte: number,
+  levels: readonly number[],
+): number {
+  if (levels.length === 0) {
+    return 0;
+  }
+
+  const clampedElevationByte = Math.max(0, Math.min(255, Math.round(elevationByte)));
+  let closestLevel = levels[0];
+  let closestDistance = Math.abs(clampedElevationByte - closestLevel);
+  for (let index = 1; index < levels.length; index += 1) {
+    const level = levels[index];
+    const distance = Math.abs(clampedElevationByte - level);
+    if (distance < closestDistance) {
+      closestLevel = level;
+      closestDistance = distance;
+    }
+  }
+
+  return closestLevel;
+}
 
 function decodeElevationHexGrid(elevationHexGrid: string): Uint8Array {
   const expectedLength = TERRAIN_GRID_WIDTH * TERRAIN_GRID_HEIGHT;
@@ -1106,12 +1187,15 @@ const MOUNTAIN_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
     
   ],
   'random-frontier-01': [
-    75, 77, 156, 157, 158, 236, 237, 238, 239, 316, 317, 318, 395, 396, 397, 398,
-    399, 476, 477, 478, 524, 603, 604, 605, 684, 685, 686, 764, 765, 1975, 2054, 2584,
-    2663, 2664, 2668, 2669, 2742, 2743, 2744, 2745, 2746, 2747, 2748, 2749, 2823, 2824, 2825, 2826,
-    2827, 2828, 2829, 2861, 2885, 2886, 2887, 2905, 2906, 2907, 2908, 2940, 2941, 2942, 2965, 2966,
-    2967, 2968, 2986, 2987, 2988, 3020, 3021, 3022, 3023, 3047, 3048, 3067, 3068, 3101, 3102, 3129,
-    3147, 3370, 3449, 3450, 3451,
+    48, 49, 50, 128, 129, 130, 131, 132, 208, 209, 210, 211, 212, 213, 288, 289,
+    290, 291, 292, 293, 294, 367, 368, 369, 372, 373, 374, 448, 449, 453, 469, 550,
+    551, 691, 767, 770, 771, 772, 773, 846, 847, 849, 850, 851, 852, 853, 930, 931,
+    932, 933, 940, 941, 1011, 1012, 1013, 1020, 1021, 1101, 1102, 1596, 1597, 1676, 1677, 1678,
+    1757, 1758, 1759, 1839, 2240, 2241, 2242, 2243, 2244, 2245, 2321, 2322, 2323, 2324, 2326, 2403,
+    2456, 2536, 2537, 2558, 2559, 2616, 2617, 2622, 2623, 2624, 2625, 2638, 2639, 2642, 2701, 2702,
+    2703, 2704, 2705, 2717, 2718, 2719, 2722, 2723, 2724, 2781, 2782, 2783, 2784, 2798, 2799, 2803,
+    2861, 2862, 2863, 2879, 2942, 2944, 3033, 3034, 3112, 3113, 3114, 3192, 3193, 3232, 3271, 3272,
+    3311, 3352, 3432, 3433, 3513, 3514,
   ],
 };
 
@@ -1252,7 +1336,7 @@ const NEUTRAL_CITY_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
     
   ],
   'random-frontier-01': [
-    1080, 2520,
+    763, 2520,
   ],
 };
 
@@ -1329,8 +1413,8 @@ const NEUTRAL_CITY_ANCHORS_BY_MAP_ID: Record<string, GridCoordinate[]> = {
     
   ],
   'random-frontier-01': [
-    { col: 40, row: 13 },
     { col: 40, row: 31 },
+    { col: 43, row: 9 },
   ],
 };
 
@@ -1474,6 +1558,24 @@ export function getGridCellElevation(col: number, row: number): number {
 
   const elevationByte = getActiveElevationGrid()[getGridCellIndex(col, row)] ?? 0;
   return elevationByte / 255;
+}
+
+export function getGridCellPaletteElevationByte(col: number, row: number): number {
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= TERRAIN_GRID_WIDTH ||
+    row >= TERRAIN_GRID_HEIGHT
+  ) {
+    return 0;
+  }
+
+  const terrainType = getGridCellTerrainType(col, row);
+  const elevationByte = getActiveElevationGrid()[getGridCellIndex(col, row)] ?? 0;
+  const elevationLevels =
+    ELEVATION_LEVELS_BY_TERRAIN_TYPE[terrainType] ??
+    ELEVATION_LEVELS_BY_TERRAIN_TYPE.unknown;
+  return quantizeElevationByteToPaletteLevel(elevationByte, elevationLevels);
 }
 
 export function getWorldTerrainType(x: number, y: number): TerrainType {
