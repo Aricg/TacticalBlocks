@@ -23,10 +23,12 @@ const DEFAULT_FOREST_BIAS = 0.0;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DIR = path.resolve(SCRIPT_DIR, '..');
 const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
+const HILL_ELEVATION_BYTE_MIN = 152;
+const HILL_ELEVATION_BYTE_MAX = 208;
 
 const TERRAIN_SWATCHES = {
   water: [0x0f2232, 0x102236],
-  grass: [0x71844b, 0x70834e, 0x748764],
+  grass: [0x71844b],
   forest: [0x364d31, 0x122115],
   hills: [0xc4a771, 0x9e8c5d, 0xa79168],
   mountains: [0x708188, 0x6d7e85, 0x5a6960, 0x404b3c, 0x6a7c8c],
@@ -212,6 +214,96 @@ function chooseSwatch(type, rng) {
   return swatches[index] ?? swatches[0];
 }
 
+function getColorLuminance(color) {
+  const red = (color >> 16) & 0xff;
+  const green = (color >> 8) & 0xff;
+  const blue = color & 0xff;
+  return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+}
+
+const HILL_SWATCHES_DARKEST_TO_LIGHTEST = [...TERRAIN_SWATCHES.hills].sort(
+  (a, b) => getColorLuminance(a) - getColorLuminance(b),
+);
+
+function chooseHillSwatchForElevation(elevation) {
+  const swatches = HILL_SWATCHES_DARKEST_TO_LIGHTEST;
+  if (swatches.length === 0) {
+    return { color: 0, levelIndex: 0 };
+  }
+  if (swatches.length === 1) {
+    return { color: swatches[0], levelIndex: 0 };
+  }
+
+  const clampedElevation = clamp(elevation, 0, 1);
+  const levelIndex = Math.round((1 - clampedElevation) * (swatches.length - 1));
+  return {
+    color: swatches[levelIndex] ?? swatches[swatches.length - 1],
+    levelIndex,
+  };
+}
+
+function getHillQuantileThresholds(terrain, elevationGrid, levelCount) {
+  if (levelCount <= 1) {
+    return [];
+  }
+
+  const hillElevations = [];
+  for (let index = 0; index < terrain.length; index += 1) {
+    if (terrain[index] !== 'hills') {
+      continue;
+    }
+    hillElevations.push(clamp(elevationGrid[index] ?? 0, 0, 1));
+  }
+
+  if (hillElevations.length === 0) {
+    return [];
+  }
+
+  hillElevations.sort((a, b) => a - b);
+  const thresholds = [];
+  for (let split = 1; split < levelCount; split += 1) {
+    const rank = Math.floor((hillElevations.length * split) / levelCount);
+    const clampedRank = clamp(rank, 0, hillElevations.length - 1);
+    thresholds.push(hillElevations[clampedRank]);
+  }
+  return thresholds;
+}
+
+function chooseHillSwatchForQuantileElevation(elevation, thresholds) {
+  const swatches = HILL_SWATCHES_DARKEST_TO_LIGHTEST;
+  const levelCount = swatches.length;
+  if (levelCount <= 1) {
+    return chooseHillSwatchForElevation(elevation);
+  }
+
+  const clampedElevation = clamp(elevation, 0, 1);
+  let quantileBin = 0;
+  while (
+    quantileBin < thresholds.length &&
+    clampedElevation >= thresholds[quantileBin]
+  ) {
+    quantileBin += 1;
+  }
+  const levelIndex = clamp(levelCount - 1 - quantileBin, 0, levelCount - 1);
+  return {
+    color: swatches[levelIndex] ?? swatches[swatches.length - 1],
+    levelIndex,
+  };
+}
+
+function getHillElevationByteForLevel(levelIndex, levelCount) {
+  if (levelCount <= 1) {
+    return HILL_ELEVATION_BYTE_MAX;
+  }
+
+  const clampedLevelIndex = clamp(levelIndex, 0, levelCount - 1);
+  const ratio = 1 - clampedLevelIndex / (levelCount - 1);
+  return Math.round(
+    HILL_ELEVATION_BYTE_MIN +
+      (HILL_ELEVATION_BYTE_MAX - HILL_ELEVATION_BYTE_MIN) * ratio,
+  );
+}
+
 function colorIntToRgb(color) {
   return {
     red: (color >> 16) & 0xff,
@@ -392,11 +484,20 @@ function placeCityMarkers(terrain, width, height) {
   return markers;
 }
 
-function buildPixelColors(terrain, cityMarkers, width, height, rng) {
+function buildPixelColors(terrain, elevationGrid, cityMarkers, width, height, rng) {
   const cityMarkerSet = new Set(
     cityMarkers.map((marker) => `${marker.col},${marker.row}`),
   );
   const pixels = new Array(width * height).fill(0);
+  const elevationBytes = new Uint8Array(width * height);
+  const hillQuantileThresholds = getHillQuantileThresholds(
+    terrain,
+    elevationGrid,
+    HILL_SWATCHES_DARKEST_TO_LIGHTEST.length,
+  );
+  for (let index = 0; index < elevationBytes.length; index += 1) {
+    elevationBytes[index] = Math.round(clamp(elevationGrid[index] ?? 0, 0, 1) * 255);
+  }
 
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
@@ -405,11 +506,23 @@ function buildPixelColors(terrain, cityMarkers, width, height, rng) {
         pixels[index] = CITY_MARKER_COLOR;
         continue;
       }
+      if (terrain[index] === 'hills') {
+        const hillSwatch = chooseHillSwatchForQuantileElevation(
+          elevationGrid[index] ?? 0,
+          hillQuantileThresholds,
+        );
+        pixels[index] = hillSwatch.color;
+        elevationBytes[index] = getHillElevationByteForLevel(
+          hillSwatch.levelIndex,
+          HILL_SWATCHES_DARKEST_TO_LIGHTEST.length,
+        );
+        continue;
+      }
       pixels[index] = chooseSwatch(terrain[index], rng);
     }
   }
 
-  return pixels;
+  return { pixels, elevationBytes };
 }
 
 function toPpm(width, height, pixels) {
@@ -497,8 +610,9 @@ const cityMarkers = placeCityMarkers(
   options.gridWidth,
   options.gridHeight,
 );
-const pixels = buildPixelColors(
+const { pixels, elevationBytes } = buildPixelColors(
   terrain,
+  elevationGrid,
   cityMarkers,
   options.gridWidth,
   options.gridHeight,
@@ -548,9 +662,7 @@ writeFileSync(
     mapId,
     gridWidth: options.gridWidth,
     gridHeight: options.gridHeight,
-    elevation: Array.from(elevationGrid, (value) =>
-      Math.round(clamp(value, 0, 1) * 255),
-    ),
+    elevation: Array.from(elevationBytes),
   })}\n`,
   'utf8',
 );
