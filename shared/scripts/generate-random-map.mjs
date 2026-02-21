@@ -468,9 +468,9 @@ function buildNoiseTerrainGrid(config, rng) {
 const WFC_ALLOWED_NEIGHBORS = {
   water: new Set(['water', 'grass', 'forest']),
   grass: new Set(['water', 'grass', 'forest', 'hills']),
-  forest: new Set(['water', 'grass', 'forest', 'hills', 'mountains']),
+  forest: new Set(['water', 'grass', 'forest', 'hills']),
   hills: new Set(['grass', 'forest', 'hills', 'mountains']),
-  mountains: new Set(['forest', 'hills', 'mountains']),
+  mountains: new Set(['hills', 'mountains']),
 };
 const WFC_BASE_TARGET_RATIOS = {
   water: 0.18,
@@ -629,7 +629,7 @@ function indexToCell(index, width) {
   };
 }
 
-function addWaterDisk(waterIndexes, width, height, centerCol, centerRow, radius, rng) {
+function addIndexDisk(indexes, width, height, centerCol, centerRow, radius, rng) {
   for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
     for (let colOffset = -radius; colOffset <= radius; colOffset += 1) {
       const distance = Math.hypot(colOffset, rowOffset);
@@ -641,7 +641,7 @@ function addWaterDisk(waterIndexes, width, height, centerCol, centerRow, radius,
       if (distance > radius - 0.35 && rng() < 0.30) {
         continue;
       }
-      waterIndexes.add(row * width + col);
+      indexes.add(row * width + col);
     }
   }
 }
@@ -655,8 +655,97 @@ function stampWaterPath(path, width, height, waterIndexes, rng, options) {
     if (rng() < widenChance) {
       radius += 1;
     }
-    addWaterDisk(waterIndexes, width, height, cell.col, cell.row, radius, rng);
+    addIndexDisk(waterIndexes, width, height, cell.col, cell.row, radius, rng);
   }
+}
+
+function createSpacedInteriorSeeds(width, height, rng, seedCount, margin, minSpacing) {
+  const seeds = [];
+  if (seedCount <= 0) {
+    return seeds;
+  }
+
+  for (let i = 0; i < seedCount; i += 1) {
+    let bestCandidate = createInteriorSeed(width, height, rng, margin);
+    let bestCandidateDistance = -1;
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const candidate = createInteriorSeed(width, height, rng, margin);
+      if (seeds.length === 0) {
+        bestCandidate = candidate;
+        break;
+      }
+
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const seed of seeds) {
+        const distance = Math.hypot(seed.col - candidate.col, seed.row - candidate.row);
+        nearestDistance = Math.min(nearestDistance, distance);
+      }
+      if (nearestDistance >= minSpacing) {
+        bestCandidate = candidate;
+        bestCandidateDistance = nearestDistance;
+        break;
+      }
+      if (nearestDistance > bestCandidateDistance) {
+        bestCandidate = candidate;
+        bestCandidateDistance = nearestDistance;
+      }
+    }
+    seeds.push(bestCandidate);
+  }
+  return seeds;
+}
+
+function createFeatureClusterPlan(
+  width,
+  height,
+  rng,
+  seedCountRange,
+  margin,
+  minSpacing,
+  radiusRange,
+  lobeCountRange,
+) {
+  const seedCount = randomIntInclusive(rng, seedCountRange.min, seedCountRange.max);
+  const seeds = createSpacedInteriorSeeds(
+    width,
+    height,
+    rng,
+    seedCount,
+    margin,
+    minSpacing,
+  );
+  const indexes = new Set();
+
+  for (const seed of seeds) {
+    const radius = randomIntInclusive(rng, radiusRange.min, radiusRange.max);
+    addIndexDisk(indexes, width, height, seed.col, seed.row, radius, rng);
+    const lobeCount = randomIntInclusive(rng, lobeCountRange.min, lobeCountRange.max);
+    for (let lobe = 0; lobe < lobeCount; lobe += 1) {
+      const lobeAngle = rng() * Math.PI * 2;
+      const lobeDistance = randomIntInclusive(
+        rng,
+        Math.max(1, Math.floor(radius * 0.35)),
+        Math.max(2, Math.floor(radius * 0.95)),
+      );
+      const lobeCol = clamp(
+        Math.round(seed.col + Math.cos(lobeAngle) * lobeDistance),
+        0,
+        width - 1,
+      );
+      const lobeRow = clamp(
+        Math.round(seed.row + Math.sin(lobeAngle) * lobeDistance),
+        0,
+        height - 1,
+      );
+      const lobeRadius = Math.max(1, radius - randomIntInclusive(rng, 1, 2));
+      addIndexDisk(indexes, width, height, lobeCol, lobeRow, lobeRadius, rng);
+    }
+  }
+
+  return {
+    seedCells: seeds,
+    indexes,
+  };
 }
 
 function createMainRiverPath(width, height, rng) {
@@ -833,7 +922,7 @@ function createLakeWaterPlan(width, height, rng) {
     lakeCenters.push(center);
 
     const radius = randomIntInclusive(rng, 4, 8);
-    addWaterDisk(waterIndexes, width, height, center.col, center.row, radius, rng);
+    addIndexDisk(waterIndexes, width, height, center.col, center.row, radius, rng);
     const lobeCount = randomIntInclusive(rng, 1, 3);
     for (let lobe = 0; lobe < lobeCount; lobe += 1) {
       const lobeAngle = rng() * Math.PI * 2;
@@ -841,7 +930,7 @@ function createLakeWaterPlan(width, height, rng) {
       const lobeCenterCol = clamp(Math.round(center.col + Math.cos(lobeAngle) * lobeDistance), 0, width - 1);
       const lobeCenterRow = clamp(Math.round(center.row + Math.sin(lobeAngle) * lobeDistance), 0, height - 1);
       const lobeRadius = Math.max(2, radius - randomIntInclusive(rng, 1, 3));
-      addWaterDisk(waterIndexes, width, height, lobeCenterCol, lobeCenterRow, lobeRadius, rng);
+      addIndexDisk(waterIndexes, width, height, lobeCenterCol, lobeCenterRow, lobeRadius, rng);
     }
   }
 
@@ -987,6 +1076,8 @@ function chooseWfcTypeForCell(
   height,
   edgeField,
   waterAffinity,
+  forestAffinity,
+  hillAffinity,
   mountainAffinity,
   moistureNoise,
   roughnessNoise,
@@ -1003,6 +1094,8 @@ function chooseWfcTypeForCell(
   const moisture = moistureNoise[index] ?? 0.5;
   const roughness = roughnessNoise[index] ?? 0.5;
   const waterNear = waterAffinity[index] ?? 0;
+  const forestNear = forestAffinity[index] ?? 0;
+  const hillNear = hillAffinity[index] ?? 0;
   const mountainNear = mountainAffinity[index] ?? 0;
   const centerBiasX =
     1 - Math.abs(col / Math.max(1, width - 1) - 0.5) * 2;
@@ -1040,20 +1133,33 @@ function chooseWfcTypeForCell(
       0.65 +
       (1 - edge) * 0.35 +
       (0.5 - Math.abs(moisture - 0.5)) * 0.2 +
-      centerBias * 0.12,
+      centerBias * 0.12 -
+      forestNear * 0.20 -
+      hillNear * 0.14,
     forest:
       0.25 +
       moisture * 1.05 +
       config.forestBias * 2 +
-      (1 - edge) * 0.16,
+      (1 - edge) * 0.16 +
+      forestNear * 1.35 +
+      hillNear * 0.15 +
+      mountainNear * -0.40 +
+      (forestNear < 0.10 ? -0.18 : 0),
     hills:
-      0.23 + roughness * 0.96 + mountainNear * 0.35 + centerBias * 0.2,
+      0.23 +
+      roughness * 0.96 +
+      mountainNear * 0.35 +
+      centerBias * 0.2 +
+      hillNear * 1.20 +
+      forestNear * 0.18 +
+      (hillNear < 0.08 ? -0.16 : 0),
     mountains:
       0.04 +
       mountainNear * 1.55 +
       roughness * 0.82 +
       config.mountainBias * 2 +
       centerBias * 0.2 -
+      forestNear * 0.45 -
       edge * 0.25,
   };
 
@@ -1261,6 +1367,68 @@ function getLargestConnectedComponentSizeForType(terrain, width, height, terrain
   return largestSize;
 }
 
+function pruneSmallComponentsSurroundedByType(
+  terrain,
+  width,
+  height,
+  terrainType,
+  replacementType,
+  maxComponentSize,
+  minReplacementNeighborRatio,
+) {
+  const visited = new Uint8Array(terrain.length);
+  const indexesToReplace = [];
+
+  for (let index = 0; index < terrain.length; index += 1) {
+    if (visited[index] === 1 || terrain[index] !== terrainType) {
+      continue;
+    }
+
+    visited[index] = 1;
+    const queue = [index];
+    const component = [];
+    let replacementNeighbors = 0;
+    let totalBoundaryNeighbors = 0;
+
+    while (queue.length > 0) {
+      const current = queue.pop();
+      component.push(current);
+      const neighbors = getNeighborIndexes(current, width, height);
+      for (const neighbor of neighbors) {
+        const neighborType = terrain[neighbor];
+        if (neighborType === terrainType) {
+          if (visited[neighbor] !== 1) {
+            visited[neighbor] = 1;
+            queue.push(neighbor);
+          }
+          continue;
+        }
+
+        totalBoundaryNeighbors += 1;
+        if (neighborType === replacementType) {
+          replacementNeighbors += 1;
+        }
+      }
+    }
+
+    if (component.length > maxComponentSize || totalBoundaryNeighbors === 0) {
+      continue;
+    }
+    const replacementNeighborRatio = replacementNeighbors / totalBoundaryNeighbors;
+    if (replacementNeighborRatio < minReplacementNeighborRatio) {
+      continue;
+    }
+
+    indexesToReplace.push(...component);
+  }
+
+  for (const index of indexesToReplace) {
+    terrain[index] = replacementType;
+  }
+
+  return indexesToReplace.length;
+}
+
 function buildWfcElevationGrid(
   terrain,
   moistureNoise,
@@ -1324,7 +1492,11 @@ function buildWfcTerrainGrid(config, rng) {
     const targetRatios = getWfcTargetRatios(config);
     const queue = [];
     const forcedWaterIndexes = new Set();
+    const forcedForestIndexes = new Set();
+    const forcedHillIndexes = new Set();
     let waterSeeds = [];
+    let forestSeeds = [];
+    let hillSeeds = [];
 
     if (waterMode === 'none') {
       let invalid = false;
@@ -1352,6 +1524,30 @@ function buildWfcTerrainGrid(config, rng) {
       }
     }
 
+    const forestPlan = createFeatureClusterPlan(
+      width,
+      height,
+      rng,
+      targetRatios.forest >= 0.22 ? { min: 3, max: 5 } : { min: 2, max: 4 },
+      Math.max(5, Math.floor(width * 0.08)),
+      Math.max(5, width * 0.12),
+      { min: 1, max: 3 },
+      { min: 1, max: 3 },
+    );
+    forestSeeds = forestPlan.seedCells;
+
+    const hillPlan = createFeatureClusterPlan(
+      width,
+      height,
+      rng,
+      targetRatios.hills >= 0.16 ? { min: 3, max: 5 } : { min: 2, max: 4 },
+      Math.max(5, Math.floor(width * 0.09)),
+      Math.max(6, width * 0.14),
+      { min: 1, max: 2 },
+      { min: 1, max: 2 },
+    );
+    hillSeeds = hillPlan.seedCells;
+
     let invalidForcedWater = false;
     for (const index of forcedWaterIndexes) {
       if (!constrainDomainToType(domains, index, 'water')) {
@@ -1364,6 +1560,28 @@ function buildWfcTerrainGrid(config, rng) {
       continue;
     }
 
+    let invalidForcedTerrain = false;
+    for (const index of forcedForestIndexes) {
+      if (!constrainDomainToType(domains, index, 'forest')) {
+        invalidForcedTerrain = true;
+        break;
+      }
+      queue.push(index);
+    }
+    if (invalidForcedTerrain) {
+      continue;
+    }
+    for (const index of forcedHillIndexes) {
+      if (!constrainDomainToType(domains, index, 'hills')) {
+        invalidForcedTerrain = true;
+        break;
+      }
+      queue.push(index);
+    }
+    if (invalidForcedTerrain) {
+      continue;
+    }
+
     const waterAffinity =
       waterSeeds.length > 0
         ? createAffinityField(
@@ -1373,6 +1591,14 @@ function buildWfcTerrainGrid(config, rng) {
             waterMode === 'river' ? Math.max(3, width * 0.12) : Math.max(4, width * 0.22),
             waterMode === 'river' ? 2.6 : 2.0,
           )
+        : new Float32Array(cellCount);
+    const forestAffinity =
+      forestSeeds.length > 0
+        ? createAffinityField(width, height, forestSeeds, Math.max(5, width * 0.20), 2.2)
+        : new Float32Array(cellCount);
+    const hillAffinity =
+      hillSeeds.length > 0
+        ? createAffinityField(width, height, hillSeeds, Math.max(5, width * 0.22), 2.1)
         : new Float32Array(cellCount);
     const mountainAffinity = createAffinityField(
       width,
@@ -1426,6 +1652,8 @@ function buildWfcTerrainGrid(config, rng) {
         height,
         edgeField,
         waterAffinity,
+        forestAffinity,
+        hillAffinity,
         mountainAffinity,
         moistureNoise,
         roughnessNoise,
@@ -1454,6 +1682,39 @@ function buildWfcTerrainGrid(config, rng) {
         terrain[index] = 'water';
       }
     }
+    if (forcedForestIndexes.size > 0) {
+      for (const index of forcedForestIndexes) {
+        if (!forcedWaterIndexes.has(index)) {
+          terrain[index] = 'forest';
+        }
+      }
+    }
+    if (forcedHillIndexes.size > 0) {
+      for (const index of forcedHillIndexes) {
+        if (!forcedWaterIndexes.has(index)) {
+          terrain[index] = 'hills';
+        }
+      }
+    }
+    // Trim noisy "island" patches that are mostly enclosed by grass.
+    pruneSmallComponentsSurroundedByType(
+      terrain,
+      width,
+      height,
+      'forest',
+      'grass',
+      Math.max(8, Math.floor(cellCount * 0.0045)),
+      0.70,
+    );
+    pruneSmallComponentsSurroundedByType(
+      terrain,
+      width,
+      height,
+      'hills',
+      'grass',
+      Math.max(7, Math.floor(cellCount * 0.0040)),
+      0.67,
+    );
 
     const counts = countTerrainTypes(terrain);
     const waterRatio = counts.water / Math.max(1, cellCount);
@@ -1489,7 +1750,6 @@ function buildWfcTerrainGrid(config, rng) {
         continue;
       }
     }
-
     const redAnchor = findNearestPlayableCell(
       terrain,
       width,
