@@ -1,0 +1,17 @@
+[Unit]
+Description=TacticalBlocks Colyseus Server
+After=network.target
+
+[Service]
+Type=simple
+User=agardner
+WorkingDirectory=/home/agardner/TacticalBlocks/server
+Environment="PORT=2568"
+Environment="NODE_ENV=production"
+ExecStartPre=/usr/bin/npm run build
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=TacticalBlocks Client (Vite Preview)
+After=network.target tacticalblocks-server.service
+Wants=tacticalblocks-server.service
+
+[Service]
+Type=simple
+User=agardner
+WorkingDirectory=/home/agardner/TacticalBlocks/client
+Environment="NODE_ENV=production"
+Environment="VITE_SERVER_ENDPOINT=wss://fnhl.ca/tacticalblocks/ws"
+ExecStartPre=/usr/bin/npm run build -- --base=/tacticalblocks/
+ExecStart=/usr/bin/npm run preview -- --host 127.0.0.1 --port 5174
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
