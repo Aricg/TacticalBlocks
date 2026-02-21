@@ -65,7 +65,11 @@ export type LobbySelectMapMessage = {
   mapId: string;
 };
 
-export type LobbyGenerateMapMessage = Record<string, never>;
+export type MapGenerationMethod = 'noise' | 'wfc' | 'auto';
+
+export type LobbyGenerateMapMessage = {
+  method?: MapGenerationMethod;
+};
 export type LobbyRandomMapMessage = Record<string, never>;
 
 export type TeamAssignedMessage = {

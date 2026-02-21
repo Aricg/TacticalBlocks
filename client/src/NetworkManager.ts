@@ -7,6 +7,7 @@ import {
   type LobbyReadyMessage,
   type LobbySelectMapMessage,
   type LobbyStateMessage,
+  type MapGenerationMethod,
   type MatchPhase,
   type PlayerTeam,
   type RuntimeTuningSnapshotMessage,
@@ -602,12 +603,12 @@ export class NetworkManager {
     this.room.send(NETWORK_MESSAGE_TYPES.lobbyRandomMap, message);
   }
 
-  public sendLobbyGenerateMap(): void {
+  public sendLobbyGenerateMap(method: MapGenerationMethod = 'wfc'): void {
     if (!this.room) {
       return;
     }
 
-    const message: LobbyGenerateMapMessage = {};
+    const message: LobbyGenerateMapMessage = { method };
     this.room.send(NETWORK_MESSAGE_TYPES.lobbyGenerateMap, message);
   }
 

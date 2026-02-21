@@ -20,11 +20,15 @@ const DEFAULT_OUTPUT_HEIGHT = 1080;
 const DEFAULT_WATER_BIAS = 0.05;
 const DEFAULT_MOUNTAIN_BIAS = 0.03;
 const DEFAULT_FOREST_BIAS = 0.0;
+const DEFAULT_METHOD = 'wfc';
+const DEFAULT_WATER_MODE = 'auto';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DIR = path.resolve(SCRIPT_DIR, '..');
 const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
 const HILL_ELEVATION_BYTE_MIN = 152;
 const HILL_ELEVATION_BYTE_MAX = 208;
+const GENERATION_METHODS = ['noise', 'wfc', 'auto'];
+const WATER_MODES = ['auto', 'none', 'lake', 'river'];
 
 const TERRAIN_SWATCHES = {
   water: [0x0f2232, 0x102236],
@@ -49,6 +53,10 @@ function printUsage() {
   console.log(`  --water-bias <value>   Default: ${DEFAULT_WATER_BIAS}`);
   console.log(`  --mountain-bias <value> Default: ${DEFAULT_MOUNTAIN_BIAS}`);
   console.log(`  --forest-bias <value>  Default: ${DEFAULT_FOREST_BIAS}`);
+  console.log(`  --method <name>        noise | wfc | auto (default: ${DEFAULT_METHOD})`);
+  console.log(
+    `  --water-mode <name>    auto | none | lake | river (default: ${DEFAULT_WATER_MODE})`,
+  );
   console.log(`  --output-dir <path>    Default: ${SHARED_DIR}`);
   console.log('  --no-sync              Skip running map:sync');
   console.log('  --help, -h             Show this help');
@@ -65,6 +73,8 @@ function parseArgs(argv) {
     waterBias: DEFAULT_WATER_BIAS,
     mountainBias: DEFAULT_MOUNTAIN_BIAS,
     forestBias: DEFAULT_FOREST_BIAS,
+    method: DEFAULT_METHOD,
+    waterMode: DEFAULT_WATER_MODE,
     outputDir: SHARED_DIR,
     noSync: false,
   };
@@ -108,6 +118,14 @@ function parseArgs(argv) {
         options.forestBias = Number.parseFloat(argv[i + 1] ?? '');
         i += 1;
         break;
+      case '--method':
+        options.method = (argv[i + 1] ?? '').trim().toLowerCase();
+        i += 1;
+        break;
+      case '--water-mode':
+        options.waterMode = (argv[i + 1] ?? '').trim().toLowerCase();
+        i += 1;
+        break;
       case '--output-dir':
         options.outputDir = path.resolve(process.cwd(), argv[i + 1] ?? '.');
         i += 1;
@@ -141,6 +159,46 @@ function assertFinite(name, value, min, max) {
     console.error(`Invalid ${name}: ${value}. Expected ${min}..${max}.`);
     process.exit(1);
   }
+}
+
+function assertGenerationMethod(method) {
+  if (!GENERATION_METHODS.includes(method)) {
+    console.error(
+      `Invalid method: ${method}. Expected one of: ${GENERATION_METHODS.join(', ')}.`,
+    );
+    process.exit(1);
+  }
+}
+
+function assertWaterMode(waterMode) {
+  if (!WATER_MODES.includes(waterMode)) {
+    console.error(
+      `Invalid water mode: ${waterMode}. Expected one of: ${WATER_MODES.join(', ')}.`,
+    );
+    process.exit(1);
+  }
+}
+
+function resolveGenerationMethod(method, rng) {
+  if (method === 'auto') {
+    return rng() < 0.5 ? 'noise' : 'wfc';
+  }
+  return method;
+}
+
+function resolveWaterMode(waterMode, rng) {
+  if (waterMode !== 'auto') {
+    return waterMode;
+  }
+
+  const roll = rng();
+  if (roll < 0.68) {
+    return 'river';
+  }
+  if (roll < 0.90) {
+    return 'lake';
+  }
+  return 'none';
 }
 
 function clamp(value, min, max) {
@@ -312,7 +370,7 @@ function colorIntToRgb(color) {
   };
 }
 
-function buildTerrainGrid(config, rng) {
+function buildNoiseTerrainGrid(config, rng) {
   const width = config.gridWidth;
   const height = config.gridHeight;
   const heightNoise = blurNoise(createNoise(width, height, rng), width, height, 4);
@@ -405,6 +463,1065 @@ function buildTerrainGrid(config, rng) {
   }
 
   return { terrain, elevationGrid };
+}
+
+const WFC_ALLOWED_NEIGHBORS = {
+  water: new Set(['water', 'grass', 'forest']),
+  grass: new Set(['water', 'grass', 'forest', 'hills']),
+  forest: new Set(['water', 'grass', 'forest', 'hills', 'mountains']),
+  hills: new Set(['grass', 'forest', 'hills', 'mountains']),
+  mountains: new Set(['forest', 'hills', 'mountains']),
+};
+const WFC_BASE_TARGET_RATIOS = {
+  water: 0.18,
+  grass: 0.44,
+  forest: 0.20,
+  hills: 0.14,
+  mountains: 0.04,
+};
+
+function randomIntInclusive(rng, min, max) {
+  return Math.floor(rng() * (max - min + 1)) + min;
+}
+
+function createTerrainCounts() {
+  return {
+    water: 0,
+    grass: 0,
+    forest: 0,
+    hills: 0,
+    mountains: 0,
+  };
+}
+
+function getResolvedDomainCounts(domains) {
+  const counts = createTerrainCounts();
+  let resolvedCellCount = 0;
+  for (const domain of domains) {
+    if (domain.size !== 1) {
+      continue;
+    }
+    const type = Array.from(domain)[0];
+    if (!(type in counts)) {
+      continue;
+    }
+    counts[type] += 1;
+    resolvedCellCount += 1;
+  }
+  return { counts, resolvedCellCount };
+}
+
+function getWfcTargetRatios(config) {
+  const waterMode = config.waterMode ?? 'river';
+  let water;
+  if (waterMode === 'none') {
+    water = 0;
+  } else if (waterMode === 'river') {
+    water = clamp(0.10 + config.waterBias * 0.28, 0.03, 0.20);
+  } else if (waterMode === 'lake') {
+    water = clamp(0.17 + config.waterBias * 0.48, 0.08, 0.30);
+  } else {
+    water = clamp(WFC_BASE_TARGET_RATIOS.water + config.waterBias * 0.55, 0.08, 0.32);
+  }
+  let mountains = clamp(
+    WFC_BASE_TARGET_RATIOS.mountains + config.mountainBias * 0.18,
+    0.01,
+    0.09,
+  );
+  let forest = clamp(
+    WFC_BASE_TARGET_RATIOS.forest + config.forestBias * 0.40,
+    0.08,
+    0.30,
+  );
+  let hills = clamp(
+    WFC_BASE_TARGET_RATIOS.hills + config.mountainBias * 0.12 - config.forestBias * 0.06,
+    0.08,
+    0.22,
+  );
+
+  let nonGrassTotal = water + mountains + forest + hills;
+  if (nonGrassTotal > 0.65) {
+    const scale = 0.65 / nonGrassTotal;
+    water *= scale;
+    mountains *= scale;
+    forest *= scale;
+    hills *= scale;
+    nonGrassTotal = 0.65;
+  }
+
+  const grass = clamp(1 - nonGrassTotal, 0.35, 0.72);
+  return { water, grass, forest, hills, mountains };
+}
+
+function getWfcFrequencyMultiplier(
+  type,
+  terrainCounts,
+  resolvedCellCount,
+  targetRatios,
+) {
+  const targetRatio = targetRatios[type] ?? 0;
+  if (targetRatio <= 0) {
+    return 0.15;
+  }
+  if (resolvedCellCount <= 0) {
+    return 1;
+  }
+
+  const currentRatio = (terrainCounts[type] ?? 0) / resolvedCellCount;
+  if (currentRatio > targetRatio) {
+    const overshoot = (currentRatio - targetRatio) / targetRatio;
+    return clamp(1 - overshoot * 0.92, 0.12, 1);
+  }
+
+  const undershoot = (targetRatio - currentRatio) / targetRatio;
+  return 1 + clamp(undershoot * 1.2, 0, 1.35);
+}
+
+function chooseWeightedValue(candidates, rng) {
+  let totalWeight = 0;
+  for (const candidate of candidates) {
+    totalWeight += candidate.weight;
+  }
+  if (totalWeight <= 0) {
+    const fallbackIndex = Math.floor(rng() * candidates.length);
+    return candidates[fallbackIndex]?.value ?? candidates[0]?.value;
+  }
+
+  let cursor = rng() * totalWeight;
+  for (const candidate of candidates) {
+    cursor -= candidate.weight;
+    if (cursor <= 0) {
+      return candidate.value;
+    }
+  }
+  return candidates[candidates.length - 1]?.value ?? candidates[0]?.value;
+}
+
+function createInteriorSeed(width, height, rng, margin = 3) {
+  const minCol = clamp(margin, 0, width - 1);
+  const maxCol = clamp(width - 1 - margin, 0, width - 1);
+  const minRow = clamp(margin, 0, height - 1);
+  const maxRow = clamp(height - 1 - margin, 0, height - 1);
+  return {
+    col: randomIntInclusive(rng, minCol, Math.max(minCol, maxCol)),
+    row: randomIntInclusive(rng, minRow, Math.max(minRow, maxRow)),
+  };
+}
+
+function createEdgeSeed(width, height, rng) {
+  const side = randomIntInclusive(rng, 0, 3);
+  if (side === 0) {
+    return { col: randomIntInclusive(rng, 0, width - 1), row: 0 };
+  }
+  if (side === 1) {
+    return { col: randomIntInclusive(rng, 0, width - 1), row: height - 1 };
+  }
+  if (side === 2) {
+    return { col: 0, row: randomIntInclusive(rng, 0, height - 1) };
+  }
+  return { col: width - 1, row: randomIntInclusive(rng, 0, height - 1) };
+}
+
+function indexToCell(index, width) {
+  return {
+    col: index % width,
+    row: Math.floor(index / width),
+  };
+}
+
+function addWaterDisk(waterIndexes, width, height, centerCol, centerRow, radius, rng) {
+  for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
+    for (let colOffset = -radius; colOffset <= radius; colOffset += 1) {
+      const distance = Math.hypot(colOffset, rowOffset);
+      if (distance > radius + 0.25) {
+        continue;
+      }
+      const col = clamp(centerCol + colOffset, 0, width - 1);
+      const row = clamp(centerRow + rowOffset, 0, height - 1);
+      if (distance > radius - 0.35 && rng() < 0.30) {
+        continue;
+      }
+      waterIndexes.add(row * width + col);
+    }
+  }
+}
+
+function stampWaterPath(path, width, height, waterIndexes, rng, options) {
+  const baseRadius = options?.baseRadius ?? 0;
+  const widenChance = options?.widenChance ?? 0;
+  for (let i = 0; i < path.length; i += 1) {
+    const cell = path[i];
+    let radius = baseRadius;
+    if (rng() < widenChance) {
+      radius += 1;
+    }
+    addWaterDisk(waterIndexes, width, height, cell.col, cell.row, radius, rng);
+  }
+}
+
+function createMainRiverPath(width, height, rng) {
+  const horizontal = rng() < 0.5;
+  const cells = [];
+  if (horizontal) {
+    const startAtLeft = rng() < 0.5;
+    const startRow = randomIntInclusive(rng, Math.max(2, Math.floor(height * 0.18)), Math.max(2, Math.floor(height * 0.82)));
+    const endRow = randomIntInclusive(rng, Math.max(2, Math.floor(height * 0.18)), Math.max(2, Math.floor(height * 0.82)));
+    const waveAmplitude = Math.max(1.5, height * (0.06 + rng() * 0.08));
+    const waveCycles = 0.85 + rng() * 1.15;
+    const phase = rng() * Math.PI * 2;
+    let rowFloat = startRow;
+    for (let step = 0; step < width; step += 1) {
+      const progress = step / Math.max(1, width - 1);
+      const col = startAtLeft ? step : width - 1 - step;
+      const trend = startRow + (endRow - startRow) * progress;
+      const wave = Math.sin(progress * Math.PI * 2 * waveCycles + phase) * waveAmplitude;
+      const targetRow = trend + wave;
+      rowFloat += (targetRow - rowFloat) * 0.38 + (rng() - 0.5) * 0.55;
+      const row = clamp(Math.round(rowFloat), 1, height - 2);
+      cells.push({ col, row });
+    }
+  } else {
+    const startAtTop = rng() < 0.5;
+    const startCol = randomIntInclusive(rng, Math.max(2, Math.floor(width * 0.16)), Math.max(2, Math.floor(width * 0.84)));
+    const endCol = randomIntInclusive(rng, Math.max(2, Math.floor(width * 0.16)), Math.max(2, Math.floor(width * 0.84)));
+    const waveAmplitude = Math.max(2, width * (0.05 + rng() * 0.08));
+    const waveCycles = 0.85 + rng() * 1.15;
+    const phase = rng() * Math.PI * 2;
+    let colFloat = startCol;
+    for (let step = 0; step < height; step += 1) {
+      const progress = step / Math.max(1, height - 1);
+      const row = startAtTop ? step : height - 1 - step;
+      const trend = startCol + (endCol - startCol) * progress;
+      const wave = Math.sin(progress * Math.PI * 2 * waveCycles + phase) * waveAmplitude;
+      const targetCol = trend + wave;
+      colFloat += (targetCol - colFloat) * 0.38 + (rng() - 0.5) * 0.80;
+      const col = clamp(Math.round(colFloat), 1, width - 2);
+      cells.push({ col, row });
+    }
+  }
+  return { cells, horizontal };
+}
+
+function createMeanderingPathToTarget(start, target, width, height, rng) {
+  const path = [{ col: start.col, row: start.row }];
+  let col = start.col;
+  let row = start.row;
+  const maxSteps = width + height + Math.max(width, height) * 2;
+
+  for (let step = 0; step < maxSteps; step += 1) {
+    if (col === target.col && row === target.row) {
+      return path;
+    }
+    const deltaCol = target.col - col;
+    const deltaRow = target.row - row;
+    const preferHorizontal = Math.abs(deltaCol) >= Math.abs(deltaRow);
+    let stepCol = 0;
+    let stepRow = 0;
+    if (preferHorizontal && deltaCol !== 0) {
+      stepCol = Math.sign(deltaCol);
+    } else if (deltaRow !== 0) {
+      stepRow = Math.sign(deltaRow);
+    } else if (deltaCol !== 0) {
+      stepCol = Math.sign(deltaCol);
+    }
+
+    if (rng() < 0.30) {
+      if (preferHorizontal && deltaRow !== 0) {
+        stepCol = 0;
+        stepRow = Math.sign(deltaRow);
+      } else if (!preferHorizontal && deltaCol !== 0) {
+        stepRow = 0;
+        stepCol = Math.sign(deltaCol);
+      }
+    }
+
+    if (stepCol === 0 && stepRow === 0) {
+      break;
+    }
+
+    col = clamp(col + stepCol, 0, width - 1);
+    row = clamp(row + stepRow, 0, height - 1);
+    path.push({ col, row });
+  }
+
+  const tail = getLineCells({ col, row }, target);
+  for (let i = 1; i < tail.length; i += 1) {
+    path.push(tail[i]);
+  }
+  return path;
+}
+
+function createRiverWaterPlan(width, height, rng) {
+  const waterIndexes = new Set();
+  const mainRiver = createMainRiverPath(width, height, rng);
+  stampWaterPath(mainRiver.cells, width, height, waterIndexes, rng, {
+    baseRadius: rng() < 0.74 ? 0 : 1,
+    widenChance: 0.22,
+  });
+
+  const tributaryCount = randomIntInclusive(rng, 0, 3);
+  for (let i = 0; i < tributaryCount; i += 1) {
+    const branchIndex = randomIntInclusive(
+      rng,
+      Math.max(1, Math.floor(mainRiver.cells.length * 0.20)),
+      Math.max(1, Math.floor(mainRiver.cells.length * 0.80)),
+    );
+    const branchCell = mainRiver.cells[branchIndex] ?? mainRiver.cells[Math.floor(mainRiver.cells.length / 2)];
+    let start;
+    if (mainRiver.horizontal) {
+      const fromTop = rng() < 0.5;
+      const colOffsetRange = Math.max(4, Math.floor(width * 0.24));
+      start = {
+        col: clamp(
+          branchCell.col + randomIntInclusive(rng, -colOffsetRange, colOffsetRange),
+          0,
+          width - 1,
+        ),
+        row: fromTop ? 0 : height - 1,
+      };
+    } else {
+      const fromLeft = rng() < 0.5;
+      const rowOffsetRange = Math.max(3, Math.floor(height * 0.24));
+      start = {
+        col: fromLeft ? 0 : width - 1,
+        row: clamp(
+          branchCell.row + randomIntInclusive(rng, -rowOffsetRange, rowOffsetRange),
+          0,
+          height - 1,
+        ),
+      };
+    }
+    const tributaryPath = createMeanderingPathToTarget(start, branchCell, width, height, rng);
+    stampWaterPath(tributaryPath, width, height, waterIndexes, rng, {
+      baseRadius: 0,
+      widenChance: 0.12,
+    });
+  }
+
+  const seedCells = Array.from(waterIndexes, (index) => indexToCell(index, width));
+  return {
+    waterIndexes,
+    seedCells,
+    tributaryCount,
+  };
+}
+
+function createLakeWaterPlan(width, height, rng) {
+  const waterIndexes = new Set();
+  const lakeCenters = [];
+  const lakeCount = randomIntInclusive(rng, 1, 2);
+  const centerMarginCol = Math.max(6, Math.floor(width * 0.12));
+  const centerMarginRow = Math.max(4, Math.floor(height * 0.16));
+
+  for (let i = 0; i < lakeCount; i += 1) {
+    let center = createInteriorSeed(width, height, rng, Math.max(centerMarginCol, centerMarginRow));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = createInteriorSeed(
+        width,
+        height,
+        rng,
+        Math.max(centerMarginCol, centerMarginRow),
+      );
+      const farEnough = lakeCenters.every(
+        (existing) => Math.hypot(existing.col - candidate.col, existing.row - candidate.row) >= Math.max(7, width * 0.14),
+      );
+      if (farEnough) {
+        center = candidate;
+        break;
+      }
+    }
+    lakeCenters.push(center);
+
+    const radius = randomIntInclusive(rng, 4, 8);
+    addWaterDisk(waterIndexes, width, height, center.col, center.row, radius, rng);
+    const lobeCount = randomIntInclusive(rng, 1, 3);
+    for (let lobe = 0; lobe < lobeCount; lobe += 1) {
+      const lobeAngle = rng() * Math.PI * 2;
+      const lobeDistance = randomIntInclusive(rng, Math.max(1, Math.floor(radius * 0.35)), Math.max(2, Math.floor(radius * 0.9)));
+      const lobeCenterCol = clamp(Math.round(center.col + Math.cos(lobeAngle) * lobeDistance), 0, width - 1);
+      const lobeCenterRow = clamp(Math.round(center.row + Math.sin(lobeAngle) * lobeDistance), 0, height - 1);
+      const lobeRadius = Math.max(2, radius - randomIntInclusive(rng, 1, 3));
+      addWaterDisk(waterIndexes, width, height, lobeCenterCol, lobeCenterRow, lobeRadius, rng);
+    }
+  }
+
+  const seedCells = Array.from(waterIndexes, (index) => indexToCell(index, width));
+  return {
+    waterIndexes,
+    seedCells,
+  };
+}
+
+function createAffinityField(width, height, seeds, influenceRadiusCells, power = 1.8) {
+  const field = new Float32Array(width * height);
+  const safeRadius = Math.max(1, influenceRadiusCells);
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      const index = row * width + col;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const seed of seeds) {
+        const dx = col - seed.col;
+        const dy = row - seed.row;
+        const distance = Math.hypot(dx, dy);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+        }
+      }
+      const normalized = clamp(1 - nearestDistance / safeRadius, 0, 1);
+      field[index] = normalized ** power;
+    }
+  }
+  return field;
+}
+
+function createEdgeProximityField(width, height) {
+  const field = new Float32Array(width * height);
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      const edgeX = Math.min(col, width - 1 - col) / Math.max(1, width - 1);
+      const edgeY = Math.min(row, height - 1 - row) / Math.max(1, height - 1);
+      const edgeDistance = Math.min(edgeX, edgeY) * 2;
+      field[row * width + col] = clamp(1 - edgeDistance, 0, 1);
+    }
+  }
+  return field;
+}
+
+function getNeighborIndexes(index, width, height) {
+  const neighbors = [];
+  const col = index % width;
+  const row = Math.floor(index / width);
+  if (col > 0) {
+    neighbors.push(index - 1);
+  }
+  if (col < width - 1) {
+    neighbors.push(index + 1);
+  }
+  if (row > 0) {
+    neighbors.push(index - width);
+  }
+  if (row < height - 1) {
+    neighbors.push(index + width);
+  }
+  return neighbors;
+}
+
+function createWfcDomains(cellCount) {
+  return Array.from({ length: cellCount }, () => new Set(TERRAIN_TYPES));
+}
+
+function constrainDomainToType(domains, index, type) {
+  const domain = domains[index];
+  if (!domain.has(type)) {
+    return false;
+  }
+  if (domain.size === 1) {
+    return true;
+  }
+  domain.clear();
+  domain.add(type);
+  return true;
+}
+
+function propagateWfcConstraints(domains, width, height, queue) {
+  while (queue.length > 0) {
+    const index = queue.pop();
+    const sourceDomain = domains[index];
+    const neighborIndexes = getNeighborIndexes(index, width, height);
+    for (const neighborIndex of neighborIndexes) {
+      const neighborDomain = domains[neighborIndex];
+      let changed = false;
+      for (const neighborType of Array.from(neighborDomain)) {
+        let supported = false;
+        for (const sourceType of sourceDomain) {
+          const allowed = WFC_ALLOWED_NEIGHBORS[sourceType];
+          if (allowed && allowed.has(neighborType)) {
+            supported = true;
+            break;
+          }
+        }
+        if (!supported) {
+          neighborDomain.delete(neighborType);
+          changed = true;
+        }
+      }
+      if (neighborDomain.size === 0) {
+        return false;
+      }
+      if (changed) {
+        queue.push(neighborIndex);
+      }
+    }
+  }
+  return true;
+}
+
+function pickNextWfcCellIndex(domains, rng) {
+  let minEntropy = Number.POSITIVE_INFINITY;
+  const candidates = [];
+  for (let index = 0; index < domains.length; index += 1) {
+    const entropy = domains[index].size;
+    if (entropy <= 1) {
+      continue;
+    }
+    if (entropy < minEntropy) {
+      minEntropy = entropy;
+      candidates.length = 0;
+      candidates.push(index);
+      continue;
+    }
+    if (entropy === minEntropy) {
+      candidates.push(index);
+    }
+  }
+  if (candidates.length === 0) {
+    return -1;
+  }
+  return candidates[Math.floor(rng() * candidates.length)] ?? candidates[0];
+}
+
+function chooseWfcTypeForCell(
+  domain,
+  index,
+  width,
+  height,
+  edgeField,
+  waterAffinity,
+  mountainAffinity,
+  moistureNoise,
+  roughnessNoise,
+  config,
+  terrainCounts,
+  resolvedCellCount,
+  targetRatios,
+  waterMode,
+  rng,
+) {
+  const col = index % width;
+  const row = Math.floor(index / width);
+  const edge = edgeField[index] ?? 0;
+  const moisture = moistureNoise[index] ?? 0.5;
+  const roughness = roughnessNoise[index] ?? 0.5;
+  const waterNear = waterAffinity[index] ?? 0;
+  const mountainNear = mountainAffinity[index] ?? 0;
+  const centerBiasX =
+    1 - Math.abs(col / Math.max(1, width - 1) - 0.5) * 2;
+  const centerBiasY =
+    1 - Math.abs(row / Math.max(1, height - 1) - 0.5) * 2;
+  const centerBias = clamp((centerBiasX + centerBiasY) * 0.5, 0, 1);
+
+  let waterWeight =
+    0.03 +
+    edge * (0.95 + config.waterBias * 2) +
+    waterNear * 1.35 +
+    (0.55 - moisture) * 0.24;
+  if (waterMode === 'none') {
+    waterWeight = 0.0001;
+  } else if (waterMode === 'lake') {
+    waterWeight =
+      0.02 +
+      waterNear * 2.10 +
+      (0.5 - Math.abs(moisture - 0.5)) * 0.12 +
+      centerBias * 0.08;
+  } else if (waterMode === 'river') {
+    waterWeight =
+      0.01 +
+      waterNear * 2.45 +
+      (0.56 - moisture) * 0.08 +
+      roughness * 0.10;
+    if (waterNear < 0.20) {
+      waterWeight *= 0.07;
+    }
+  }
+
+  const weightsByType = {
+    water: waterWeight,
+    grass:
+      0.65 +
+      (1 - edge) * 0.35 +
+      (0.5 - Math.abs(moisture - 0.5)) * 0.2 +
+      centerBias * 0.12,
+    forest:
+      0.25 +
+      moisture * 1.05 +
+      config.forestBias * 2 +
+      (1 - edge) * 0.16,
+    hills:
+      0.23 + roughness * 0.96 + mountainNear * 0.35 + centerBias * 0.2,
+    mountains:
+      0.04 +
+      mountainNear * 1.55 +
+      roughness * 0.82 +
+      config.mountainBias * 2 +
+      centerBias * 0.2 -
+      edge * 0.25,
+  };
+
+  const weighted = Array.from(domain, (type) => {
+    const localWeight = Math.max(0.001, weightsByType[type] ?? 0.001);
+    const frequencyMultiplier = getWfcFrequencyMultiplier(
+      type,
+      terrainCounts,
+      resolvedCellCount,
+      targetRatios,
+    );
+    return {
+      value: type,
+      weight: Math.max(0.001, localWeight * frequencyMultiplier),
+    };
+  });
+  return chooseWeightedValue(weighted, rng);
+}
+
+function pinWfcSeedCluster(
+  domains,
+  width,
+  height,
+  seed,
+  radius,
+  type,
+  fillProbability,
+  rng,
+  queue,
+) {
+  for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
+    for (let colOffset = -radius; colOffset <= radius; colOffset += 1) {
+      const distance = Math.hypot(colOffset, rowOffset);
+      if (distance > radius + 0.01) {
+        continue;
+      }
+      if (rng() > fillProbability) {
+        continue;
+      }
+      const col = clamp(seed.col + colOffset, 0, width - 1);
+      const row = clamp(seed.row + rowOffset, 0, height - 1);
+      const index = row * width + col;
+      if (!constrainDomainToType(domains, index, type)) {
+        return false;
+      }
+      queue.push(index);
+    }
+  }
+  return true;
+}
+
+function smoothTerrain(terrain, width, height, passes) {
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next = terrain.slice();
+    for (let row = 1; row < height - 1; row += 1) {
+      for (let col = 1; col < width - 1; col += 1) {
+        const counts = new Map(TERRAIN_TYPES.map((type) => [type, 0]));
+        for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+          for (let colOffset = -1; colOffset <= 1; colOffset += 1) {
+            const index = (row + rowOffset) * width + (col + colOffset);
+            const type = terrain[index];
+            counts.set(type, (counts.get(type) ?? 0) + 1);
+          }
+        }
+        let dominantType = terrain[row * width + col];
+        let dominantCount = 0;
+        for (const [type, count] of counts) {
+          if (count > dominantCount) {
+            dominantCount = count;
+            dominantType = type;
+          }
+        }
+        if (dominantCount >= 5) {
+          next[row * width + col] = dominantType;
+        }
+      }
+    }
+    for (let i = 0; i < terrain.length; i += 1) {
+      terrain[i] = next[i];
+    }
+  }
+}
+
+function isPlayableTerrainType(type) {
+  return type !== 'water' && type !== 'mountains';
+}
+
+function hasPlayablePath(terrain, width, height, from, to) {
+  const startIndex = from.row * width + from.col;
+  const targetIndex = to.row * width + to.col;
+  if (!isPlayableTerrainType(terrain[startIndex]) || !isPlayableTerrainType(terrain[targetIndex])) {
+    return false;
+  }
+
+  const queue = [startIndex];
+  const visited = new Set([startIndex]);
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === targetIndex) {
+      return true;
+    }
+    const neighbors = getNeighborIndexes(current, width, height);
+    for (const neighborIndex of neighbors) {
+      if (visited.has(neighborIndex)) {
+        continue;
+      }
+      if (!isPlayableTerrainType(terrain[neighborIndex])) {
+        continue;
+      }
+      visited.add(neighborIndex);
+      queue.push(neighborIndex);
+    }
+  }
+  return false;
+}
+
+function getLineCells(start, end) {
+  const cells = [];
+  let x0 = start.col;
+  let y0 = start.row;
+  const x1 = end.col;
+  const y1 = end.row;
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+
+  while (true) {
+    cells.push({ col: x0, row: y0 });
+    if (x0 === x1 && y0 === y1) {
+      break;
+    }
+    const doubledError = err * 2;
+    if (doubledError > -dy) {
+      err -= dy;
+      x0 += sx;
+    }
+    if (doubledError < dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+  return cells;
+}
+
+function carvePlayableCorridor(terrain, width, height, from, to, rng) {
+  const line = getLineCells(from, to);
+  for (const point of line) {
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+      for (let colOffset = -1; colOffset <= 1; colOffset += 1) {
+        if (Math.abs(rowOffset) + Math.abs(colOffset) > 2) {
+          continue;
+        }
+        const col = clamp(point.col + colOffset, 0, width - 1);
+        const row = clamp(point.row + rowOffset, 0, height - 1);
+        const index = row * width + col;
+        const existing = terrain[index];
+        if (existing === 'water' || existing === 'mountains') {
+          terrain[index] = rng() < 0.24 ? 'hills' : 'grass';
+        }
+      }
+    }
+  }
+}
+
+function countTerrainTypes(terrain) {
+  const counts = createTerrainCounts();
+  for (const type of terrain) {
+    if (type in counts) {
+      counts[type] += 1;
+    }
+  }
+  return counts;
+}
+
+function getLargestConnectedComponentSizeForType(terrain, width, height, terrainType) {
+  const visited = new Uint8Array(terrain.length);
+  let largestSize = 0;
+
+  for (let index = 0; index < terrain.length; index += 1) {
+    if (visited[index] === 1 || terrain[index] !== terrainType) {
+      continue;
+    }
+    visited[index] = 1;
+    const queue = [index];
+    let componentSize = 0;
+    while (queue.length > 0) {
+      const current = queue.pop();
+      componentSize += 1;
+      const neighbors = getNeighborIndexes(current, width, height);
+      for (const neighbor of neighbors) {
+        if (visited[neighbor] === 1 || terrain[neighbor] !== terrainType) {
+          continue;
+        }
+        visited[neighbor] = 1;
+        queue.push(neighbor);
+      }
+    }
+    if (componentSize > largestSize) {
+      largestSize = componentSize;
+    }
+  }
+
+  return largestSize;
+}
+
+function buildWfcElevationGrid(
+  terrain,
+  moistureNoise,
+  roughnessNoise,
+  mountainAffinity,
+) {
+  const baseByType = {
+    water: 0.08,
+    grass: 0.44,
+    forest: 0.50,
+    hills: 0.70,
+    mountains: 0.90,
+  };
+  const varianceByType = {
+    water: 0.06,
+    grass: 0.08,
+    forest: 0.09,
+    hills: 0.13,
+    mountains: 0.10,
+  };
+  const elevationGrid = new Float32Array(terrain.length);
+  for (let index = 0; index < terrain.length; index += 1) {
+    const type = terrain[index];
+    const base = baseByType[type] ?? 0.45;
+    const variance = varianceByType[type] ?? 0.05;
+    const roughness = roughnessNoise[index] ?? 0.5;
+    const moisture = moistureNoise[index] ?? 0.5;
+    const ridge = mountainAffinity[index] ?? 0;
+    const signedNoise = (roughness - 0.5) * 2;
+    const moistureShift =
+      type === 'water'
+        ? -moisture * 0.04
+        : type === 'forest'
+          ? moisture * 0.03
+          : 0;
+    const ridgeShift = type === 'mountains' ? ridge * 0.06 : type === 'hills' ? ridge * 0.04 : 0;
+    elevationGrid[index] = clamp(base + signedNoise * variance + moistureShift + ridgeShift, 0, 1);
+  }
+  return elevationGrid;
+}
+
+function buildWfcTerrainGrid(config, rng) {
+  const width = config.gridWidth;
+  const height = config.gridHeight;
+  const cellCount = width * height;
+  const waterMode = config.waterMode ?? 'river';
+  const maxAttempts = waterMode === 'river' ? 60 : 28;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const moistureNoise = blurNoise(createNoise(width, height, rng), width, height, 3);
+    const roughnessNoise = blurNoise(createNoise(width, height, rng), width, height, 2);
+    const edgeField = createEdgeProximityField(width, height);
+
+    const mountainSeeds = [];
+    const mountainSeedCount = randomIntInclusive(rng, 2, 4);
+    for (let i = 0; i < mountainSeedCount; i += 1) {
+      mountainSeeds.push(createInteriorSeed(width, height, rng, 7));
+    }
+
+    const domains = createWfcDomains(cellCount);
+    const targetRatios = getWfcTargetRatios(config);
+    const queue = [];
+    const forcedWaterIndexes = new Set();
+    let waterSeeds = [];
+
+    if (waterMode === 'none') {
+      let invalid = false;
+      for (const domain of domains) {
+        domain.delete('water');
+        if (domain.size === 0) {
+          invalid = true;
+          break;
+        }
+      }
+      if (invalid) {
+        continue;
+      }
+    } else if (waterMode === 'lake') {
+      const lakePlan = createLakeWaterPlan(width, height, rng);
+      waterSeeds = lakePlan.seedCells;
+      for (const index of lakePlan.waterIndexes) {
+        forcedWaterIndexes.add(index);
+      }
+    } else {
+      const riverPlan = createRiverWaterPlan(width, height, rng);
+      waterSeeds = riverPlan.seedCells;
+      for (const index of riverPlan.waterIndexes) {
+        forcedWaterIndexes.add(index);
+      }
+    }
+
+    let invalidForcedWater = false;
+    for (const index of forcedWaterIndexes) {
+      if (!constrainDomainToType(domains, index, 'water')) {
+        invalidForcedWater = true;
+        break;
+      }
+      queue.push(index);
+    }
+    if (invalidForcedWater) {
+      continue;
+    }
+
+    const waterAffinity =
+      waterSeeds.length > 0
+        ? createAffinityField(
+            width,
+            height,
+            waterSeeds,
+            waterMode === 'river' ? Math.max(3, width * 0.12) : Math.max(4, width * 0.22),
+            waterMode === 'river' ? 2.6 : 2.0,
+          )
+        : new Float32Array(cellCount);
+    const mountainAffinity = createAffinityField(
+      width,
+      height,
+      mountainSeeds,
+      width * 0.28,
+      1.9,
+    );
+
+    for (const seed of mountainSeeds) {
+      const radius = randomIntInclusive(rng, 1, 2);
+      const fillProbability = 0.55 + rng() * 0.25;
+      if (
+        !pinWfcSeedCluster(
+          domains,
+          width,
+          height,
+          seed,
+          radius,
+          'mountains',
+          fillProbability,
+          rng,
+          queue,
+        )
+      ) {
+        queue.length = 0;
+        break;
+      }
+    }
+    if (queue.length === 0 && domains.some((domain) => domain.size !== TERRAIN_TYPES.length)) {
+      continue;
+    }
+
+    if (!propagateWfcConstraints(domains, width, height, queue)) {
+      continue;
+    }
+
+    let hasContradiction = false;
+    while (true) {
+      const index = pickNextWfcCellIndex(domains, rng);
+      if (index < 0) {
+        break;
+      }
+      const { counts: resolvedTerrainCounts, resolvedCellCount } =
+        getResolvedDomainCounts(domains);
+      const domain = domains[index];
+      const chosenType = chooseWfcTypeForCell(
+        domain,
+        index,
+        width,
+        height,
+        edgeField,
+        waterAffinity,
+        mountainAffinity,
+        moistureNoise,
+        roughnessNoise,
+        config,
+        resolvedTerrainCounts,
+        resolvedCellCount,
+        targetRatios,
+        waterMode,
+        rng,
+      );
+      domain.clear();
+      domain.add(chosenType);
+      if (!propagateWfcConstraints(domains, width, height, [index])) {
+        hasContradiction = true;
+        break;
+      }
+    }
+    if (hasContradiction) {
+      continue;
+    }
+
+    const terrain = domains.map((domain) => Array.from(domain)[0] ?? 'grass');
+    smoothTerrain(terrain, width, height, 1);
+    if (forcedWaterIndexes.size > 0) {
+      for (const index of forcedWaterIndexes) {
+        terrain[index] = 'water';
+      }
+    }
+
+    const counts = countTerrainTypes(terrain);
+    const waterRatio = counts.water / Math.max(1, cellCount);
+    const mountainRatio = counts.mountains / Math.max(1, cellCount);
+    const playableRatio =
+      (cellCount - counts.water - counts.mountains) / Math.max(1, cellCount);
+    if (waterMode === 'none' && counts.water > 0) {
+      continue;
+    }
+    if (waterMode === 'river' && (waterRatio < 0.04 || waterRatio > 0.22)) {
+      continue;
+    }
+    if (waterMode === 'lake' && (waterRatio < 0.08 || waterRatio > 0.34)) {
+      continue;
+    }
+    if (mountainRatio > 0.12 || playableRatio < 0.45) {
+      continue;
+    }
+    if (counts.grass < counts.water || counts.grass < counts.forest || counts.grass < counts.hills) {
+      continue;
+    }
+    if (counts.water > 0) {
+      const largestWaterComponentSize = getLargestConnectedComponentSizeForType(
+        terrain,
+        width,
+        height,
+        'water',
+      );
+      const dominantWaterComponentRatio = largestWaterComponentSize / counts.water;
+      const minimumDominantRatio =
+        waterMode === 'river' ? 0.78 : waterMode === 'lake' ? 0.65 : 0.58;
+      if (dominantWaterComponentRatio < minimumDominantRatio) {
+        continue;
+      }
+    }
+
+    const redAnchor = findNearestPlayableCell(
+      terrain,
+      width,
+      height,
+      Math.round(width * 0.16),
+      Math.round(height * 0.50),
+    );
+    const blueAnchor = findNearestPlayableCell(
+      terrain,
+      width,
+      height,
+      Math.round(width * 0.84),
+      Math.round(height * 0.50),
+    );
+    if (!hasPlayablePath(terrain, width, height, redAnchor, blueAnchor)) {
+      carvePlayableCorridor(terrain, width, height, redAnchor, blueAnchor, rng);
+      smoothTerrain(terrain, width, height, 1);
+      if (!hasPlayablePath(terrain, width, height, redAnchor, blueAnchor)) {
+        continue;
+      }
+    }
+
+    const elevationGrid = buildWfcElevationGrid(
+      terrain,
+      moistureNoise,
+      roughnessNoise,
+      mountainAffinity,
+    );
+    return { terrain, elevationGrid };
+  }
+
+  throw new Error('WFC map generation failed after multiple attempts.');
 }
 
 function findNearestPlayableCell(
@@ -570,6 +1687,8 @@ assertInteger('output height', options.height, 64);
 assertFinite('water bias', options.waterBias, -0.25, 0.25);
 assertFinite('mountain bias', options.mountainBias, -0.25, 0.25);
 assertFinite('forest bias', options.forestBias, -0.25, 0.25);
+assertGenerationMethod(options.method);
+assertWaterMode(options.waterMode);
 
 try {
   accessSync(options.outputDir, constants.W_OK);
@@ -595,16 +1714,29 @@ if (!/^[a-zA-Z0-9._-]+$/.test(mapId)) {
   process.exit(1);
 }
 
-const { terrain, elevationGrid } = buildTerrainGrid(
-  {
-    gridWidth: options.gridWidth,
-    gridHeight: options.gridHeight,
-    waterBias: options.waterBias,
-    mountainBias: options.mountainBias,
-    forestBias: options.forestBias,
-  },
-  rng,
-);
+const generationMethod = resolveGenerationMethod(options.method, rng);
+const resolvedWaterMode = resolveWaterMode(options.waterMode, rng);
+const generationConfig = {
+  gridWidth: options.gridWidth,
+  gridHeight: options.gridHeight,
+  waterBias: options.waterBias,
+  mountainBias: options.mountainBias,
+  forestBias: options.forestBias,
+  waterMode: resolvedWaterMode,
+};
+let generatedTerrain;
+try {
+  generatedTerrain =
+    generationMethod === 'wfc'
+      ? buildWfcTerrainGrid(generationConfig, rng)
+      : buildNoiseTerrainGrid(generationConfig, rng);
+} catch (error) {
+  const message = error instanceof Error ? error.message : 'unknown generation error';
+  console.error(`Map generation failed (${generationMethod}): ${message}`);
+  process.exit(1);
+}
+
+const { terrain, elevationGrid } = generatedTerrain;
 const cityMarkers = placeCityMarkers(
   terrain,
   options.gridWidth,
@@ -660,6 +1792,8 @@ writeFileSync(
   elevationGridPath,
   `${JSON.stringify({
     mapId,
+    method: generationMethod,
+    waterMode: resolvedWaterMode,
     gridWidth: options.gridWidth,
     gridHeight: options.gridHeight,
     elevation: Array.from(elevationBytes),
@@ -672,6 +1806,8 @@ if (!options.noSync) {
 }
 
 console.log(`Generated map ID: ${mapId}`);
+console.log(`Method: ${generationMethod}`);
+console.log(`Water mode: ${resolvedWaterMode}`);
 console.log(`Seed: ${seedText}`);
 console.log(`Source map: ${sourcePath}`);
 console.log(`Quantized map: ${quantizedPath}`);

@@ -245,8 +245,8 @@ export class BattleRoom extends Room<BattleState> {
     );
     this.onMessage(
       NETWORK_MESSAGE_TYPES.lobbyGenerateMap,
-      (client, _message: LobbyGenerateMapMessage) => {
-        this.handleLobbyGenerateMapMessage(client);
+      (client, message: LobbyGenerateMapMessage) => {
+        this.handleLobbyGenerateMapMessage(client, message);
       },
     );
   }
@@ -921,7 +921,10 @@ export class BattleRoom extends Room<BattleState> {
     this.broadcastLobbyState();
   }
 
-  private handleLobbyGenerateMapMessage(client: Client): void {
+  private handleLobbyGenerateMapMessage(
+    client: Client,
+    message: LobbyGenerateMapMessage,
+  ): void {
     if (this.matchPhase !== "LOBBY") {
       return;
     }
@@ -934,6 +937,13 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
+    const requestedMethod = message?.method;
+    const generationMethod =
+      requestedMethod === "noise" ||
+      requestedMethod === "wfc" ||
+      requestedMethod === "auto"
+        ? requestedMethod
+        : "wfc";
     const mapId = this.lobbyService.getGeneratedMapId();
     const sharedDir = this.resolveSharedDirectory();
     if (!sharedDir) {
@@ -964,6 +974,8 @@ export class BattleRoom extends Room<BattleState> {
           mapId,
           "--seed",
           seed,
+          "--method",
+          generationMethod,
           "--output-dir",
           sharedDir,
         ],
@@ -990,7 +1002,9 @@ export class BattleRoom extends Room<BattleState> {
 
       this.lobbyService.addAvailableMapId(mapId);
       this.applyLobbyMapSelection(mapId);
-      console.log(`Generated new lobby map: ${mapId} (seed ${seed})`);
+      console.log(
+        `Generated new lobby map: ${mapId} (seed ${seed}, method ${generationMethod})`,
+      );
     } finally {
       this.isGeneratingMap = false;
       this.broadcastLobbyState();
