@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const SOURCE_EXTENSIONS = ['.jpeg', '.jpg', '.png'];
 const QUANTIZED_SUFFIX = '-16c.png';
+const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
 const DEFAULT_COLORS = 16;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DIR = path.resolve(SCRIPT_DIR, '..');
@@ -173,6 +174,29 @@ function syncSourceMapsToShared(mapIdToSourcePath, sharedDir) {
   return syncedCount;
 }
 
+function syncElevationGridsToShared(mapIds, sourceDir, sharedDir) {
+  let syncedCount = 0;
+  for (const mapId of mapIds) {
+    const sourcePath = path.join(sourceDir, `${mapId}${ELEVATION_GRID_SUFFIX}`);
+    const targetPath = path.join(sharedDir, `${mapId}${ELEVATION_GRID_SUFFIX}`);
+    if (sourcePath === targetPath || !existsSync(sourcePath)) {
+      continue;
+    }
+
+    const shouldCopy =
+      !existsSync(targetPath) ||
+      statSync(sourcePath).mtimeMs > statSync(targetPath).mtimeMs;
+    if (!shouldCopy) {
+      continue;
+    }
+
+    copyFileSync(sourcePath, targetPath);
+    syncedCount += 1;
+  }
+
+  return syncedCount;
+}
+
 const [, , inputDirArg] = process.argv;
 
 if (inputDirArg === '--help' || inputDirArg === '-h') {
@@ -246,6 +270,11 @@ const syncedQuantizedMaps = syncQuantizedMapsToShared(
   SHARED_DIR,
 );
 const syncedSourceMaps = syncSourceMapsToShared(mapIdToSourcePath, SHARED_DIR);
+const syncedElevationGrids = syncElevationGridsToShared(
+  discoveredMapIds,
+  inputDir,
+  SHARED_DIR,
+);
 
 runTerrainGridGeneration(SHARED_DIR);
 
@@ -258,6 +287,7 @@ if (converted.length > 0) {
 if (inputDir !== SHARED_DIR) {
   console.log(`Synced source maps to shared/: ${syncedSourceMaps}`);
   console.log(`Synced quantized maps to shared/: ${syncedQuantizedMaps}`);
+  console.log(`Synced elevation grids to shared/: ${syncedElevationGrids}`);
 }
 console.log(`Unchanged maps: ${skipped.length}`);
 console.log(

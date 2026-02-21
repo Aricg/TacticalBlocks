@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, readdirSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -10,6 +17,7 @@ const DEFAULT_OUTPUT = path.resolve(process.cwd(), 'src/terrainGrid.ts');
 const DEFAULT_GRID_WIDTH = 80;
 const DEFAULT_GRID_HEIGHT = 44;
 const QUANTIZED_MAP_SUFFIX = '-16c.png';
+const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
 const SOURCE_IMAGE_EXTENSIONS = ['.jpeg', '.jpg', '.png'];
 
 const MOUNTAIN_SWATCHES = new Set([
@@ -59,6 +67,15 @@ const TERRAIN_CODE_BY_TYPE = {
   hills: 'h',
   mountains: 'm',
   unknown: 'u',
+};
+
+const DEFAULT_ELEVATION_BYTE_BY_TERRAIN_CODE = {
+  w: 16,
+  g: 112,
+  f: 124,
+  h: 176,
+  m: 230,
+  u: 112,
 };
 
 const CITY_HUE_MIN = 38;
@@ -306,6 +323,147 @@ function formatTerrainCodeGrid(codeGrid, gridWidth, indent = '    ') {
   return lines.join('\n');
 }
 
+function formatElevationHexGrid(elevationHexGrid, gridWidth, indent = '    ') {
+  if (elevationHexGrid.length === 0 || gridWidth <= 0) {
+    return `${indent}''`;
+  }
+
+  const lines = [];
+  const charsPerRow = gridWidth * 2;
+  const rowCount = Math.ceil(elevationHexGrid.length / charsPerRow);
+  for (let row = 0; row < rowCount; row += 1) {
+    const start = row * charsPerRow;
+    const end = start + charsPerRow;
+    const rowHex = elevationHexGrid.slice(start, end);
+    const suffix = row < rowCount - 1 ? ' +' : '';
+    lines.push(`${indent}'${rowHex}'${suffix}`);
+  }
+
+  return lines.join('\n');
+}
+
+function normalizeElevationByte(value, normalizedRange = false) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const scaled = normalizedRange ? value * 255 : value;
+  const rounded = Math.round(scaled);
+  if (!Number.isFinite(rounded)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(255, rounded));
+}
+
+function decodeElevationHexGrid(elevationHexGrid, expectedCellCount) {
+  if (
+    typeof elevationHexGrid !== 'string' ||
+    elevationHexGrid.length !== expectedCellCount * 2
+  ) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(expectedCellCount);
+  for (let index = 0; index < expectedCellCount; index += 1) {
+    const value = Number.parseInt(
+      elevationHexGrid.slice(index * 2, index * 2 + 2),
+      16,
+    );
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+    bytes[index] = value;
+  }
+  return bytes;
+}
+
+function encodeElevationHexGrid(elevationBytes) {
+  return Array.from(elevationBytes, (value) =>
+    value.toString(16).padStart(2, '0'),
+  ).join('');
+}
+
+function getFallbackElevationBytes(terrainCodeGrid, gridWidth, gridHeight) {
+  const cellCount = gridWidth * gridHeight;
+  const bytes = new Uint8Array(cellCount);
+  for (let index = 0; index < cellCount; index += 1) {
+    const terrainCode = terrainCodeGrid.charAt(index);
+    bytes[index] =
+      DEFAULT_ELEVATION_BYTE_BY_TERRAIN_CODE[terrainCode] ??
+      DEFAULT_ELEVATION_BYTE_BY_TERRAIN_CODE.u;
+  }
+  return bytes;
+}
+
+function readElevationBytesFromSidecar(inputDir, mapId, gridWidth, gridHeight) {
+  const sidecarPath = path.join(inputDir, `${mapId}${ELEVATION_GRID_SUFFIX}`);
+  if (!existsSync(sidecarPath)) {
+    return null;
+  }
+
+  try {
+    const expectedCellCount = gridWidth * gridHeight;
+    const parsed = JSON.parse(readFileSync(sidecarPath, 'utf8'));
+    if (parsed && typeof parsed === 'object') {
+      if (
+        Number.isInteger(parsed.gridWidth) &&
+        Number.isInteger(parsed.gridHeight) &&
+        (parsed.gridWidth !== gridWidth || parsed.gridHeight !== gridHeight)
+      ) {
+        console.warn(
+          `Skipping elevation sidecar for ${mapId}: grid size mismatch (${parsed.gridWidth}x${parsed.gridHeight}, expected ${gridWidth}x${gridHeight}).`,
+        );
+        return null;
+      }
+
+      if (typeof parsed.elevationHex === 'string') {
+        const decoded = decodeElevationHexGrid(
+          parsed.elevationHex,
+          expectedCellCount,
+        );
+        if (decoded) {
+          return decoded;
+        }
+      }
+
+      if (Array.isArray(parsed.elevation)) {
+        if (parsed.elevation.length !== expectedCellCount) {
+          console.warn(
+            `Skipping elevation sidecar for ${mapId}: expected ${expectedCellCount} entries, got ${parsed.elevation.length}.`,
+          );
+          return null;
+        }
+
+        const normalizedRange = parsed.elevation.every(
+          (value) => Number.isFinite(value) && value >= 0 && value <= 1,
+        );
+        const bytes = new Uint8Array(expectedCellCount);
+        for (let index = 0; index < expectedCellCount; index += 1) {
+          const normalized = normalizeElevationByte(
+            parsed.elevation[index],
+            normalizedRange,
+          );
+          if (normalized === null) {
+            console.warn(
+              `Skipping elevation sidecar for ${mapId}: non-numeric elevation at index ${index}.`,
+            );
+            return null;
+          }
+          bytes[index] = normalized;
+        }
+        return bytes;
+      }
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'unknown parsing error';
+    console.warn(`Skipping elevation sidecar for ${mapId}: ${message}`);
+  }
+
+  return null;
+}
+
 function getConnectedComponents(cells) {
   const components = [];
   const cellByKey = new Map(cells.map((cell) => [`${cell.col},${cell.row}`, cell]));
@@ -486,6 +644,7 @@ if (mapFiles.length === 0) {
 
 const mountainIndexesByMapId = new Map();
 const terrainCodeGridByMapId = new Map();
+const elevationHexGridByMapId = new Map();
 const cityIndexesByMapId = new Map();
 const cityAnchorsByMapId = new Map();
 const neutralCityIndexesByMapId = new Map();
@@ -497,10 +656,12 @@ for (const mapFile of mapFiles) {
   const quantizedPixels = parsePixelDump(
     runMagickPixelDump(quantizedPath, gridWidth, gridHeight),
   );
-  terrainCodeGridByMapId.set(
-    mapId,
-    getTerrainCodeGrid(quantizedPixels, gridWidth, gridHeight),
-  );
+  const terrainCodeGrid = getTerrainCodeGrid(quantizedPixels, gridWidth, gridHeight);
+  terrainCodeGridByMapId.set(mapId, terrainCodeGrid);
+  const elevationBytes =
+    readElevationBytesFromSidecar(inputDir, mapId, gridWidth, gridHeight) ??
+    getFallbackElevationBytes(terrainCodeGrid, gridWidth, gridHeight);
+  elevationHexGridByMapId.set(mapId, encodeElevationHexGrid(elevationBytes));
   const rawMountainIndexes = getMountainIndexes(quantizedPixels, gridWidth);
   const mountainIndexes = pruneIsolatedMountainIndexes(
     rawMountainIndexes,
@@ -530,6 +691,7 @@ for (const mapFile of mapFiles) {
 
 const mountainEntries = [];
 const terrainCodeEntries = [];
+const elevationEntries = [];
 const cityMaskEntries = [];
 const cityAnchorEntries = [];
 const neutralCityMaskEntries = [];
@@ -545,6 +707,10 @@ for (const [mapId, indexes] of mountainIndexesByMapId) {
   const terrainCodeGrid = terrainCodeGridByMapId.get(mapId) ?? '';
   terrainCodeEntries.push(
     `  '${mapId}':\n${formatTerrainCodeGrid(terrainCodeGrid, gridWidth)},`,
+  );
+  const elevationHexGrid = elevationHexGridByMapId.get(mapId) ?? '';
+  elevationEntries.push(
+    `  '${mapId}':\n${formatElevationHexGrid(elevationHexGrid, gridWidth)},`,
   );
 
   const cityMasks = cityIndexesByMapId.get(mapId) ?? { RED: [], BLUE: [] };
@@ -590,6 +756,10 @@ const TERRAIN_CODE_GRID_BY_MAP_ID: Record<string, string> = {
 ${terrainCodeEntries.join('\n')}
 };
 
+const ELEVATION_HEX_GRID_BY_MAP_ID: Record<string, string> = {
+${elevationEntries.join('\n')}
+};
+
 const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
   w: 'water',
   g: 'grass',
@@ -598,6 +768,30 @@ const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
   m: 'mountains',
   u: 'unknown',
 };
+
+function decodeElevationHexGrid(elevationHexGrid: string): Uint8Array {
+  const expectedLength = TERRAIN_GRID_WIDTH * TERRAIN_GRID_HEIGHT;
+  if (elevationHexGrid.length !== expectedLength * 2) {
+    return new Uint8Array(expectedLength);
+  }
+
+  const bytes = new Uint8Array(expectedLength);
+  for (let index = 0; index < expectedLength; index += 1) {
+    const byteValue = Number.parseInt(
+      elevationHexGrid.slice(index * 2, index * 2 + 2),
+      16,
+    );
+    bytes[index] = Number.isFinite(byteValue) ? byteValue : 0;
+  }
+  return bytes;
+}
+
+const ELEVATION_GRID_BY_MAP_ID = new Map<string, Uint8Array>(
+  Object.entries(ELEVATION_HEX_GRID_BY_MAP_ID).map(([mapId, elevationHexGrid]) => [
+    mapId,
+    decodeElevationHexGrid(elevationHexGrid),
+  ]),
+);
 
 const MOUNTAIN_CELL_INDEXES_BY_MAP_ID: Record<string, number[]> = {
 ${mountainEntries.join('\n')}
@@ -692,6 +886,21 @@ function getActiveTerrainCodeGrid(): string {
   return TERRAIN_CODE_GRID_BY_MAP_ID[getFallbackMapId()] ?? '';
 }
 
+function getActiveElevationGrid(): Uint8Array {
+  const expectedLength = TERRAIN_GRID_WIDTH * TERRAIN_GRID_HEIGHT;
+  const activeGrid = ELEVATION_GRID_BY_MAP_ID.get(getActiveMapId());
+  if (activeGrid && activeGrid.length === expectedLength) {
+    return activeGrid;
+  }
+
+  const fallbackGrid = ELEVATION_GRID_BY_MAP_ID.get(getFallbackMapId());
+  if (fallbackGrid && fallbackGrid.length === expectedLength) {
+    return fallbackGrid;
+  }
+
+  return new Uint8Array(expectedLength);
+}
+
 function getActiveCityIndexSetByTeam(): Record<Team, Set<number>> {
   const activeSet = CITY_CELL_INDEX_SET_BY_MAP_ID.get(getActiveMapId());
   if (activeSet) {
@@ -733,6 +942,20 @@ export function getGridCellTerrainType(col: number, row: number): TerrainType {
 
   const terrainCode = getActiveTerrainCodeGrid().charAt(getGridCellIndex(col, row));
   return TERRAIN_TYPE_BY_CODE[terrainCode] ?? 'unknown';
+}
+
+export function getGridCellElevation(col: number, row: number): number {
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= TERRAIN_GRID_WIDTH ||
+    row >= TERRAIN_GRID_HEIGHT
+  ) {
+    return 0;
+  }
+
+  const elevationByte = getActiveElevationGrid()[getGridCellIndex(col, row)] ?? 0;
+  return elevationByte / 255;
 }
 
 export function getWorldTerrainType(x: number, y: number): TerrainType {

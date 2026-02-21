@@ -18,17 +18,18 @@ const DEFAULT_GRID_HEIGHT = 44;
 const DEFAULT_OUTPUT_WIDTH = 1920;
 const DEFAULT_OUTPUT_HEIGHT = 1080;
 const DEFAULT_WATER_BIAS = 0.05;
-const DEFAULT_MOUNTAIN_BIAS = 0.0;
+const DEFAULT_MOUNTAIN_BIAS = 0.03;
 const DEFAULT_FOREST_BIAS = 0.0;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DIR = path.resolve(SCRIPT_DIR, '..');
+const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
 
 const TERRAIN_SWATCHES = {
   water: [0x0f2232, 0x102236],
   grass: [0x71844b, 0x70834e, 0x748764],
   forest: [0x364d31, 0x122115],
   hills: [0xc4a771, 0x9e8c5d, 0xa79168],
-  mountains: [0x708188, 0x6d7e85, 0x5a6960, 0x404b3c, 0x6a7c8c, 0x4e5f5d],
+  mountains: [0x708188, 0x6d7e85, 0x5a6960, 0x404b3c, 0x6a7c8c],
 };
 const CITY_MARKER_COLOR = 0xefb72f;
 const TERRAIN_TYPES = ['water', 'grass', 'forest', 'hills', 'mountains'];
@@ -226,6 +227,7 @@ function buildTerrainGrid(config, rng) {
   const moistureNoise = blurNoise(createNoise(width, height, rng), width, height, 3);
   const roughnessNoise = blurNoise(createNoise(width, height, rng), width, height, 2);
   const terrain = new Array(width * height).fill('grass');
+  const elevationGrid = new Float32Array(width * height);
 
   const riverPhase = rng() * Math.PI * 2;
   const riverAmplitude = 0.18 + rng() * 0.12;
@@ -241,6 +243,7 @@ function buildTerrainGrid(config, rng) {
         heightNoise[index] * 0.72 +
         roughnessNoise[index] * 0.28 +
         (edgeDistance - 0.5) * 0.30;
+      elevationGrid[index] = clamp(elevation, 0, 1);
       const moisture = moistureNoise[index];
 
       const riverCenterX =
@@ -261,11 +264,11 @@ function buildTerrainGrid(config, rng) {
         roughnessNoise[index] * 0.70 -
         moisture * 0.28 +
         config.mountainBias;
-      if (mountainScore > 0.93 && edgeDistance > 0.15) {
+      if (mountainScore > 0.88 && edgeDistance > 0.12) {
         terrain[index] = 'mountains';
         continue;
       }
-      if (mountainScore > 0.76) {
+      if (mountainScore > 0.72) {
         terrain[index] = 'hills';
         continue;
       }
@@ -309,7 +312,7 @@ function buildTerrainGrid(config, rng) {
     }
   }
 
-  return terrain;
+  return { terrain, elevationGrid };
 }
 
 function findNearestPlayableCell(
@@ -479,7 +482,7 @@ if (!/^[a-zA-Z0-9._-]+$/.test(mapId)) {
   process.exit(1);
 }
 
-const terrain = buildTerrainGrid(
+const { terrain, elevationGrid } = buildTerrainGrid(
   {
     gridWidth: options.gridWidth,
     gridHeight: options.gridHeight,
@@ -506,6 +509,10 @@ const tempDir = mkdtempSync(path.join(os.tmpdir(), 'tb-random-map-'));
 const ppmPath = path.join(tempDir, `${mapId}.ppm`);
 const sourcePath = path.join(options.outputDir, `${mapId}.png`);
 const quantizedPath = path.join(options.outputDir, `${mapId}-16c.png`);
+const elevationGridPath = path.join(
+  options.outputDir,
+  `${mapId}${ELEVATION_GRID_SUFFIX}`,
+);
 
 try {
   writeFileSync(
@@ -535,6 +542,19 @@ try {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
+writeFileSync(
+  elevationGridPath,
+  `${JSON.stringify({
+    mapId,
+    gridWidth: options.gridWidth,
+    gridHeight: options.gridHeight,
+    elevation: Array.from(elevationGrid, (value) =>
+      Math.round(clamp(value, 0, 1) * 255),
+    ),
+  })}\n`,
+  'utf8',
+);
+
 if (!options.noSync) {
   runSyncMaps(options.outputDir);
 }
@@ -543,6 +563,7 @@ console.log(`Generated map ID: ${mapId}`);
 console.log(`Seed: ${seedText}`);
 console.log(`Source map: ${sourcePath}`);
 console.log(`Quantized map: ${quantizedPath}`);
+console.log(`Elevation grid: ${elevationGridPath}`);
 if (options.noSync) {
   console.log('Skipped map:sync (--no-sync).');
 } else {

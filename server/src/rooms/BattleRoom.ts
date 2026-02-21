@@ -50,6 +50,7 @@ import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import {
+  getGridCellElevation,
   getGridCellTerrainType,
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
@@ -156,6 +157,8 @@ export class BattleRoom extends Room<BattleState> {
   // Radius 2 in each axis yields a 5x5 commander aura area.
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 10;
+  private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
+  private static readonly SLOPE_ELEVATION_BYTE_THRESHOLD = 2;
   private static readonly SUPPLY_MORALE_PENALTY =
     GAMEPLAY_CONFIG.supply.moralePenaltyWhenDisconnected;
   private static readonly SUPPLY_HEALTH_LOSS_PER_SECOND =
@@ -559,6 +562,43 @@ export class BattleRoom extends Room<BattleState> {
   private getTerrainMoraleMultiplierAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
     return BattleRoom.TERRAIN_MORALE_MULTIPLIER[terrainType] ?? 1.0;
+  }
+
+  private getSlopeMoraleDelta(unit: Unit): number {
+    const currentCell = this.worldToGridCoordinate(unit.x, unit.y);
+    const unitRotation = Number.isFinite(unit.rotation) ? unit.rotation : 0;
+    const facingAngle = unitRotation + BattleRoom.UNIT_FORWARD_OFFSET;
+    const forwardCell: GridCoordinate = {
+      col: this.clamp(
+        currentCell.col + Math.round(Math.cos(facingAngle)),
+        0,
+        BattleRoom.GRID_WIDTH - 1,
+      ),
+      row: this.clamp(
+        currentCell.row + Math.round(Math.sin(facingAngle)),
+        0,
+        BattleRoom.GRID_HEIGHT - 1,
+      ),
+    };
+    const currentElevation = getGridCellElevation(currentCell.col, currentCell.row);
+    const forwardElevation = getGridCellElevation(forwardCell.col, forwardCell.row);
+    const elevationDeltaBytes = Math.round(
+      (forwardElevation - currentElevation) * 255,
+    );
+    const moralePerInfluenceDot =
+      BattleRoom.MORALE_MAX_SCORE /
+      Math.max(
+        1,
+        (BattleRoom.MORALE_SAMPLE_RADIUS * 2 + 1) *
+          (BattleRoom.MORALE_SAMPLE_RADIUS * 2 + 1),
+      );
+    if (elevationDeltaBytes >= BattleRoom.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+      return -moralePerInfluenceDot * BattleRoom.SLOPE_MORALE_DOT_EQUIVALENT;
+    }
+    if (elevationDeltaBytes <= -BattleRoom.SLOPE_ELEVATION_BYTE_THRESHOLD) {
+      return moralePerInfluenceDot * BattleRoom.SLOPE_MORALE_DOT_EQUIVALENT;
+    }
+    return 0;
   }
 
   private updateInfluenceGrid(force = false): void {
@@ -1586,8 +1626,9 @@ export class BattleRoom extends Room<BattleState> {
           ? BattleRoom.SUPPLY_MORALE_PENALTY
           : 0;
       const commanderAuraBonus = getCommanderAuraBonus(unit);
+      const slopeMoraleDelta = this.getSlopeMoraleDelta(unit);
       return this.clamp(
-        baseMoraleScore + commanderAuraBonus - supplyPenalty,
+        baseMoraleScore + commanderAuraBonus + slopeMoraleDelta - supplyPenalty,
         0,
         BattleRoom.MORALE_MAX_SCORE,
       );
