@@ -65,6 +65,7 @@ export class BattleInputController {
     this.scene.input.on('pointerup', this.handlePointerUp);
     this.scene.input.keyboard?.on('keydown-SPACE', this.handleKeyDownSpace);
     this.scene.input.keyboard?.on('keydown-ESC', this.handleKeyDownEsc);
+    this.scene.input.keyboard?.on('keydown-D', this.handleKeyDownD);
   }
 
   public reset(): void {
@@ -86,6 +87,7 @@ export class BattleInputController {
     this.scene.input.off('pointerup', this.handlePointerUp);
     this.scene.input.keyboard?.off('keydown-SPACE', this.handleKeyDownSpace);
     this.scene.input.keyboard?.off('keydown-ESC', this.handleKeyDownEsc);
+    this.scene.input.keyboard?.off('keydown-D', this.handleKeyDownD);
     this.reset();
   }
 
@@ -282,5 +284,21 @@ export class BattleInputController {
       return;
     }
     this.callbacks.clearAllQueuedMovement();
+  };
+
+  private readonly handleKeyDownD = (): void => {
+    if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    this.suppressCommandOnPointerUp = false;
+    this.dragStart = null;
+    this.pathDragStart = null;
+    this.pathDragStartedOnUnit = false;
+    this.boxSelecting = false;
+    this.pathDrawing = false;
+    this.draggedPath = [];
+    this.callbacks.clearSelectionBox();
+    this.callbacks.clearPathPreview();
+    this.callbacks.clearSelection();
   };
 }
