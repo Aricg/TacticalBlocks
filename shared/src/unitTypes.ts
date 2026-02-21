@@ -15,8 +15,7 @@ export function getUnitDamageMultiplier(unitType: UnitType): number {
 }
 
 export function getUnitInfluencePowerMultiplier(unitType: UnitType): number {
-  // Commanders have half health, so this yields a 6x full-strength influence profile.
-  return unitType === "COMMANDER" ? 12 : 1;
+  return unitType === "COMMANDER" ? 2 : 1;
 }
 
 export function getUnitHealthMax(baseUnitHealth: number, unitType: UnitType): number {

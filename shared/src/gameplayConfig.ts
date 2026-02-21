@@ -65,7 +65,7 @@ export const GAMEPLAY_CONFIG = {
     // Extra decay applied near zero magnitude (small residuals collapse faster).
     maxExtraDecayAtZero: 0.4,
     // Hard cap for signed tactical score in each cell.
-    maxAbsTacticalScore: 100,
+    maxAbsTacticalScore: 9,
     // City source core radius used for static-source cap checks.
     citySourceCoreRadius: 27,
     // 1 enables static-unit cap gate, 0 disables it.
@@ -114,13 +114,13 @@ export const GAMEPLAY_CONFIG = {
       unknown: 1.0,
       mountains: 0,
     },
-    moraleMultiplierByType: {
-      water: 0.3,
-      forest: 1.0,
-      hills: 1.0,
-      grass: 1.0,
-      unknown: 1.0,
-      mountains: 1.0,
+    moraleBonusByType: {
+      water: -5,
+      forest: 0,
+      hills: 0,
+      grass: 0,
+      unknown: 0,
+      mountains: 0,
     },
   },
   combat: {

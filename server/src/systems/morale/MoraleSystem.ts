@@ -20,26 +20,29 @@ export interface UnitMoraleScoreParams {
   unit: Unit;
   moraleSampleRadius: number;
   moraleMaxScore: number;
+  maxAbsInfluenceScore: number;
   gridWidth: number;
   gridHeight: number;
   worldToGridCoordinate: (x: number, y: number) => GridCoordinate;
   getInfluenceScoreAtCell: (col: number, row: number) => number;
-  getTerrainMoraleMultiplierAtCell: (cell: GridCoordinate) => number;
+  getTerrainMoraleBonusAtCell: (cell: GridCoordinate) => number;
 }
 
 export function getUnitMoraleScore({
   unit,
   moraleSampleRadius,
   moraleMaxScore,
+  maxAbsInfluenceScore,
   gridWidth,
   gridHeight,
   worldToGridCoordinate,
   getInfluenceScoreAtCell,
-  getTerrainMoraleMultiplierAtCell,
+  getTerrainMoraleBonusAtCell,
 }: UnitMoraleScoreParams): number {
   const sampleCenter = worldToGridCoordinate(unit.x, unit.y);
   const teamSign = getTeamSign(unit.team);
-  let friendlyDots = 0;
+  const influenceNormalization = Math.max(1, maxAbsInfluenceScore);
+  let accumulatedFriendlyWeight = 0;
   let sampledCells = 0;
 
   for (
@@ -56,22 +59,27 @@ export function getUnitMoraleScore({
       const sampleRow = clamp(sampleCenter.row + rowOffset, 0, gridHeight - 1);
       const cellScore = getInfluenceScoreAtCell(sampleCol, sampleRow);
       const alignedCellScore = cellScore * teamSign;
-      if (alignedCellScore >= 0) {
-        friendlyDots += 1;
-      }
+      // Convert [-maxAbsInfluenceScore, +maxAbsInfluenceScore] to [0, 1]:
+      // enemy-dominant cell => 0, neutral/contested => 0.5, friendly-dominant => 1.
+      const normalizedAlignedScore = clamp(
+        alignedCellScore / influenceNormalization,
+        -1,
+        1,
+      );
+      accumulatedFriendlyWeight += (normalizedAlignedScore + 1) * 0.5;
       sampledCells += 1;
     }
   }
 
   if (sampledCells <= 0) {
-    return 0;
+    return 1;
   }
 
-  const baseMoraleScore = (friendlyDots / sampledCells) * moraleMaxScore;
-  const terrainMoraleMultiplier =
-    getTerrainMoraleMultiplierAtCell(sampleCenter);
-  const moraleScore = baseMoraleScore * terrainMoraleMultiplier;
-  return clamp(moraleScore, 0, moraleMaxScore);
+  const baseMoraleScore =
+    (accumulatedFriendlyWeight / sampledCells) * moraleMaxScore;
+  const terrainMoraleBonus = getTerrainMoraleBonusAtCell(sampleCenter);
+  const moraleScore = baseMoraleScore + terrainMoraleBonus;
+  return clamp(moraleScore, 1, moraleMaxScore);
 }
 
 export function updateUnitMoraleScores(

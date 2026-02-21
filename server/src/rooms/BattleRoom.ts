@@ -142,8 +142,8 @@ export class BattleRoom extends Room<BattleState> {
       : 3;
   private static readonly TERRAIN_SPEED_MULTIPLIER: Record<TerrainType, number> =
     GAMEPLAY_CONFIG.terrain.movementMultiplierByType;
-  private static readonly TERRAIN_MORALE_MULTIPLIER: Record<TerrainType, number> =
-    GAMEPLAY_CONFIG.terrain.moraleMultiplierByType;
+  private static readonly TERRAIN_MORALE_BONUS: Record<TerrainType, number> =
+    GAMEPLAY_CONFIG.terrain.moraleBonusByType;
   private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
   private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
   private static readonly CELL_WIDTH =
@@ -153,11 +153,15 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly GRID_CONTACT_DISTANCE =
     Math.hypot(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
-  private static readonly MORALE_MAX_SCORE = 100;
+  private static readonly MORALE_MAX_SCORE = 9;
+  private static readonly MAX_ABS_INFLUENCE_SCORE = Math.max(
+    1,
+    GAMEPLAY_CONFIG.influence.maxAbsTacticalScore,
+  );
   private static readonly MORALE_STEP_INTERVAL_SECONDS = 3;
   // Radius 2 in each axis yields a 5x5 commander aura area.
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
-  private static readonly COMMANDER_MORALE_AURA_BONUS = 10;
+  private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
   private static readonly SLOPE_ELEVATION_BYTE_THRESHOLD = 2;
   private static readonly SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED = 1;
@@ -556,9 +560,9 @@ export class BattleRoom extends Room<BattleState> {
     return BattleRoom.TERRAIN_SPEED_MULTIPLIER[terrainType] ?? 1.0;
   }
 
-  private getTerrainMoraleMultiplierAtCell(cell: GridCoordinate): number {
+  private getTerrainMoraleBonusAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
-    return BattleRoom.TERRAIN_MORALE_MULTIPLIER[terrainType] ?? 1.0;
+    return BattleRoom.TERRAIN_MORALE_BONUS[terrainType] ?? 0;
   }
 
   private getSlopeMoraleDelta(unit: Unit): number {
@@ -1625,12 +1629,13 @@ export class BattleRoom extends Room<BattleState> {
         unit,
         moraleSampleRadius: BattleRoom.MORALE_SAMPLE_RADIUS,
         moraleMaxScore: BattleRoom.MORALE_MAX_SCORE,
+        maxAbsInfluenceScore: BattleRoom.MAX_ABS_INFLUENCE_SCORE,
         gridWidth: this.state.influenceGrid.width,
         gridHeight: this.state.influenceGrid.height,
         worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
         getInfluenceScoreAtCell: (col, row) => this.getInfluenceScoreAtCell(col, row),
-        getTerrainMoraleMultiplierAtCell: (cell) =>
-          this.getTerrainMoraleMultiplierAtCell(cell),
+        getTerrainMoraleBonusAtCell: (cell) =>
+          this.getTerrainMoraleBonusAtCell(cell),
       });
       const supplyLine = this.state.supplyLines.get(unit.unitId);
       if (supplyLine && !supplyLine.connected) {

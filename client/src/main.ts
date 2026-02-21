@@ -278,7 +278,7 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
   private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
-  private static readonly MORALE_MAX_SCORE = 100;
+  private static readonly MORALE_MAX_SCORE = 9;
   private static readonly SHOW_IMPASSABLE_OVERLAY = true;
   private static readonly IMPASSABLE_OVERLAY_DEPTH = 930;
   private static readonly IMPASSABLE_OVERLAY_FILL_COLOR = 0xff1f1f;

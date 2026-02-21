@@ -104,6 +104,10 @@ export class InfluenceRenderer {
   private static readonly DEBUG_DOT_RADIUS = 3;
   private static readonly DEBUG_TEXT_OFFSET_X = 6;
   private static readonly DEBUG_TEXT_OFFSET_Y = 6;
+  private static readonly DEBUG_ALPHA_SCORE_RANGE = Math.max(
+    1,
+    GAMEPLAY_CONFIG.influence.maxAbsTacticalScore,
+  );
   private static readonly SUPPLY_WAVE_BLUE_COLOR = 0x65bfff;
   private static readonly SUPPLY_WAVE_RED_COLOR = 0xff7f6c;
   private static readonly SUPPLY_SEVER_COLOR = 0xfff3ad;
@@ -492,7 +496,11 @@ export class InfluenceRenderer {
           continue;
         }
         const color = this.getDebugColor(score);
-        const alpha = Phaser.Math.Clamp(Math.abs(score) / 8, 0.25, 0.95);
+        const alpha = Phaser.Math.Clamp(
+          Math.abs(score) / InfluenceRenderer.DEBUG_ALPHA_SCORE_RANGE,
+          0.25,
+          0.95,
+        );
         const centerX = (col + 0.5) * cellWidth;
         const centerY = (row + 0.5) * cellHeight;
 

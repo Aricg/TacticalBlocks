@@ -57,7 +57,7 @@ export class Unit extends Phaser.GameObjects.Container {
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
   private static readonly HEALTH_HIGH_COLOR = 0x63d471;
   private static readonly HEALTH_LOW_COLOR = 0xe5d85c;
-  private static readonly MORALE_MAX_SCORE = 100;
+  private static readonly MORALE_MAX_SCORE = 9;
   private static readonly MORALE_LOW_THRESHOLD = 0.35;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
