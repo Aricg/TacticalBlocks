@@ -129,8 +129,6 @@ export const GAMEPLAY_CONFIG = {
     contactDamagePerSecond: 12,
   },
   supply: {
-    moralePenaltyWhenDisconnected: 25,
-    healthLossPerSecondWhenDisconnected: 1,
     enemyInfluenceSeverThreshold: 0.0001,
     blockedSourceRetryIntervalSeconds: 3,
   },

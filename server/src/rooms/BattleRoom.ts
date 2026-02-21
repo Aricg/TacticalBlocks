@@ -159,10 +159,6 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly COMMANDER_MORALE_AURA_BONUS = 10;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
   private static readonly SLOPE_ELEVATION_BYTE_THRESHOLD = 2;
-  private static readonly SUPPLY_MORALE_PENALTY =
-    GAMEPLAY_CONFIG.supply.moralePenaltyWhenDisconnected;
-  private static readonly SUPPLY_HEALTH_LOSS_PER_SECOND =
-    GAMEPLAY_CONFIG.supply.healthLossPerSecondWhenDisconnected;
   private static readonly SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED = 1;
   private static readonly SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS =
     Number.isFinite(GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds) &&
@@ -1635,14 +1631,13 @@ export class BattleRoom extends Room<BattleState> {
           this.getTerrainMoraleMultiplierAtCell(cell),
       });
       const supplyLine = this.state.supplyLines.get(unit.unitId);
-      const supplyPenalty =
-        supplyLine && !supplyLine.connected
-          ? BattleRoom.SUPPLY_MORALE_PENALTY
-          : 0;
+      if (supplyLine && !supplyLine.connected) {
+        return 0;
+      }
       const commanderAuraBonus = getCommanderAuraBonus(unit);
       const slopeMoraleDelta = this.getSlopeMoraleDelta(unit);
       return this.clamp(
-        baseMoraleScore + commanderAuraBonus + slopeMoraleDelta - supplyPenalty,
+        baseMoraleScore + commanderAuraBonus + slopeMoraleDelta,
         0,
         BattleRoom.MORALE_MAX_SCORE,
       );
@@ -1690,17 +1685,14 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const healthLossPerSecond = Math.max(
-      0,
-      BattleRoom.SUPPLY_HEALTH_LOSS_PER_SECOND,
-    );
-    const healthLossPerTick = healthLossPerSecond * deltaSeconds;
     const healthGainPerSecond = Math.max(
       0,
       BattleRoom.SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED,
     );
     const healthGainPerTick = healthGainPerSecond * deltaSeconds;
-    const deadUnitIds: string[] = [];
+    if (healthGainPerTick <= 0) {
+      return;
+    }
 
     for (const unit of this.state.units.values()) {
       if (unit.health <= 0) {
@@ -1708,36 +1700,13 @@ export class BattleRoom extends Room<BattleState> {
       }
 
       const supplyLine = this.state.supplyLines.get(unit.unitId);
-      if (!supplyLine) {
+      if (!supplyLine || !supplyLine.connected) {
         continue;
       }
+
       const unitType = normalizeUnitType(unit.unitType);
       const maxUnitHealth = getUnitHealthMax(this.runtimeTuning.baseUnitHealth, unitType);
-
-      if (supplyLine.connected) {
-        if (healthGainPerTick > 0) {
-          unit.health = Math.min(maxUnitHealth, unit.health + healthGainPerTick);
-        }
-        continue;
-      }
-
-      if (healthLossPerTick <= 0) {
-        continue;
-      }
-
-      unit.health = Math.max(0, unit.health - healthLossPerTick);
-      if (unit.health <= 0) {
-        deadUnitIds.push(unit.unitId);
-      }
-    }
-
-    for (const unitId of deadUnitIds) {
-      this.state.units.delete(unitId);
-      this.movementStateByUnitId.delete(unitId);
-      this.lastBroadcastPathSignatureByUnitId.delete(unitId);
-      this.supplySignatureByUnitId.delete(unitId);
-      this.supplySourceRetryStateByUnitId.delete(unitId);
-      this.state.supplyLines.delete(unitId);
+      unit.health = Math.min(maxUnitHealth, unit.health + healthGainPerTick);
     }
   }
 
