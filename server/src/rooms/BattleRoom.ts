@@ -1,7 +1,3 @@
-import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
 import { GridCellState } from "../schema/GridCellState.js";
@@ -45,7 +41,8 @@ import {
 } from "../systems/morale/moraleMath.js";
 import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
-import { loadMapBundle } from "./services/MapBundleLoader.js";
+import { MapGenerationService } from "./services/MapGenerationService.js";
+import { MapRuntimeService } from "./services/MapRuntimeService.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import type { MapBundle } from "../../../shared/src/mapBundle.js";
@@ -94,6 +91,8 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.map.availableMapIds,
   );
   private readonly battleLifecycleService = new BattleLifecycleService();
+  private readonly mapGenerationService = new MapGenerationService();
+  private readonly mapRuntimeService = new MapRuntimeService();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
   private readonly supplySignatureByUnitId = new Map<string, string>();
@@ -180,7 +179,7 @@ export class BattleRoom extends Room<BattleState> {
     this.setState(new BattleState());
     this.state.mapId = this.lobbyService.getValidatedMapId(this.state.mapId);
     this.ensureStartupRuntimeGeneratedMap(this.state.mapId);
-    this.applyMapIdToRuntimeTerrain(this.state.mapId);
+    this.mapRuntimeService.applyMapIdToRuntimeTerrain(this.state.mapId);
     this.loadActiveMapBundle(this.state.mapId, this.mapRevision);
     this.refreshNeutralCityCells();
     this.initializeNeutralCityOwnership();
@@ -547,10 +546,10 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private loadActiveMapBundle(mapId: string, revision: number): void {
-    this.activeMapBundle = loadMapBundle({
+    this.activeMapBundle = this.mapRuntimeService.loadActiveMapBundle({
       mapId,
       revision,
-      sharedDir: this.resolveSharedDirectory(),
+      roomModuleUrl: import.meta.url,
       gridWidth: BattleRoom.GRID_WIDTH,
       gridHeight: BattleRoom.GRID_HEIGHT,
       defaultCityAnchors: {
@@ -1068,25 +1067,22 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const requestedMethod = message?.method;
-    const generationMethod =
-      requestedMethod === "noise" ||
-      requestedMethod === "wfc" ||
-      requestedMethod === "auto"
-        ? requestedMethod
-        : "wfc";
+    const generationMethod = this.mapGenerationService.normalizeGenerationMethod(
+      message?.method,
+    );
     const mapId = this.lobbyService.getGeneratedMapId();
     const seed = `lobby-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
     this.isGeneratingMap = true;
     this.broadcastLobbyState();
 
     try {
-      const generated = this.generateRuntimeMap(
+      const generated = this.mapGenerationService.generateRuntimeMap({
         mapId,
-        generationMethod,
+        method: generationMethod,
         seed,
-        "lobby",
-      );
+        contextLabel: "lobby",
+        roomModuleUrl: import.meta.url,
+      });
       if (!generated) {
         return;
       }
@@ -1108,72 +1104,18 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     const seed = `startup-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-    const generated = this.generateRuntimeMap(mapId, "auto", seed, "startup");
+    const generated = this.mapGenerationService.generateRuntimeMap({
+      mapId,
+      method: "auto",
+      seed,
+      contextLabel: "startup",
+      roomModuleUrl: import.meta.url,
+    });
     if (!generated) {
       console.error(
         `Failed to generate startup runtime map "${mapId}". Continuing with existing artifacts if available.`,
       );
     }
-  }
-
-  private generateRuntimeMap(
-    mapId: string,
-    generationMethod: "noise" | "wfc" | "auto",
-    seed: string,
-    contextLabel: string,
-  ): boolean {
-    const sharedDir = this.resolveSharedDirectory();
-    if (!sharedDir) {
-      console.error("Could not resolve shared directory for map generation.");
-      return false;
-    }
-
-    const generatorScriptPath = path.join(
-      sharedDir,
-      "scripts",
-      "generate-random-map.mjs",
-    );
-    if (!existsSync(generatorScriptPath)) {
-      console.error(`Map generator script not found: ${generatorScriptPath}`);
-      return false;
-    }
-
-    const commandResult = spawnSync(
-      process.execPath,
-      [
-        generatorScriptPath,
-        "--map-id",
-        mapId,
-        "--seed",
-        seed,
-        "--method",
-        generationMethod,
-        "--output-dir",
-        sharedDir,
-        "--no-sync",
-      ],
-      {
-        cwd: sharedDir,
-        encoding: "utf8",
-      },
-    );
-
-    if (commandResult.status !== 0) {
-      const stderr = (commandResult.stderr ?? "").trim();
-      const stdout = (commandResult.stdout ?? "").trim();
-      console.error(
-        `Map generation failed during ${contextLabel} (status ${commandResult.status ?? "unknown"}).`,
-      );
-      if (stderr.length > 0) {
-        console.error(stderr);
-      }
-      if (stdout.length > 0) {
-        console.error(stdout);
-      }
-      return false;
-    }
-
-    return true;
   }
 
   private rescaleUnitHealthForNewBase(
@@ -1195,14 +1137,6 @@ export class BattleRoom extends Room<BattleState> {
       const healthRatio = this.clamp(unit.health / previousMaxHealth, 0, 1);
       unit.health = healthRatio * nextMaxHealth;
     }
-  }
-
-  private applyMapIdToRuntimeTerrain(mapId: string): void {
-    (
-      GAMEPLAY_CONFIG.map as unknown as {
-        activeMapId: string;
-      }
-    ).activeMapId = mapId;
   }
 
   private refreshNeutralCityCells(): void {
@@ -1262,7 +1196,7 @@ export class BattleRoom extends Room<BattleState> {
       ? this.mapRevision + 1
       : this.mapRevision;
     this.state.mapId = mapId;
-    this.applyMapIdToRuntimeTerrain(mapId);
+    this.mapRuntimeService.applyMapIdToRuntimeTerrain(mapId);
     this.loadActiveMapBundle(mapId, nextMapRevision);
     this.refreshNeutralCityCells();
     this.state.redCityOwner = "RED";
@@ -1280,31 +1214,6 @@ export class BattleRoom extends Room<BattleState> {
     this.updateSupplyLines();
     this.simulationFrame = 0;
     this.mapRevision = nextMapRevision;
-  }
-
-  private resolveSharedDirectory(): string | null {
-    const roomDir = path.dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-      path.resolve(process.cwd(), "../shared"),
-      path.resolve(process.cwd(), "shared"),
-      path.resolve(roomDir, "../../../shared"),
-      path.resolve(roomDir, "../../../../shared"),
-      path.resolve(roomDir, "../../../../../shared"),
-      path.resolve(roomDir, "../../../../../../shared"),
-    ];
-
-    for (const candidate of candidates) {
-      const generatorScriptPath = path.join(
-        candidate,
-        "scripts",
-        "generate-random-map.mjs",
-      );
-      if (existsSync(generatorScriptPath)) {
-        return candidate;
-      }
-    }
-
-    return null;
   }
 
   private spawnTestUnits(): void {

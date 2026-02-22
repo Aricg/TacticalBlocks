@@ -124,8 +124,8 @@ Replace hardcoded initial deployment with strategy interface:
 - [ ] Client parity note: document that client still uses static/shared elevation sources for rendering until a runtime elevation feed is introduced, and track this separately from server gameplay correctness.
 
 ### Phase 2: Extract Server Services
-- [ ] Introduce `MapGenerationService` (process execution + artifact metadata handling).
-- [ ] Introduce `MapRuntimeService` (load/parse/cache/apply active map bundle).
+- [x] Introduce `MapGenerationService` (process execution + artifact metadata handling).
+- [x] Introduce `MapRuntimeService` (load/parse/cache/apply active map bundle).
 - [ ] Move map-switch orchestration from `BattleRoom` into services.
 - [ ] Keep `BattleRoom` as coordinator only.
 - [ ] Add explicit error handling paths for missing script, parse error, and invalid sidecar.
