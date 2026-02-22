@@ -171,13 +171,13 @@ export class LobbyService {
 
   getGeneratedMapId(): string {
     const existingGeneratedMapId = this.availableMapIds.find((mapId) =>
-      mapId.startsWith("random-"),
+      mapId.startsWith("runtime-generated-"),
     );
     if (existingGeneratedMapId) {
       return existingGeneratedMapId;
     }
 
-    return "random-frontier-01";
+    return "runtime-generated-lobby";
   }
 
   addAvailableMapId(mapId: string): void {

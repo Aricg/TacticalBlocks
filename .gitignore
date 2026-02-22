@@ -3,3 +3,7 @@ package-lock.json
 
 dist/
 .DS_Store
+
+# Runtime-generated lobby map artifacts
+shared/runtime-generated-*.png
+shared/runtime-generated-*.elevation-grid.json

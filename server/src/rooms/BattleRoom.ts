@@ -1291,6 +1291,7 @@ export class BattleRoom extends Room<BattleState> {
           generationMethod,
           "--output-dir",
           sharedDir,
+          "--no-sync",
         ],
         {
           cwd: sharedDir,
