@@ -117,6 +117,32 @@ const getNonEmptyString = (value: unknown): string | null => {
   return trimmedValue.length > 0 ? trimmedValue : null;
 };
 
+const DEFAULT_SERVER_HOST = 'localhost';
+const DEFAULT_SERVER_PORT = 2567;
+
+const parseConfiguredPort = (configuredPort: unknown): number => {
+  const configuredPortValue = getNonEmptyString(configuredPort);
+  if (!configuredPortValue) {
+    return DEFAULT_SERVER_PORT;
+  }
+  const parsedPort = Number.parseInt(configuredPortValue, 10);
+  if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    return DEFAULT_SERVER_PORT;
+  }
+  return parsedPort;
+};
+
+const resolveServerEndpoint = (): string => {
+  const explicitEndpoint = getNonEmptyString(import.meta.env.VITE_SERVER_ENDPOINT);
+  if (explicitEndpoint) {
+    return explicitEndpoint;
+  }
+  const host = getNonEmptyString(import.meta.env.VITE_SERVER_HOST)
+    ?? DEFAULT_SERVER_HOST;
+  const port = parseConfiguredPort(import.meta.env.VITE_SERVER_PORT);
+  return `ws://${host}:${port}`;
+};
+
 const normalizeMapImageBaseUrl = (baseUrl: string): string =>
   baseUrl.replace(/\/+$/, '');
 
@@ -137,21 +163,58 @@ const MAP_IMAGE_BASE_URL = normalizeMapImageBaseUrl(
     ?? resolveDefaultMapImageBaseUrl(),
 );
 
+function resolveBackendMapImageBaseUrls(): string[] {
+  const endpoint = resolveServerEndpoint();
+  let parsedEndpoint: URL;
+  try {
+    parsedEndpoint = new URL(endpoint);
+  } catch {
+    return [];
+  }
+
+  const httpProtocol =
+    parsedEndpoint.protocol === 'wss:' ? 'https:' : 'http:';
+  const basePath = parsedEndpoint.pathname.replace(/\/+$/, '');
+  const origin = `${httpProtocol}//${parsedEndpoint.host}`;
+  const candidates: string[] = [];
+
+  if (basePath.length > 0) {
+    candidates.push(`${origin}${basePath}/maps`);
+    if (basePath.endsWith('/ws')) {
+      const withoutWs = basePath.slice(0, -3);
+      candidates.push(`${origin}${withoutWs}/maps`);
+    }
+  } else {
+    candidates.push(`${origin}/maps`);
+  }
+
+  return candidates.map((value) => normalizeMapImageBaseUrl(value));
+}
+
+const BACKEND_MAP_IMAGE_BASE_URLS = resolveBackendMapImageBaseUrls();
+
 function getTextureKeyForMapId(mapId: string): string {
   return `battle-map-${mapId}`;
 }
 
-function resolveRuntimeMapImageById(mapId: string): string | undefined {
+function resolveRuntimeMapImageCandidatesById(mapId: string): string[] {
   const normalizedMapId = mapId.trim();
   if (normalizedMapId.length === 0) {
-    return undefined;
+    return [];
   }
 
-  return `${MAP_IMAGE_BASE_URL}/${encodeURIComponent(normalizedMapId)}-16c.png`;
+  const mapFileName = `${encodeURIComponent(normalizedMapId)}-16c.png`;
+  const candidateBaseUrls = [MAP_IMAGE_BASE_URL, ...BACKEND_MAP_IMAGE_BASE_URLS];
+  const uniqueCandidates = new Set<string>();
+  for (const baseUrl of candidateBaseUrls) {
+    uniqueCandidates.add(`${baseUrl}/${mapFileName}`);
+  }
+  return Array.from(uniqueCandidates);
 }
 
 function resolveMapImageById(mapId: string): string | undefined {
-  return resolveRuntimeMapImageById(mapId);
+  const candidates = resolveRuntimeMapImageCandidatesById(mapId);
+  return candidates[0];
 }
 
 function resolveInitialMapId(): string {
@@ -651,55 +714,77 @@ class BattleScene extends Phaser.Scene {
   }
 
   private reloadMapTexture(mapId: string, revision: number): void {
-    const imagePath = resolveMapImageById(mapId);
-    if (!imagePath) {
+    const imagePathCandidates = resolveRuntimeMapImageCandidatesById(mapId);
+    if (imagePathCandidates.length === 0) {
       return;
     }
 
     const textureKey = getTextureKeyForMapId(mapId);
-    const pendingTextureKey = `${textureKey}--pending-${revision}`;
-    const cacheBustedPath = `${imagePath}${imagePath.includes('?') ? '&' : '?'}rev=${revision}&t=${Date.now()}`;
-    if (this.textures.exists(pendingTextureKey)) {
-      this.textures.remove(pendingTextureKey);
-    }
+    const attemptedPaths: string[] = [];
 
-    const onLoadError = (file: Phaser.Loader.File): void => {
-      if (file.key !== pendingTextureKey) {
+    const tryLoadFromCandidate = (candidateIndex: number): void => {
+      if (candidateIndex >= imagePathCandidates.length) {
+        console.error(
+          `Failed to load map texture "${mapId}" from all candidates: ${attemptedPaths.join(', ')}`,
+        );
         return;
       }
-      this.load.off('loaderror', onLoadError);
+
+      const imagePath = imagePathCandidates[candidateIndex];
+      const pendingTextureKey = `${textureKey}--pending-${revision}-${candidateIndex}`;
+      const cacheBustedPath = `${imagePath}${imagePath.includes('?') ? '&' : '?'}rev=${revision}&t=${Date.now()}`;
+      attemptedPaths.push(cacheBustedPath);
       if (this.textures.exists(pendingTextureKey)) {
         this.textures.remove(pendingTextureKey);
       }
-      console.error(`Failed to load map texture "${mapId}" from ${cacheBustedPath}.`);
+
+      const onLoadError = (file: Phaser.Loader.File): void => {
+        if (file.key !== pendingTextureKey) {
+          return;
+        }
+        this.load.off('loaderror', onLoadError);
+        if (this.textures.exists(pendingTextureKey)) {
+          this.textures.remove(pendingTextureKey);
+        }
+        if (candidateIndex + 1 < imagePathCandidates.length) {
+          console.warn(
+            `Failed map texture candidate for "${mapId}": ${cacheBustedPath}. Retrying...`,
+          );
+          tryLoadFromCandidate(candidateIndex + 1);
+          return;
+        }
+        console.error(`Failed to load map texture "${mapId}" from ${cacheBustedPath}.`);
+      };
+      this.load.on('loaderror', onLoadError);
+
+      this.load.once(`filecomplete-image-${pendingTextureKey}`, () => {
+        this.load.off('loaderror', onLoadError);
+        if (!this.textures.exists(pendingTextureKey)) {
+          return;
+        }
+        if (this.textures.exists(textureKey)) {
+          this.textures.remove(textureKey);
+        }
+        const renamed = this.textures.renameTexture(pendingTextureKey, textureKey);
+        this.mapTextureKey = renamed ? textureKey : pendingTextureKey;
+
+        if (!this.mapBackground || this.activeMapId !== mapId) {
+          return;
+        }
+        this.mapBackground.setTexture(this.mapTextureKey);
+        this.initializeMapTerrainSampling();
+        this.rebuildImpassableCellIndexSetFromMapTexture();
+        this.drawImpassableOverlay();
+        this.refreshFogOfWar();
+        this.stopMapTextureRetryLoop();
+      });
+      this.load.image(pendingTextureKey, cacheBustedPath);
+      if (!this.load.isLoading()) {
+        this.load.start();
+      }
     };
-    this.load.on('loaderror', onLoadError);
 
-    this.load.once(`filecomplete-image-${pendingTextureKey}`, () => {
-      this.load.off('loaderror', onLoadError);
-      if (!this.textures.exists(pendingTextureKey)) {
-        return;
-      }
-      if (this.textures.exists(textureKey)) {
-        this.textures.remove(textureKey);
-      }
-      const renamed = this.textures.renameTexture(pendingTextureKey, textureKey);
-      this.mapTextureKey = renamed ? textureKey : pendingTextureKey;
-
-      if (!this.mapBackground || this.activeMapId !== mapId) {
-        return;
-      }
-      this.mapBackground.setTexture(this.mapTextureKey);
-      this.initializeMapTerrainSampling();
-      this.rebuildImpassableCellIndexSetFromMapTexture();
-      this.drawImpassableOverlay();
-      this.refreshFogOfWar();
-      this.stopMapTextureRetryLoop();
-    });
-    this.load.image(pendingTextureKey, cacheBustedPath);
-    if (!this.load.isLoading()) {
-      this.load.start();
-    }
+    tryLoadFromCandidate(0);
   }
 
   private stopMapTextureRetryLoop(): void {

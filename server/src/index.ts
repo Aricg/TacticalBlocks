@@ -2,6 +2,7 @@ import http from "node:http";
 import { Server } from "colyseus";
 import { Encoder } from "@colyseus/schema";
 import { BattleRoom } from "./rooms/BattleRoom.js";
+import { attachRuntimeMapAssetHandler } from "./runtimeMapAssetServer.js";
 
 const PORT = Number(process.env.PORT ?? 2567);
 const DEFAULT_SCHEMA_BUFFER_SIZE_BYTES = 128 * 1024;
@@ -15,6 +16,7 @@ Encoder.BUFFER_SIZE =
     : DEFAULT_SCHEMA_BUFFER_SIZE_BYTES;
 
 const server = http.createServer();
+attachRuntimeMapAssetHandler(server);
 const gameServer = new Server({ server });
 
 gameServer.define("battle", BattleRoom);

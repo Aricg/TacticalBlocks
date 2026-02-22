@@ -36,6 +36,10 @@ Default runtime map URL base:
 - Local dev / preview root (`/`): `/maps`
 - TacticalBlocks reverse-proxy path (`/tacticalblocks/...`): `/tacticalblocks/maps`
 
+If those paths return `404` in production, the client now retries backend-hosted
+map routes derived from the websocket endpoint (for example
+`/tacticalblocks/ws/maps/...` or `http://<server>:<port>/maps/...`).
+
 Optional override:
 
 ```bash
@@ -45,6 +49,11 @@ VITE_MAP_IMAGE_BASE_URL=/custom/maps npm run dev
 The client Vite config serves `shared/*-16c.png` at both
 `/maps/*-16c.png` and `/tacticalblocks/maps/*-16c.png` in both
 `npm run dev` and `npm run preview`.
+
+The Colyseus server also serves runtime map PNGs directly at:
+- `/maps/*`
+- `/tacticalblocks/maps/*`
+- `/tacticalblocks/ws/maps/*`
 
 Example for LAN testing from another machine:
 
