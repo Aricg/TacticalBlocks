@@ -97,6 +97,8 @@ Replace hardcoded initial deployment with strategy interface:
 - [x] Added structured sidecar load warning codes (`shared-dir-unresolved`, `sidecar-parse-failed`, `sidecar-grid-mismatch`, `sidecar-data-invalid`).
 - [x] Moved neutral-city ownership reset and influence-grid clear helpers into `MapRuntimeService`.
 - [x] Added runtime city-anchor sync to client: server now includes active `cityAnchors` and `neutralCityAnchors` in lobby state; client consumes these for city star placement and city-based fog ownership logic.
+- [x] Tightened runtime sidecar loading: require both `terrainCodeGrid` and `elevation` payloads before accepting a runtime bundle.
+- [x] Removed static-terrain default from movement route building so pathing always uses room-provided impassable checks.
 
 ### Stabilization (Already Completed)
 - [x] Disable runtime `map:sync` in lobby generation (`--no-sync`) so runtime map generation does not rewrite shared TS files.
@@ -124,10 +126,10 @@ Replace hardcoded initial deployment with strategy interface:
 - [ ] Done when runtime decisions no longer depend on mixed static/runtime terrain for generated maps.
 
 ### Cross-Cutting Checklist: Elevation/Terrain Convergence
-- [ ] Server runtime path: generated maps use `MapBundle.elevationBytes` + `MapBundle.terrainCodeGrid` for all gameplay decisions (movement, morale/slope, spawn blocking, impassable checks, supply/path severing).
+- [x] Server runtime path: generated maps use `MapBundle.elevationBytes` + `MapBundle.terrainCodeGrid` for all gameplay decisions (movement, morale/slope, spawn blocking, impassable checks, supply/path severing).
 - [ ] Server static fallback path: when no sidecar exists, static `terrainGrid.ts` remains the only source for that map (no mixed per-system source).
 - [ ] Eliminate direct static terrain/elevation reads inside server gameplay loops for generated-map decisions (grep guard: `rg "getGridCellTerrainType|getGridCellElevation|getGridCellPaletteElevationByte" server/src`).
-- [ ] Keep sidecar schema validation strict (dimensions/lengths/types) and reject invalid artifacts before apply.
+- [x] Keep sidecar schema validation strict (dimensions/lengths/types) and reject invalid artifacts before apply.
 - [ ] Verify no-restart runtime map cycle at least 3 times using the smoke flow; confirm map visuals, city anchors, and gameplay blocking remain aligned each cycle.
 - [x] Client city-anchor parity: lobby-state payload now carries runtime `cityAnchors` + `neutralCityAnchors`, and client city star placement reads this runtime data (fixes missing/misaligned city stars on runtime-generated maps).
 - [ ] Client terrain/elevation parity note: client still uses static/shared elevation sources for terrain rendering and some local sampling until a runtime elevation feed is introduced.

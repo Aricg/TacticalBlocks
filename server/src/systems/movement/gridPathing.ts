@@ -1,4 +1,3 @@
-import { getGridCellTerrainType } from "../../../../shared/src/terrainGrid.js";
 import type { GridCoordinate } from "../../rooms/BattleRoomTypes.js";
 
 const gridKey = (cell: GridCoordinate): string => `${cell.col}:${cell.row}`;
@@ -14,10 +13,6 @@ export function isDestinationBlocked(
   }
 
   return !(destinationSet.size === 1 && destinationSet.has(unitId));
-}
-
-export function isTerrainBlocked(cell: GridCoordinate): boolean {
-  return getGridCellTerrainType(cell.col, cell.row) === "mountains";
 }
 
 export function traceGridLine(

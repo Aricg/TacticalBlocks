@@ -1,7 +1,6 @@
 import type { GridCoordinate, Vector2 } from "../../rooms/BattleRoomTypes.js";
 import {
   compactGridCoordinates,
-  isTerrainBlocked,
   traceGridLine,
 } from "./gridPathing.js";
 
@@ -38,7 +37,7 @@ export function buildTerrainAwareRoute(
   startCell: GridCoordinate,
   normalizedPath: Vector2[],
   worldToGridCoordinate: WorldToGridCoordinate,
-  isCellImpassable: IsCellImpassable = isTerrainBlocked,
+  isCellImpassable: IsCellImpassable,
 ): GridCoordinate[] {
   const snappedTargetCells = compactGridCoordinates(
     normalizedPath.map((waypoint) =>

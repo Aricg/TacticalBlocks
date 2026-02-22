@@ -551,6 +551,9 @@ export class BattleRoom extends Room<BattleState> {
     if (runtimeElevationByte !== null) {
       return runtimeElevationByte;
     }
+    if (this.activeMapBundle?.source === "runtime-sidecar") {
+      return 0;
+    }
     return getGridCellPaletteElevationByte(cell.col, cell.row);
   }
 
@@ -701,6 +704,9 @@ export class BattleRoom extends Room<BattleState> {
     const bundleTerrainType = this.getMapBundleTerrainTypeAtCell(cell);
     if (bundleTerrainType) {
       return bundleTerrainType;
+    }
+    if (this.activeMapBundle?.source === "runtime-sidecar") {
+      return "unknown";
     }
     return getGridCellTerrainType(cell.col, cell.row);
   }

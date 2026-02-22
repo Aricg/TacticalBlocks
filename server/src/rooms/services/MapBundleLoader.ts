@@ -316,28 +316,35 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
       ? parsed.terrainCodeGrid
       : null;
   const elevationBytes = parseElevationBytes(parsed.elevation, expectedLength);
-  if (!terrainCodeGrid && !elevationBytes) {
+  if (!terrainCodeGrid || !elevationBytes) {
+    const missingFields: string[] = [];
+    if (!terrainCodeGrid) {
+      missingFields.push("terrainCodeGrid");
+    }
+    if (!elevationBytes) {
+      missingFields.push("elevation");
+    }
     args.logWarning?.({
       code: "sidecar-data-invalid",
-      message: `Ignoring runtime map sidecar without valid terrain/elevation data: ${sidecarPath}`,
+      message: `Ignoring runtime map sidecar without complete terrain/elevation data (${missingFields.join(", ")}): ${sidecarPath}`,
     });
     return fallbackBundle;
   }
 
   const blockedSpawnCellIndexSet = new Set<number>();
   const impassableCellIndexSet = new Set<number>();
-  if (terrainCodeGrid) {
-    for (let index = 0; index < terrainCodeGrid.length; index += 1) {
-      const terrainCode = terrainCodeGrid.charAt(index);
-      if (terrainCode === "m") {
-        impassableCellIndexSet.add(index);
-        blockedSpawnCellIndexSet.add(index);
-      } else if (terrainCode === "w") {
-        blockedSpawnCellIndexSet.add(index);
-      }
-    }
-  } else if (elevationBytes) {
-    for (let index = 0; index < elevationBytes.length; index += 1) {
+  for (let index = 0; index < terrainCodeGrid.length; index += 1) {
+    const terrainCode = terrainCodeGrid.charAt(index);
+    if (terrainCode === "m") {
+      impassableCellIndexSet.add(index);
+      blockedSpawnCellIndexSet.add(index);
+    } else if (terrainCode === "w") {
+      blockedSpawnCellIndexSet.add(index);
+    } else if (
+      terrainCode !== "g" &&
+      terrainCode !== "f" &&
+      terrainCode !== "h"
+    ) {
       const byte = elevationBytes[index];
       if (byte >= args.mountainElevationMin) {
         impassableCellIndexSet.add(index);
