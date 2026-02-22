@@ -17,6 +17,12 @@ import {
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
+  DEFAULT_GENERATION_PROFILE,
+  STARTING_FORCE_LAYOUT_STRATEGIES,
+  type StartingForceLayoutStrategy,
+} from '../../shared/src/generationProfile.js';
+import type { MapGenerationMethod } from '../../shared/src/networkContracts.js';
+import {
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
 } from '../../shared/src/terrainGrid.js';
@@ -227,6 +233,9 @@ class BattleScene extends Phaser.Scene {
   private activeMapId = resolveInitialMapId();
   private availableMapIds: string[] = [...GAMEPLAY_CONFIG.map.availableMapIds];
   private selectedLobbyMapId = this.activeMapId;
+  private selectedGenerationMethod: MapGenerationMethod = 'wfc';
+  private selectedLayoutStrategy: StartingForceLayoutStrategy =
+    DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy;
   private lobbyMapRevision = 0;
   private isLobbyGeneratingMap = false;
   private lastBattleAnnouncement: string | null = null;
@@ -258,6 +267,11 @@ class BattleScene extends Phaser.Scene {
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
+  private static readonly GENERATION_METHODS: MapGenerationMethod[] = [
+    'wfc',
+    'noise',
+    'auto',
+  ];
   private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly ENEMY_VISIBILITY_PADDING =
@@ -843,7 +857,38 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    this.networkManager.sendLobbyGenerateMap();
+    this.networkManager.sendLobbyGenerateMap(
+      this.selectedGenerationMethod,
+      {
+        startingForces: {
+          layoutStrategy: this.selectedLayoutStrategy,
+        },
+      },
+    );
+  }
+
+  private cycleGenerationMethod(step: number): void {
+    const methods = BattleScene.GENERATION_METHODS;
+    const currentIndex = methods.indexOf(this.selectedGenerationMethod);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const methodCount = methods.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex =
+      (safeCurrentIndex + normalizedStep + methodCount) % methodCount;
+    this.selectedGenerationMethod = methods[nextIndex] ?? methods[0];
+    this.refreshLobbyOverlay();
+  }
+
+  private cycleLayoutStrategy(step: number): void {
+    const layouts = STARTING_FORCE_LAYOUT_STRATEGIES;
+    const currentIndex = layouts.indexOf(this.selectedLayoutStrategy);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const layoutCount = layouts.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex =
+      (safeCurrentIndex + normalizedStep + layoutCount) % layoutCount;
+    this.selectedLayoutStrategy = layouts[nextIndex] ?? layouts[0];
+    this.refreshLobbyOverlay();
   }
 
   private createLobbyOverlay(): void {
@@ -852,6 +897,8 @@ class BattleScene extends Phaser.Scene {
       {
         onCycleMap: (step: number) => this.requestLobbyMapStep(step),
         onRandomMap: () => this.requestRandomLobbyMap(),
+        onCycleGenerationMethod: (step: number) => this.cycleGenerationMethod(step),
+        onCycleLayoutStrategy: (step: number) => this.cycleLayoutStrategy(step),
         onGenerateMap: () => this.requestGenerateLobbyMap(),
         onToggleReady: () => this.toggleLobbyReady(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
@@ -948,6 +995,8 @@ class BattleScene extends Phaser.Scene {
       localSessionId: this.localSessionId,
       selectedLobbyMapId: this.selectedLobbyMapId,
       availableMapIds: this.availableMapIds,
+      selectedGenerationMethod: this.selectedGenerationMethod,
+      selectedLayoutStrategy: this.selectedLayoutStrategy,
       isLobbyGeneratingMap: this.isLobbyGeneratingMap,
       localLobbyReady: this.localLobbyReady,
       lastBattleAnnouncement: this.lastBattleAnnouncement,

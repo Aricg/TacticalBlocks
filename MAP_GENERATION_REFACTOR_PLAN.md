@@ -148,7 +148,7 @@ Replace hardcoded initial deployment with strategy interface:
 ### Phase 4: `GenerationProfile` End-to-End
 - [x] Define `GenerationProfile` schema (method, seed, terrain, city, starting-force settings).
 - [x] Extend shared network contract to include profile payload on generate-map requests.
-- [ ] Add client lobby controls and profile serialization.
+- [x] Add client lobby controls and profile serialization.
 - [x] Add server-side profile validation/defaulting with strict bounds.
 - [x] Pipe validated profile into generation pipeline.
 - [ ] Done when users can control city/river/mountain/forest/unit/layout settings from lobby.

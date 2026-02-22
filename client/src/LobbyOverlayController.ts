@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { Team } from './Team';
+import type { MapGenerationMethod } from '../../shared/src/networkContracts.js';
+import type { StartingForceLayoutStrategy } from '../../shared/src/generationProfile.js';
 
 export type LobbyOverlayPlayerView = {
   sessionId: string;
@@ -15,6 +17,8 @@ export type LobbyOverlayViewModel = {
   localSessionId: string | null;
   selectedLobbyMapId: string;
   availableMapIds: string[];
+  selectedGenerationMethod: MapGenerationMethod;
+  selectedLayoutStrategy: StartingForceLayoutStrategy;
   isLobbyGeneratingMap: boolean;
   localLobbyReady: boolean;
   lastBattleAnnouncement: string | null;
@@ -23,6 +27,8 @@ export type LobbyOverlayViewModel = {
 type LobbyOverlayCallbacks = {
   onCycleMap: (step: number) => void;
   onRandomMap: () => void;
+  onCycleGenerationMethod: (step: number) => void;
+  onCycleLayoutStrategy: (step: number) => void;
   onGenerateMap: () => void;
   onToggleReady: () => void;
   isShiftHeld: (pointer: Phaser.Input.Pointer) => boolean;
@@ -41,6 +47,8 @@ export class LobbyOverlayController {
   private readonly statusText: Phaser.GameObjects.Text;
   private readonly actionText: Phaser.GameObjects.Text;
   private readonly mapText: Phaser.GameObjects.Text;
+  private readonly generationMethodText: Phaser.GameObjects.Text;
+  private readonly layoutStrategyText: Phaser.GameObjects.Text;
   private readonly randomMapButtonBg: Phaser.GameObjects.Rectangle;
   private readonly randomMapButtonText: Phaser.GameObjects.Text;
   private readonly generateMapButtonBg: Phaser.GameObjects.Rectangle;
@@ -57,7 +65,7 @@ export class LobbyOverlayController {
     this.panel.setDepth(config.depth);
     this.panel.setScrollFactor(0);
 
-    const panelBackground = scene.add.rectangle(0, 0, 680, 360, 0x121212, 0.9);
+    const panelBackground = scene.add.rectangle(0, 0, 680, 420, 0x121212, 0.9);
     panelBackground.setStrokeStyle(2, 0xffffff, 0.35);
 
     const titleText = scene.add.text(0, -145, 'Battle Lobby', {
@@ -83,7 +91,7 @@ export class LobbyOverlayController {
     });
     this.statusText.setOrigin(0.5, 0.5);
 
-    this.mapText = scene.add.text(0, 55, '', {
+    this.mapText = scene.add.text(0, 45, '', {
       fontFamily: 'monospace',
       fontSize: '18px',
       color: '#b9d9ff',
@@ -99,7 +107,39 @@ export class LobbyOverlayController {
       this.callbacks.onCycleMap(step);
     });
 
-    this.actionText = scene.add.text(0, 92, '', {
+    this.generationMethodText = scene.add.text(0, 73, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#d0f0c0',
+      align: 'center',
+    });
+    this.generationMethodText.setOrigin(0.5, 0.5);
+    this.generationMethodText.setInteractive({ useHandCursor: true });
+    this.generationMethodText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleGenerationMethod(step);
+    });
+
+    this.layoutStrategyText = scene.add.text(0, 101, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#ffd8b0',
+      align: 'center',
+    });
+    this.layoutStrategyText.setOrigin(0.5, 0.5);
+    this.layoutStrategyText.setInteractive({ useHandCursor: true });
+    this.layoutStrategyText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleLayoutStrategy(step);
+    });
+
+    this.actionText = scene.add.text(0, 129, '', {
       fontFamily: 'monospace',
       fontSize: '17px',
       color: '#f4e7b2',
@@ -108,14 +148,14 @@ export class LobbyOverlayController {
     });
     this.actionText.setOrigin(0.5, 0.5);
 
-    this.randomMapButtonBg = scene.add.rectangle(-220, 140, 180, 46, 0x47627a, 1);
+    this.randomMapButtonBg = scene.add.rectangle(-220, 176, 180, 46, 0x47627a, 1);
     this.randomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
     this.randomMapButtonBg.setInteractive({ useHandCursor: true });
     this.randomMapButtonBg.on('pointerdown', () => {
       this.callbacks.onRandomMap();
     });
 
-    this.randomMapButtonText = scene.add.text(-220, 140, 'RANDOM MAP', {
+    this.randomMapButtonText = scene.add.text(-220, 176, 'RANDOM MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -126,14 +166,14 @@ export class LobbyOverlayController {
       this.callbacks.onRandomMap();
     });
 
-    this.generateMapButtonBg = scene.add.rectangle(0, 140, 180, 46, 0x66573a, 1);
+    this.generateMapButtonBg = scene.add.rectangle(0, 176, 180, 46, 0x66573a, 1);
     this.generateMapButtonBg.setStrokeStyle(2, 0xffe7bd, 0.45);
     this.generateMapButtonBg.setInteractive({ useHandCursor: true });
     this.generateMapButtonBg.on('pointerdown', () => {
       this.callbacks.onGenerateMap();
     });
 
-    this.generateMapButtonText = scene.add.text(0, 140, 'GENERATE MAP', {
+    this.generateMapButtonText = scene.add.text(0, 176, 'GENERATE MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -144,14 +184,14 @@ export class LobbyOverlayController {
       this.callbacks.onGenerateMap();
     });
 
-    this.readyButtonBg = scene.add.rectangle(220, 140, 180, 46, 0x2f8f46, 1);
+    this.readyButtonBg = scene.add.rectangle(220, 176, 180, 46, 0x2f8f46, 1);
     this.readyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
     this.readyButtonBg.setInteractive({ useHandCursor: true });
     this.readyButtonBg.on('pointerdown', () => {
       this.callbacks.onToggleReady();
     });
 
-    this.readyButtonText = scene.add.text(220, 140, 'READY', {
+    this.readyButtonText = scene.add.text(220, 176, 'READY', {
       fontFamily: 'monospace',
       fontSize: '21px',
       color: '#ffffff',
@@ -168,6 +208,8 @@ export class LobbyOverlayController {
       this.teamText,
       this.statusText,
       this.mapText,
+      this.generationMethodText,
+      this.layoutStrategyText,
       this.actionText,
       this.randomMapButtonBg,
       this.randomMapButtonText,
@@ -191,6 +233,10 @@ export class LobbyOverlayController {
       this.actionText.setText('Refresh the page to join again.');
       this.mapText.setVisible(false);
       this.mapText.disableInteractive();
+      this.generationMethodText.setVisible(false);
+      this.generationMethodText.disableInteractive();
+      this.layoutStrategyText.setVisible(false);
+      this.layoutStrategyText.disableInteractive();
       this.setButtonVisibleAndInteractive(
         this.randomMapButtonBg,
         this.randomMapButtonText,
@@ -216,6 +262,16 @@ export class LobbyOverlayController {
     this.mapText.setInteractive({ useHandCursor: true });
     this.mapText.setText(
       `Map: ${view.selectedLobbyMapId}  (click to cycle, shift+click back)`,
+    );
+    this.generationMethodText.setVisible(true);
+    this.generationMethodText.setInteractive({ useHandCursor: true });
+    this.generationMethodText.setText(
+      `Method: ${view.selectedGenerationMethod.toUpperCase()}  (click to cycle)`,
+    );
+    this.layoutStrategyText.setVisible(true);
+    this.layoutStrategyText.setInteractive({ useHandCursor: true });
+    this.layoutStrategyText.setText(
+      `Layout: ${view.selectedLayoutStrategy}  (click to cycle)`,
     );
 
     const selectableMapIds = view.availableMapIds.filter((mapId) =>
