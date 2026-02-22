@@ -129,6 +129,7 @@ export class BattleRoom extends Room<BattleState> {
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private startingForceLayoutStrategy: StartingForceLayoutStrategy =
     DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy;
+  private startingForceLineUnitCountPerTeam: number | null = null;
   private activeMapBundle: MapBundle | null = null;
 
   private static readonly UNIT_TURN_SPEED =
@@ -207,6 +208,8 @@ export class BattleRoom extends Room<BattleState> {
     this.startingForceLayoutStrategy = this.resolveStartingForceLayoutStrategyForMap(
       this.state.mapId,
     );
+    this.startingForceLineUnitCountPerTeam =
+      this.resolveStartingForceUnitCountPerTeamForMap(this.state.mapId);
     this.spawnStartingForces();
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
@@ -1258,6 +1261,8 @@ export class BattleRoom extends Room<BattleState> {
     this.startingForceLayoutStrategy = this.resolveStartingForceLayoutStrategyForMap(
       mapId,
     );
+    this.startingForceLineUnitCountPerTeam =
+      this.resolveStartingForceUnitCountPerTeamForMap(mapId);
     this.clearUnits();
     this.syncCityInfluenceSources();
     this.spawnStartingForces();
@@ -1278,6 +1283,7 @@ export class BattleRoom extends Room<BattleState> {
       cityAnchors,
       blockedSpawnCellIndexSet:
         this.activeMapBundle?.blockedSpawnCellIndexSet ?? new Set<number>(),
+      lineUnitCountPerTeam: this.startingForceLineUnitCountPerTeam,
       baseUnitHealth: this.runtimeTuning.baseUnitHealth,
       unitForwardOffset: BattleRoom.UNIT_FORWARD_OFFSET,
       mapWidth: GAMEPLAY_CONFIG.map.width,
@@ -1309,6 +1315,19 @@ export class BattleRoom extends Room<BattleState> {
       this.generationProfileByMapId.get(mapId)?.startingForces.layoutStrategy ??
       DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy
     );
+  }
+
+  private resolveStartingForceUnitCountPerTeamForMap(mapId: string): number | null {
+    const unitCount =
+      this.generationProfileByMapId.get(mapId)?.startingForces.unitCountPerTeam;
+    if (
+      typeof unitCount === "number" &&
+      Number.isInteger(unitCount) &&
+      unitCount > 0
+    ) {
+      return unitCount;
+    }
+    return null;
   }
 
   private handleUnitPathMessage(client: Client, message: UnitPathMessage): void {

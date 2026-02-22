@@ -31,6 +31,7 @@ export type ComputeInitialSpawnsArgs = {
   strategy: StartingForceLayoutStrategy;
   cityAnchors: MapBundle["cityAnchors"];
   blockedSpawnCellIndexSet: ReadonlySet<number>;
+  lineUnitCountPerTeam?: number | null;
   baseUnitHealth: number;
   unitForwardOffset: number;
   mapWidth: number;
@@ -519,9 +520,16 @@ export class StartingForcePlanner {
     cellWidth: number;
     cellHeight: number;
   }): StartingForcePlan {
+    const cappedLineUnitCount =
+      typeof input.computeArgs.lineUnitCountPerTeam === "number" &&
+      Number.isInteger(input.computeArgs.lineUnitCountPerTeam) &&
+      input.computeArgs.lineUnitCountPerTeam > 0
+        ? input.computeArgs.lineUnitCountPerTeam
+        : Number.POSITIVE_INFINITY;
     const mirroredUnitsPerSide = Math.min(
       input.redSpawnCandidates.length,
       input.blueSpawnCandidates.length,
+      cappedLineUnitCount,
     );
     const commanderHealth = getUnitHealthMax(
       input.computeArgs.baseUnitHealth,

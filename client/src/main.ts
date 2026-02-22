@@ -243,6 +243,8 @@ class BattleScene extends Phaser.Scene {
   private selectedForestDensity = DEFAULT_GENERATION_PROFILE.terrain.forestDensity;
   private selectedLayoutStrategy: StartingForceLayoutStrategy =
     DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy;
+  private selectedUnitCountPerTeam =
+    DEFAULT_GENERATION_PROFILE.startingForces.unitCountPerTeam;
   private lobbyMapRevision = 0;
   private isLobbyGeneratingMap = false;
   private lastBattleAnnouncement: string | null = null;
@@ -282,6 +284,7 @@ class BattleScene extends Phaser.Scene {
   private static readonly MOUNTAIN_DENSITY_PRESETS = [0, 0.01, 0.03, 0.05, 0.08, 0.12];
   private static readonly FOREST_DENSITY_PRESETS = [0, 0.04, 0.08, 0.12, 0.18, 0.24];
   private static readonly RIVER_COUNT_PRESETS = [0, 1, 2, 3, 4];
+  private static readonly UNIT_COUNT_PER_TEAM_PRESETS = [8, 16, 24, 32, 48, 64, 96, 128, 250];
   private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly ENEMY_VISIBILITY_PADDING =
@@ -878,6 +881,7 @@ class BattleScene extends Phaser.Scene {
         },
         startingForces: {
           layoutStrategy: this.selectedLayoutStrategy,
+          unitCountPerTeam: this.selectedUnitCountPerTeam,
         },
       },
     );
@@ -951,6 +955,17 @@ class BattleScene extends Phaser.Scene {
     this.refreshLobbyOverlay();
   }
 
+  private cycleUnitCountPerTeam(step: number): void {
+    const presets = BattleScene.UNIT_COUNT_PER_TEAM_PRESETS;
+    const currentIndex = presets.indexOf(this.selectedUnitCountPerTeam);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const presetCount = presets.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
+    this.selectedUnitCountPerTeam = presets[nextIndex] ?? presets[0];
+    this.refreshLobbyOverlay();
+  }
+
   private createLobbyOverlay(): void {
     this.lobbyOverlayController = new LobbyOverlayController(
       this,
@@ -963,6 +978,7 @@ class BattleScene extends Phaser.Scene {
         onCycleMountainDensity: (step: number) => this.cycleMountainDensity(step),
         onCycleForestDensity: (step: number) => this.cycleForestDensity(step),
         onCycleLayoutStrategy: (step: number) => this.cycleLayoutStrategy(step),
+        onCycleUnitCountPerTeam: (step: number) => this.cycleUnitCountPerTeam(step),
         onGenerateMap: () => this.requestGenerateLobbyMap(),
         onToggleReady: () => this.toggleLobbyReady(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
@@ -1065,6 +1081,7 @@ class BattleScene extends Phaser.Scene {
       selectedMountainDensity: this.selectedMountainDensity,
       selectedForestDensity: this.selectedForestDensity,
       selectedLayoutStrategy: this.selectedLayoutStrategy,
+      selectedUnitCountPerTeam: this.selectedUnitCountPerTeam,
       isLobbyGeneratingMap: this.isLobbyGeneratingMap,
       localLobbyReady: this.localLobbyReady,
       lastBattleAnnouncement: this.lastBattleAnnouncement,

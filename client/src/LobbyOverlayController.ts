@@ -26,6 +26,7 @@ export type LobbyOverlayViewModel = {
   selectedMountainDensity: number;
   selectedForestDensity: number;
   selectedLayoutStrategy: StartingForceLayoutStrategy;
+  selectedUnitCountPerTeam: number;
   isLobbyGeneratingMap: boolean;
   localLobbyReady: boolean;
   lastBattleAnnouncement: string | null;
@@ -40,6 +41,7 @@ type LobbyOverlayCallbacks = {
   onCycleMountainDensity: (step: number) => void;
   onCycleForestDensity: (step: number) => void;
   onCycleLayoutStrategy: (step: number) => void;
+  onCycleUnitCountPerTeam: (step: number) => void;
   onGenerateMap: () => void;
   onToggleReady: () => void;
   isShiftHeld: (pointer: Phaser.Input.Pointer) => boolean;
@@ -64,6 +66,7 @@ export class LobbyOverlayController {
   private readonly mountainDensityText: Phaser.GameObjects.Text;
   private readonly forestDensityText: Phaser.GameObjects.Text;
   private readonly layoutStrategyText: Phaser.GameObjects.Text;
+  private readonly unitCountText: Phaser.GameObjects.Text;
   private readonly randomMapButtonBg: Phaser.GameObjects.Rectangle;
   private readonly randomMapButtonText: Phaser.GameObjects.Text;
   private readonly generateMapButtonBg: Phaser.GameObjects.Rectangle;
@@ -80,7 +83,7 @@ export class LobbyOverlayController {
     this.panel.setDepth(config.depth);
     this.panel.setScrollFactor(0);
 
-    const panelBackground = scene.add.rectangle(0, 0, 680, 560, 0x121212, 0.9);
+    const panelBackground = scene.add.rectangle(0, 0, 680, 620, 0x121212, 0.9);
     panelBackground.setStrokeStyle(2, 0xffffff, 0.35);
 
     const titleText = scene.add.text(0, -145, 'Battle Lobby', {
@@ -218,7 +221,23 @@ export class LobbyOverlayController {
       this.callbacks.onCycleLayoutStrategy(step);
     });
 
-    this.actionText = scene.add.text(0, 241, '', {
+    this.unitCountText = scene.add.text(0, 241, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#f0d7c9',
+      align: 'center',
+    });
+    this.unitCountText.setOrigin(0.5, 0.5);
+    this.unitCountText.setInteractive({ useHandCursor: true });
+    this.unitCountText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleUnitCountPerTeam(step);
+    });
+
+    this.actionText = scene.add.text(0, 269, '', {
       fontFamily: 'monospace',
       fontSize: '17px',
       color: '#f4e7b2',
@@ -227,14 +246,14 @@ export class LobbyOverlayController {
     });
     this.actionText.setOrigin(0.5, 0.5);
 
-    this.randomMapButtonBg = scene.add.rectangle(-220, 248, 180, 46, 0x47627a, 1);
+    this.randomMapButtonBg = scene.add.rectangle(-220, 276, 180, 46, 0x47627a, 1);
     this.randomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
     this.randomMapButtonBg.setInteractive({ useHandCursor: true });
     this.randomMapButtonBg.on('pointerdown', () => {
       this.callbacks.onRandomMap();
     });
 
-    this.randomMapButtonText = scene.add.text(-220, 248, 'RANDOM MAP', {
+    this.randomMapButtonText = scene.add.text(-220, 276, 'RANDOM MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -245,14 +264,14 @@ export class LobbyOverlayController {
       this.callbacks.onRandomMap();
     });
 
-    this.generateMapButtonBg = scene.add.rectangle(0, 248, 180, 46, 0x66573a, 1);
+    this.generateMapButtonBg = scene.add.rectangle(0, 276, 180, 46, 0x66573a, 1);
     this.generateMapButtonBg.setStrokeStyle(2, 0xffe7bd, 0.45);
     this.generateMapButtonBg.setInteractive({ useHandCursor: true });
     this.generateMapButtonBg.on('pointerdown', () => {
       this.callbacks.onGenerateMap();
     });
 
-    this.generateMapButtonText = scene.add.text(0, 248, 'GENERATE MAP', {
+    this.generateMapButtonText = scene.add.text(0, 276, 'GENERATE MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -263,14 +282,14 @@ export class LobbyOverlayController {
       this.callbacks.onGenerateMap();
     });
 
-    this.readyButtonBg = scene.add.rectangle(220, 248, 180, 46, 0x2f8f46, 1);
+    this.readyButtonBg = scene.add.rectangle(220, 276, 180, 46, 0x2f8f46, 1);
     this.readyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
     this.readyButtonBg.setInteractive({ useHandCursor: true });
     this.readyButtonBg.on('pointerdown', () => {
       this.callbacks.onToggleReady();
     });
 
-    this.readyButtonText = scene.add.text(220, 248, 'READY', {
+    this.readyButtonText = scene.add.text(220, 276, 'READY', {
       fontFamily: 'monospace',
       fontSize: '21px',
       color: '#ffffff',
@@ -293,6 +312,7 @@ export class LobbyOverlayController {
       this.mountainDensityText,
       this.forestDensityText,
       this.layoutStrategyText,
+      this.unitCountText,
       this.actionText,
       this.randomMapButtonBg,
       this.randomMapButtonText,
@@ -328,6 +348,8 @@ export class LobbyOverlayController {
       this.forestDensityText.disableInteractive();
       this.layoutStrategyText.setVisible(false);
       this.layoutStrategyText.disableInteractive();
+      this.unitCountText.setVisible(false);
+      this.unitCountText.disableInteractive();
       this.setButtonVisibleAndInteractive(
         this.randomMapButtonBg,
         this.randomMapButtonText,
@@ -383,6 +405,11 @@ export class LobbyOverlayController {
     this.layoutStrategyText.setInteractive({ useHandCursor: true });
     this.layoutStrategyText.setText(
       `Layout: ${view.selectedLayoutStrategy}  (click to cycle)`,
+    );
+    this.unitCountText.setVisible(true);
+    this.unitCountText.setInteractive({ useHandCursor: true });
+    this.unitCountText.setText(
+      `Units/Team: ${view.selectedUnitCountPerTeam}  (click to cycle)`,
     );
 
     const selectableMapIds = view.availableMapIds.filter((mapId) =>
