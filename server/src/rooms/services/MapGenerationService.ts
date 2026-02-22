@@ -11,6 +11,7 @@ type GenerateRuntimeMapArgs = {
   seed: string;
   waterMode?: GenerationWaterMode;
   riverCount?: number;
+  neutralCityCount?: number;
   mountainBias?: number;
   forestBias?: number;
   contextLabel: string;
@@ -91,6 +92,12 @@ export class MapGenerationService {
     }
     if (typeof args.riverCount === "number" && Number.isInteger(args.riverCount)) {
       generatorArgs.push("--river-count", `${args.riverCount}`);
+    }
+    if (
+      typeof args.neutralCityCount === "number" &&
+      Number.isInteger(args.neutralCityCount)
+    ) {
+      generatorArgs.push("--neutral-city-count", `${args.neutralCityCount}`);
     }
     if (typeof args.mountainBias === "number" && Number.isFinite(args.mountainBias)) {
       generatorArgs.push("--mountain-bias", `${args.mountainBias}`);

@@ -1114,6 +1114,7 @@ export class BattleRoom extends Room<BattleState> {
         seed: profile.seed,
         waterMode: profile.terrain.waterMode,
         riverCount: profile.terrain.riverCount,
+        neutralCityCount: profile.cities.neutralCityCount,
         mountainBias: profile.terrain.mountainDensity,
         forestBias: profile.terrain.forestDensity,
         contextLabel: "lobby",
