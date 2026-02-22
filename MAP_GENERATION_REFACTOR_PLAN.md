@@ -158,10 +158,10 @@ Replace hardcoded initial deployment with strategy interface:
 - [x] Replace `spawnTestUnits` with `StartingForcePlanner`.
 - [x] Introduce `computeInitialSpawns(strategy, context): SpawnPlan`.
 - [x] Implement `battle-line` strategy.
-- [ ] Implement `city-front` strategy.
-- [ ] Implement `mirrored-grid` strategy.
-- [ ] Implement `wedge` strategy.
-- [ ] Add invariant checks: no blocked spawn, symmetry expectations, commander placement rules.
+- [x] Implement `city-front` strategy.
+- [x] Implement `mirrored-grid` strategy.
+- [x] Implement `wedge` strategy.
+- [x] Add invariant checks: no blocked spawn, symmetry expectations, commander placement rules.
 - [ ] Done when layout is switchable per profile and spawn invariants hold across generated maps.
 
 ## Compatibility and Migration Notes
