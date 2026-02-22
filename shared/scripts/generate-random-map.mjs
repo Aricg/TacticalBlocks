@@ -1909,6 +1909,37 @@ function buildPixelColors(terrain, elevationGrid, cityMarkers, width, height, rn
   return { pixels, elevationBytes };
 }
 
+function buildTerrainCodeGrid(terrain, width, height) {
+  const expectedLength = width * height;
+  if (!Array.isArray(terrain)) {
+    return '';
+  }
+
+  // Primary shape used by this script: flat terrain array.
+  if (terrain.length === expectedLength) {
+    return terrain
+      .map((terrainType) => TERRAIN_CODE_BY_TYPE[terrainType] ?? 'u')
+      .join('');
+  }
+
+  // Defensive fallback for 2D row/column terrain arrays.
+  if (terrain.length !== height) {
+    return '';
+  }
+  const codes = [];
+  for (let row = 0; row < height; row += 1) {
+    const rowValues = terrain[row];
+    if (!Array.isArray(rowValues) || rowValues.length !== width) {
+      return '';
+    }
+    for (let col = 0; col < width; col += 1) {
+      const terrainType = rowValues[col];
+      codes.push(TERRAIN_CODE_BY_TYPE[terrainType] ?? 'u');
+    }
+  }
+  return codes.join('');
+}
+
 function toPpm(width, height, pixels) {
   const lines = [`P3`, `${width} ${height}`, `255`];
   for (let i = 0; i < pixels.length; i += 1) {
@@ -2064,13 +2095,11 @@ writeFileSync(
     gridWidth: options.gridWidth,
     gridHeight: options.gridHeight,
     elevation: Array.from(elevationBytes),
-    terrainCodeGrid: terrain
-      .map((row) =>
-        row
-          .map((terrainType) => TERRAIN_CODE_BY_TYPE[terrainType] ?? 'u')
-          .join(''),
-      )
-      .join(''),
+    terrainCodeGrid: buildTerrainCodeGrid(
+      terrain,
+      options.gridWidth,
+      options.gridHeight,
+    ),
   })}\n`,
   'utf8',
 );
