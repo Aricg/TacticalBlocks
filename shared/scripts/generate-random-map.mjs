@@ -5,7 +5,10 @@ import {
   accessSync,
   constants,
   mkdtempSync,
+  readFileSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -1984,6 +1987,113 @@ function runSyncMaps(outputDir) {
   }
 }
 
+function buildAtomicTempPath(targetPath) {
+  const randomSuffix = Math.floor(Math.random() * 1e9).toString(36);
+  const directory = path.dirname(targetPath);
+  const extension = path.extname(targetPath);
+  const fileStem = path.basename(targetPath, extension);
+  return path.join(
+    directory,
+    `${fileStem}.tmp-${process.pid}-${Date.now()}-${randomSuffix}${extension}`,
+  );
+}
+
+function assertNonEmptyFile(filePath, label) {
+  let stats;
+  try {
+    stats = statSync(filePath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to validate ${label}: ${message}`);
+    process.exit(1);
+  }
+  if (!stats.isFile() || stats.size <= 0) {
+    console.error(`Invalid ${label}: expected non-empty file (${filePath}).`);
+    process.exit(1);
+  }
+}
+
+function assertPngSignature(filePath, label) {
+  let fileBytes;
+  try {
+    fileBytes = readFileSync(filePath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to validate ${label} PNG signature: ${message}`);
+    process.exit(1);
+  }
+
+  if (fileBytes.length < 8) {
+    console.error(`Invalid ${label}: file is too short to be a PNG (${filePath}).`);
+    process.exit(1);
+  }
+
+  // PNG signature bytes: 89 50 4E 47 0D 0A 1A 0A
+  const isPng =
+    fileBytes[0] === 0x89 &&
+    fileBytes[1] === 0x50 &&
+    fileBytes[2] === 0x4e &&
+    fileBytes[3] === 0x47 &&
+    fileBytes[4] === 0x0d &&
+    fileBytes[5] === 0x0a &&
+    fileBytes[6] === 0x1a &&
+    fileBytes[7] === 0x0a;
+  if (!isPng) {
+    console.error(`Invalid ${label}: expected PNG signature (${filePath}).`);
+    process.exit(1);
+  }
+}
+
+function validateElevationGridSidecar(
+  sidecarPath,
+  {
+    mapId,
+    gridWidth,
+    gridHeight,
+  },
+) {
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(sidecarPath, 'utf8'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Invalid elevation sidecar JSON at ${sidecarPath}: ${message}`);
+    process.exit(1);
+  }
+
+  const expectedCellCount = gridWidth * gridHeight;
+  if (parsed.mapId !== mapId) {
+    console.error(
+      `Invalid elevation sidecar mapId at ${sidecarPath}: expected ${mapId}, received ${parsed.mapId}.`,
+    );
+    process.exit(1);
+  }
+  if (parsed.gridWidth !== gridWidth || parsed.gridHeight !== gridHeight) {
+    console.error(
+      `Invalid elevation sidecar dimensions at ${sidecarPath}: expected ${gridWidth}x${gridHeight}.`,
+    );
+    process.exit(1);
+  }
+  if (
+    !Array.isArray(parsed.elevation) ||
+    parsed.elevation.length !== expectedCellCount
+  ) {
+    console.error(
+      `Invalid elevation sidecar elevation grid length at ${sidecarPath}.`,
+    );
+    process.exit(1);
+  }
+  if (
+    typeof parsed.terrainCodeGrid !== 'string' ||
+    parsed.terrainCodeGrid.length !== expectedCellCount
+  ) {
+    console.error(
+      `Invalid elevation sidecar terrain code grid length at ${sidecarPath}.`,
+    );
+    process.exit(1);
+  }
+}
+
 const options = parseArgs(process.argv.slice(2));
 assertInteger('grid width', options.gridWidth, 8);
 assertInteger('grid height', options.gridHeight, 8);
@@ -2064,6 +2174,25 @@ const elevationGridPath = path.join(
   options.outputDir,
   `${mapId}${ELEVATION_GRID_SUFFIX}`,
 );
+const sourceTempPath = buildAtomicTempPath(sourcePath);
+const quantizedTempPath = buildAtomicTempPath(quantizedPath);
+const elevationGridTempPath = buildAtomicTempPath(elevationGridPath);
+const terrainCodeGrid = buildTerrainCodeGrid(
+  terrain,
+  options.gridWidth,
+  options.gridHeight,
+);
+const elevationSidecar = {
+  mapId,
+  method: generationMethod,
+  waterMode: resolvedWaterMode,
+  gridWidth: options.gridWidth,
+  gridHeight: options.gridHeight,
+  elevation: Array.from(elevationBytes),
+  cityAnchors: cityLayout.cityAnchors,
+  neutralCityAnchors: cityLayout.neutralCityAnchors,
+  terrainCodeGrid,
+};
 
 try {
   writeFileSync(
@@ -2077,41 +2206,42 @@ try {
     'point',
     '-resize',
     `${options.width}x${options.height}!`,
-    sourcePath,
+    `png:${sourceTempPath}`,
   ]);
   runMagick([
-    sourcePath,
+    sourceTempPath,
     '-dither',
     'None',
     '-colors',
     '16',
     '-type',
     'Palette',
-    quantizedPath,
+    `png:${quantizedTempPath}`,
   ]);
-} finally {
-  rmSync(tempDir, { recursive: true, force: true });
-}
-
-writeFileSync(
-  elevationGridPath,
-  `${JSON.stringify({
+  writeFileSync(
+    elevationGridTempPath,
+    `${JSON.stringify(elevationSidecar)}\n`,
+    'utf8',
+  );
+  assertNonEmptyFile(sourceTempPath, 'source map image');
+  assertNonEmptyFile(quantizedTempPath, 'quantized map image');
+  assertPngSignature(sourceTempPath, 'source map image');
+  assertPngSignature(quantizedTempPath, 'quantized map image');
+  validateElevationGridSidecar(elevationGridTempPath, {
     mapId,
-    method: generationMethod,
-    waterMode: resolvedWaterMode,
     gridWidth: options.gridWidth,
     gridHeight: options.gridHeight,
-    elevation: Array.from(elevationBytes),
-    cityAnchors: cityLayout.cityAnchors,
-    neutralCityAnchors: cityLayout.neutralCityAnchors,
-    terrainCodeGrid: buildTerrainCodeGrid(
-      terrain,
-      options.gridWidth,
-      options.gridHeight,
-    ),
-  })}\n`,
-  'utf8',
-);
+  });
+
+  renameSync(sourceTempPath, sourcePath);
+  renameSync(quantizedTempPath, quantizedPath);
+  renameSync(elevationGridTempPath, elevationGridPath);
+} finally {
+  rmSync(tempDir, { recursive: true, force: true });
+  rmSync(sourceTempPath, { force: true });
+  rmSync(quantizedTempPath, { force: true });
+  rmSync(elevationGridTempPath, { force: true });
+}
 
 if (!options.noSync) {
   runSyncMaps(options.outputDir);

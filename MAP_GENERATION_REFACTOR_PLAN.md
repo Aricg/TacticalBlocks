@@ -88,90 +88,80 @@ Replace hardcoded initial deployment with strategy interface:
 - `computeInitialSpawns(strategy, context): SpawnPlan`
 - Implement strategies incrementally: `battle-line`, `city-front`, `mirrored-grid`, `wedge`.
 
-## Refactor Phases
+## Implementation Checklist
 
-## Phase 0: Safety Nets (No Behavior Change)
-- Add characterization tests for:
-  - map generation request flow
-  - map application/swap in lobby
-  - terrain blocking behavior
-  - city anchors and neutral city refresh
-  - initial spawn cardinality and symmetry
-- Add telemetry/log markers for map revision, active map id, and bundle source.
+### Stabilization (Already Completed)
+- [x] Disable runtime `map:sync` in lobby generation (`--no-sync`) so runtime map generation does not rewrite shared TS files.
+- [x] Move runtime-generated map IDs to a dedicated prefix (`runtime-generated-*`) to separate runtime artifacts from curated/static maps.
+- [x] Ignore runtime-generated map artifacts in `.gitignore` (`shared/runtime-generated-*.png`, `shared/runtime-generated-*.elevation-grid.json`).
 
-Exit criteria:
-- Existing behavior is captured by tests before structural changes.
+### Stability Gap Closures (Short Term)
+- [x] Add `server` dev script for parity testing without file-watch restarts (`tsx src/index.ts`).
+- [ ] Optionally add `tsx watch --exclude` patterns for runtime artifact paths if watch mode remains default.
+- [x] Add atomic write + validate-before-apply for runtime map artifacts (image + sidecar).
+- [x] Add a documented manual smoke flow: generate/apply/switch map multiple times in one process and verify map/layer consistency.
 
-## Phase 1: Introduce `MapBundle` and Runtime Loader
-- Add `MapBundle` types and parser in shared/server.
-- Build loader for sidecar artifacts with fallback semantics.
-- Update `BattleRoom` terrain/city/spawn-mask reads to use active bundle.
+### Phase 0: Safety Nets (No Behavior Change)
+- [x] Add telemetry/log markers for map revision, active map ID, and map-bundle source.
+- [x] Add a repeatable manual validation checklist for lobby generation + map switching behavior.
+- [ ] Done when current behavior is baselined with logs and manual validation steps before structural changes.
 
-Exit criteria:
-- Map generation + map swap works without server restart.
-- Runtime decisions no longer rely on mixed static/runtime terrain for active generated maps.
+### Phase 1: `MapBundle` + Runtime Loader
+- [x] Add `MapBundle` types in shared/server.
+- [x] Add sidecar loader/parser with fallback semantics.
+- [x] Migrate `BattleRoom` terrain reads to active `MapBundle`.
+- [x] Migrate `BattleRoom` city anchor/neutral city reads to active `MapBundle`.
+- [x] Migrate spawn blocking/impassable mask reads to active `MapBundle`.
+- [ ] Done when map generation + map swap works without server restart.
+- [ ] Done when runtime decisions no longer depend on mixed static/runtime terrain for generated maps.
 
-## Phase 2: Extract Server Services
-- Move generation process execution out of `BattleRoom` into `MapGenerationService`.
-- Move map apply/reload logic into `MapRuntimeService`.
-- Keep `BattleRoom` as workflow coordinator.
+### Cross-Cutting Checklist: Elevation/Terrain Convergence
+- [ ] Server runtime path: generated maps use `MapBundle.elevationBytes` + `MapBundle.terrainCodeGrid` for all gameplay decisions (movement, morale/slope, spawn blocking, impassable checks, supply/path severing).
+- [ ] Server static fallback path: when no sidecar exists, static `terrainGrid.ts` remains the only source for that map (no mixed per-system source).
+- [ ] Eliminate direct static terrain/elevation reads inside server gameplay loops for generated-map decisions (grep guard: `rg "getGridCellTerrainType|getGridCellElevation|getGridCellPaletteElevationByte" server/src`).
+- [ ] Keep sidecar schema validation strict (dimensions/lengths/types) and reject invalid artifacts before apply.
+- [ ] Verify no-restart runtime map cycle at least 3 times using the smoke flow; confirm map visuals, city anchors, and gameplay blocking remain aligned each cycle.
+- [ ] Client parity note: document that client still uses static/shared elevation sources for rendering until a runtime elevation feed is introduced, and track this separately from server gameplay correctness.
 
-Exit criteria:
-- `BattleRoom` map-related methods significantly reduced.
-- Service unit tests cover failure paths (missing script, parse errors, bad sidecar).
+### Phase 2: Extract Server Services
+- [ ] Introduce `MapGenerationService` (process execution + artifact metadata handling).
+- [ ] Introduce `MapRuntimeService` (load/parse/cache/apply active map bundle).
+- [ ] Move map-switch orchestration from `BattleRoom` into services.
+- [ ] Keep `BattleRoom` as coordinator only.
+- [ ] Add explicit error handling paths for missing script, parse error, and invalid sidecar.
+- [ ] Done when `BattleRoom` map-related methods are significantly reduced.
 
-## Phase 3: Generator Modularization
-- Split generation file into engine/passes/io modules.
-- Preserve CLI behavior and output artifacts.
-- Keep output compatibility with existing sync tooling.
+### Phase 3: Generator Modularization
+- [ ] Split `generate-random-map.mjs` into engine modules (`noise`, `wfc`).
+- [ ] Split terrain/city/water/validation logic into composable passes.
+- [ ] Split artifact writing and sync logic into IO modules.
+- [ ] Keep CLI interface and outputs backward-compatible.
+- [ ] Done when `generate-random-map` entry behavior remains stable.
 
-Exit criteria:
-- `generate-random-map` entry remains stable.
-- New modules have unit tests for engine/passes.
+### Phase 4: `GenerationProfile` End-to-End
+- [ ] Define `GenerationProfile` schema (method, seed, terrain, city, starting-force settings).
+- [ ] Extend shared network contract to include profile payload on generate-map requests.
+- [ ] Add client lobby controls and profile serialization.
+- [ ] Add server-side profile validation/defaulting with strict bounds.
+- [ ] Pipe validated profile into generation pipeline.
+- [ ] Done when users can control city/river/mountain/forest/unit/layout settings from lobby.
+- [ ] Done when invalid profile input is rejected safely with clear errors/logs.
 
-## Phase 4: Add `GenerationProfile` End-to-End
-- Extend network message contract to carry profile options.
-- Add client UI controls in lobby and serialize profile.
-- Add server validation for profile bounds and defaults.
-- Pass profile into generation pipeline.
-
-Exit criteria:
-- Users can adjust city/river/mountain/forest/unit/layout settings from lobby.
-- Invalid profile input is rejected safely with clear logs/errors.
-
-## Phase 5: Spawn/Layout Strategy System
-- Replace hardcoded `spawnTestUnits` logic with `StartingForcePlanner`.
-- Implement configurable layouts and count settings.
-- Ensure spawn obeys blocked/impassable/city constraints.
-
-Exit criteria:
-- Layout can be switched per generation/profile.
-- Spawn invariants hold across generated maps.
+### Phase 5: Spawn/Layout Strategy System
+- [ ] Replace `spawnTestUnits` with `StartingForcePlanner`.
+- [ ] Introduce `computeInitialSpawns(strategy, context): SpawnPlan`.
+- [ ] Implement `battle-line` strategy.
+- [ ] Implement `city-front` strategy.
+- [ ] Implement `mirrored-grid` strategy.
+- [ ] Implement `wedge` strategy.
+- [ ] Add invariant checks: no blocked spawn, symmetry expectations, commander placement rules.
+- [ ] Done when layout is switchable per profile and spawn invariants hold across generated maps.
 
 ## Compatibility and Migration Notes
 - Keep sidecar format backward-compatible while introducing `MapBundle` fields.
 - If a new field is missing, loader applies defaults and logs a warning.
 - Maintain `terrainGrid.ts` generation for static/fallback use during migration.
 - Do not remove old paths until runtime map consumers are fully migrated.
-
-## Test Strategy
-
-1. Unit tests
-- `GenerationProfile` validation and defaulting
-- `MapBundle` parsing and fallback behavior
-- Spawn strategies and constraint handling
-- WFC/noise module-level invariants
-
-2. Integration tests
-- Lobby generate-map request -> artifact generation -> server apply -> client revision update
-- Re-generate map multiple times in one server session without restart
-- Map swap preserves gameplay loop integrity
-
-3. Invariant/property checks
-- Team anchors always on playable cells
-- Required city counts satisfied or gracefully degraded
-- Spawn cells never on blocked mask
-- Terrain ratios within configured bounds
 
 ## Risk Register
 
@@ -190,6 +180,6 @@ Exit criteria:
 ## Immediate Next Slice (Recommended)
 1. Implement `MapBundle` types + loader.
 2. Migrate `BattleRoom` terrain/city/spawn-mask reads to `MapBundle`.
-3. Add integration test proving repeated generation/apply in a single session without restart.
+3. Add a manual no-restart smoke runbook proving repeated generation/apply in a single session.
 
 This slice gives the biggest stability improvement and unlocks safe feature work on generation controls.

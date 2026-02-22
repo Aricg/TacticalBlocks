@@ -1,15 +1,5 @@
 const MAP_IDS = [
-  'b94a7e47-8778-43d3-a3fa-d26f831233f6',
-  '30cae103-cb06-4791-a21d-241f488189d3',
-  '7391c2fe-3bbb-4805-b2e8-56b10dc042cf',
-  '8183775d-55ac-4f6b-a2e1-1407cdbc9935',
-  '8b3c0e4a-7a4a-41db-b036-cdee835944b1',
-  'c927a143-9ad1-49d6-9e6f-35b2b7927b6d',
-  '280acd50-3c01-4784-8dc1-bb7beafdfb87',
-  '92bc1e4e-fb8b-4621-ac4f-f92584224a0a',
-  '9b90e0c7-a291-4aaa-8009-89e2b786e2c3',
-  '3498110a-b6f5-41ee-89ec-67203559ed32',
-  'random-frontier-01',
+  'runtime-generated-lobby',
 ] as const;
 
 const UNIT_BASE_MOVE_SPEED = 50;
@@ -18,7 +8,7 @@ export const GAMEPLAY_CONFIG = {
   map: {
     width: 1920,
     height: 1080,
-    activeMapId: 'random-frontier-01',
+    activeMapId: 'runtime-generated-lobby',
     availableMapIds: MAP_IDS,
   },
   network: {

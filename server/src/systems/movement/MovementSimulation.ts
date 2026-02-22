@@ -4,7 +4,7 @@ import type {
   UnitMovementState,
   Vector2,
 } from "../../rooms/BattleRoomTypes.js";
-import { isDestinationBlocked, isTerrainBlocked } from "./gridPathing.js";
+import { isDestinationBlocked } from "./gridPathing.js";
 
 type OccupiedByCellKey = Map<string, Set<string>>;
 
@@ -57,6 +57,7 @@ export interface MovementSimulationParams {
   snapUnitToGrid: (unit: Unit) => GridCoordinate;
   worldToGridCoordinate: (x: number, y: number) => GridCoordinate;
   getTerrainSpeedMultiplierAtCell: (cell: GridCoordinate) => number;
+  isCellImpassable: (cell: GridCoordinate) => boolean;
   isWaterCell: (cell: GridCoordinate) => boolean;
   waterTransitionPauseSeconds: number;
   gridToWorldCenter: (cell: GridCoordinate) => Vector2;
@@ -79,6 +80,7 @@ export function simulateMovementTick({
   snapUnitToGrid,
   worldToGridCoordinate,
   getTerrainSpeedMultiplierAtCell,
+  isCellImpassable,
   isWaterCell,
   waterTransitionPauseSeconds,
   gridToWorldCenter,
@@ -195,7 +197,7 @@ export function simulateMovementTick({
 
     while (movementState.destinationCell && movementState.movementBudget > 0) {
       const destinationCell = movementState.destinationCell;
-      if (isTerrainBlocked(destinationCell)) {
+      if (isCellImpassable(destinationCell)) {
         clearMovementForUnit(unit.unitId);
         break;
       }

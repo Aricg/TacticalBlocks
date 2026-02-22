@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, Room } from "colyseus";
@@ -45,8 +45,10 @@ import {
 } from "../systems/morale/moraleMath.js";
 import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
+import { loadMapBundle } from "./services/MapBundleLoader.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
+import type { MapBundle } from "../../../shared/src/mapBundle.js";
 import { getGridCellPaletteElevationByte } from "../../../shared/src/terrainPaletteElevation.js";
 import {
   getGridCellTerrainType,
@@ -116,11 +118,7 @@ export class BattleRoom extends Room<BattleState> {
     RED: 1,
   };
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
-  private runtimeBlockedSpawnCellIndexSet: Set<number> | null = null;
-  private runtimeImpassableCellIndexSet: Set<number> | null = null;
-  private runtimeTerrainCodeGrid: string | null = null;
-  private runtimeCityAnchorByTeam: Record<PlayerTeam, GridCoordinate> | null = null;
-  private runtimeNeutralCityCells: GridCoordinate[] | null = null;
+  private activeMapBundle: MapBundle | null = null;
 
   private static readonly UNIT_TURN_SPEED =
     GAMEPLAY_CONFIG.movement.unitTurnSpeedRadians;
@@ -181,8 +179,9 @@ export class BattleRoom extends Room<BattleState> {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
     this.state.mapId = this.lobbyService.getValidatedMapId(this.state.mapId);
+    this.ensureStartupRuntimeGeneratedMap(this.state.mapId);
     this.applyMapIdToRuntimeTerrain(this.state.mapId);
-    this.rebuildRuntimeBlockedSpawnCellIndexSet(this.state.mapId);
+    this.loadActiveMapBundle(this.state.mapId, this.mapRevision);
     this.refreshNeutralCityCells();
     this.initializeNeutralCityOwnership();
     this.resetCityUnitGenerationState();
@@ -496,32 +495,14 @@ export class BattleRoom extends Room<BattleState> {
     return row * BattleRoom.GRID_WIDTH + col;
   }
 
-  private isValidGridCoordinate(
-    value: unknown,
-  ): value is GridCoordinate {
-    if (typeof value !== "object" || value === null) {
-      return false;
-    }
-    const candidate = value as { col?: unknown; row?: unknown };
-    return (
-      typeof candidate.col === "number" &&
-      Number.isInteger(candidate.col) &&
-      candidate.col >= 0 &&
-      candidate.col < BattleRoom.GRID_WIDTH &&
-      typeof candidate.row === "number" &&
-      Number.isInteger(candidate.row) &&
-      candidate.row >= 0 &&
-      candidate.row < BattleRoom.GRID_HEIGHT
-    );
-  }
-
-  private getRuntimeTerrainTypeAtCell(
+  private getMapBundleTerrainTypeAtCell(
     cell: GridCoordinate,
   ): TerrainType | null {
-    if (!this.runtimeTerrainCodeGrid) {
+    const terrainCodeGrid = this.activeMapBundle?.terrainCodeGrid;
+    if (!terrainCodeGrid) {
       return null;
     }
-    const terrainCode = this.runtimeTerrainCodeGrid.charAt(
+    const terrainCode = terrainCodeGrid.charAt(
       this.getGridCellIndex(cell.col, cell.row),
     );
     if (terrainCode === "w") {
@@ -542,88 +523,55 @@ export class BattleRoom extends Room<BattleState> {
     return null;
   }
 
-  private isRuntimeTerrainPlayableCell(cell: GridCoordinate): boolean {
-    const terrainType = this.getRuntimeTerrainTypeAtCell(cell);
-    if (!terrainType) {
-      return false;
-    }
-    return terrainType !== "water" && terrainType !== "mountains";
-  }
-
-  private findNearestPlayableRuntimeCell(
-    targetCol: number,
-    targetRow: number,
-  ): GridCoordinate {
-    const clampedTarget: GridCoordinate = {
-      col: this.clamp(targetCol, 0, BattleRoom.GRID_WIDTH - 1),
-      row: this.clamp(targetRow, 0, BattleRoom.GRID_HEIGHT - 1),
-    };
-    if (!this.runtimeTerrainCodeGrid) {
-      return clampedTarget;
-    }
-
-    const maxRadius = Math.max(BattleRoom.GRID_WIDTH, BattleRoom.GRID_HEIGHT);
-    for (let radius = 0; radius <= maxRadius; radius += 1) {
-      for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
-        for (let colOffset = -radius; colOffset <= radius; colOffset += 1) {
-          if (
-            Math.abs(colOffset) !== radius &&
-            Math.abs(rowOffset) !== radius
-          ) {
-            continue;
-          }
-          const candidate: GridCoordinate = {
-            col: this.clamp(
-              clampedTarget.col + colOffset,
-              0,
-              BattleRoom.GRID_WIDTH - 1,
-            ),
-            row: this.clamp(
-              clampedTarget.row + rowOffset,
-              0,
-              BattleRoom.GRID_HEIGHT - 1,
-            ),
-          };
-          if (this.isRuntimeTerrainPlayableCell(candidate)) {
-            return candidate;
-          }
-        }
-      }
-    }
-
-    return clampedTarget;
-  }
-
-  private deriveRuntimeCityAnchorsFromTerrain(): {
-    cityAnchors: Record<PlayerTeam, GridCoordinate>;
-    neutralCityAnchors: GridCoordinate[];
-  } | null {
-    if (!this.runtimeTerrainCodeGrid) {
+  private getMapBundleElevationByteAtCell(
+    cell: GridCoordinate,
+  ): number | null {
+    const elevationBytes = this.activeMapBundle?.elevationBytes;
+    if (!elevationBytes) {
       return null;
     }
+    const index = this.getGridCellIndex(cell.col, cell.row);
+    if (index < 0 || index >= elevationBytes.length) {
+      return null;
+    }
+    const byte = elevationBytes[index];
+    return Number.isFinite(byte) ? byte : null;
+  }
 
-    const cityAnchors: Record<PlayerTeam, GridCoordinate> = {
-      RED: this.findNearestPlayableRuntimeCell(
-        Math.round(BattleRoom.GRID_WIDTH * 0.16),
-        Math.round(BattleRoom.GRID_HEIGHT * 0.5),
-      ),
-      BLUE: this.findNearestPlayableRuntimeCell(
-        Math.round(BattleRoom.GRID_WIDTH * 0.84),
-        Math.round(BattleRoom.GRID_HEIGHT * 0.5),
-      ),
-    };
-    const neutralCityAnchors: GridCoordinate[] = [
-      this.findNearestPlayableRuntimeCell(
-        Math.round(BattleRoom.GRID_WIDTH * 0.5),
-        Math.round(BattleRoom.GRID_HEIGHT * 0.3),
-      ),
-      this.findNearestPlayableRuntimeCell(
-        Math.round(BattleRoom.GRID_WIDTH * 0.5),
-        Math.round(BattleRoom.GRID_HEIGHT * 0.7),
-      ),
-    ];
+  private getElevationByteAtCell(cell: GridCoordinate): number {
+    const runtimeElevationByte = this.getMapBundleElevationByteAtCell(cell);
+    if (runtimeElevationByte !== null) {
+      return runtimeElevationByte;
+    }
+    return getGridCellPaletteElevationByte(cell.col, cell.row);
+  }
 
-    return { cityAnchors, neutralCityAnchors };
+  private loadActiveMapBundle(mapId: string, revision: number): void {
+    this.activeMapBundle = loadMapBundle({
+      mapId,
+      revision,
+      sharedDir: this.resolveSharedDirectory(),
+      gridWidth: BattleRoom.GRID_WIDTH,
+      gridHeight: BattleRoom.GRID_HEIGHT,
+      defaultCityAnchors: {
+        RED: getTeamCityGridCoordinate("RED"),
+        BLUE: getTeamCityGridCoordinate("BLUE"),
+      },
+      defaultNeutralCityAnchors: getNeutralCityGridCoordinates(),
+      waterElevationMax: BattleRoom.RUNTIME_WATER_ELEVATION_MAX,
+      mountainElevationMin: BattleRoom.RUNTIME_MOUNTAIN_ELEVATION_MIN,
+      logWarning: (message, error) => {
+        if (error) {
+          console.warn(message, error);
+          return;
+        }
+        console.warn(message);
+      },
+    });
+
+    console.log(
+      `[map-bundle] revision=${this.activeMapBundle.revision} mapId=${this.activeMapBundle.mapId} source=${this.activeMapBundle.source} method=${this.activeMapBundle.method} blocked=${this.activeMapBundle.blockedSpawnCellIndexSet.size} impassable=${this.activeMapBundle.impassableCellIndexSet.size}`,
+    );
   }
 
   private isCellImpassable(cell: GridCoordinate): boolean {
@@ -636,8 +584,8 @@ export class BattleRoom extends Room<BattleState> {
       return true;
     }
 
-    if (this.runtimeImpassableCellIndexSet) {
-      return this.runtimeImpassableCellIndexSet.has(
+    if (this.activeMapBundle?.source === "runtime-sidecar") {
+      return this.activeMapBundle.impassableCellIndexSet.has(
         this.getGridCellIndex(cell.col, cell.row),
       );
     }
@@ -655,138 +603,14 @@ export class BattleRoom extends Room<BattleState> {
       return true;
     }
 
-    if (this.runtimeBlockedSpawnCellIndexSet) {
-      return this.runtimeBlockedSpawnCellIndexSet.has(
+    if (this.activeMapBundle?.source === "runtime-sidecar") {
+      return this.activeMapBundle.blockedSpawnCellIndexSet.has(
         this.getGridCellIndex(cell.col, cell.row),
       );
     }
 
     const terrainType = this.getTerrainTypeAtCell(cell);
     return terrainType === "mountains" || terrainType === "water";
-  }
-
-  private rebuildRuntimeBlockedSpawnCellIndexSet(mapId: string): void {
-    this.runtimeBlockedSpawnCellIndexSet = null;
-    this.runtimeImpassableCellIndexSet = null;
-    this.runtimeTerrainCodeGrid = null;
-    this.runtimeCityAnchorByTeam = null;
-    this.runtimeNeutralCityCells = null;
-    const sharedDir = this.resolveSharedDirectory();
-    if (!sharedDir) {
-      return;
-    }
-
-    const elevationGridPath = path.join(sharedDir, `${mapId}.elevation-grid.json`);
-    if (!existsSync(elevationGridPath)) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(readFileSync(elevationGridPath, "utf8")) as {
-        gridWidth?: unknown;
-        gridHeight?: unknown;
-        elevation?: unknown;
-        terrainCodeGrid?: unknown;
-      };
-      const fileGridWidth =
-        typeof parsed.gridWidth === "number" ? parsed.gridWidth : NaN;
-      const fileGridHeight =
-        typeof parsed.gridHeight === "number" ? parsed.gridHeight : NaN;
-      if (
-        !Number.isFinite(fileGridWidth) ||
-        !Number.isFinite(fileGridHeight) ||
-        fileGridWidth !== BattleRoom.GRID_WIDTH ||
-        fileGridHeight !== BattleRoom.GRID_HEIGHT
-      ) {
-        return;
-      }
-
-      const expectedLength = BattleRoom.GRID_WIDTH * BattleRoom.GRID_HEIGHT;
-      const blocked = new Set<number>();
-      const impassable = new Set<number>();
-      const terrainCodeGrid =
-        typeof parsed.terrainCodeGrid === "string"
-          ? parsed.terrainCodeGrid
-          : "";
-      if (terrainCodeGrid.length === expectedLength) {
-        this.runtimeTerrainCodeGrid = terrainCodeGrid;
-        for (let index = 0; index < terrainCodeGrid.length; index += 1) {
-          const terrainCode = terrainCodeGrid.charAt(index);
-          if (terrainCode === "m") {
-            impassable.add(index);
-            blocked.add(index);
-          } else if (terrainCode === "w") {
-            blocked.add(index);
-          }
-        }
-        this.runtimeBlockedSpawnCellIndexSet = blocked;
-        this.runtimeImpassableCellIndexSet = impassable;
-      } else if (Array.isArray(parsed.elevation) && parsed.elevation.length === expectedLength) {
-        for (let index = 0; index < parsed.elevation.length; index += 1) {
-          const elevationValue = parsed.elevation[index];
-          if (typeof elevationValue !== "number" || !Number.isFinite(elevationValue)) {
-            continue;
-          }
-
-          const byte = Math.round(elevationValue);
-          if (byte >= BattleRoom.RUNTIME_MOUNTAIN_ELEVATION_MIN) {
-            impassable.add(index);
-            blocked.add(index);
-            continue;
-          }
-          if (byte <= BattleRoom.RUNTIME_WATER_ELEVATION_MAX) {
-            blocked.add(index);
-          }
-        }
-
-        this.runtimeBlockedSpawnCellIndexSet = blocked;
-        this.runtimeImpassableCellIndexSet = impassable;
-      }
-      const parsedCityAnchors =
-        typeof (parsed as { cityAnchors?: unknown }).cityAnchors === "object" &&
-        (parsed as { cityAnchors?: unknown }).cityAnchors !== null
-          ? (parsed as {
-              cityAnchors: { RED?: unknown; BLUE?: unknown };
-            }).cityAnchors
-          : null;
-      if (
-        parsedCityAnchors &&
-        this.isValidGridCoordinate(parsedCityAnchors.RED) &&
-        this.isValidGridCoordinate(parsedCityAnchors.BLUE)
-      ) {
-        this.runtimeCityAnchorByTeam = {
-          RED: { ...parsedCityAnchors.RED },
-          BLUE: { ...parsedCityAnchors.BLUE },
-        };
-      }
-
-      const parsedNeutralAnchors =
-        (parsed as { neutralCityAnchors?: unknown }).neutralCityAnchors;
-      if (Array.isArray(parsedNeutralAnchors)) {
-        const runtimeNeutralCityCells: GridCoordinate[] = [];
-        for (const anchor of parsedNeutralAnchors) {
-          if (!this.isValidGridCoordinate(anchor)) {
-            continue;
-          }
-          runtimeNeutralCityCells.push({ ...anchor });
-        }
-        this.runtimeNeutralCityCells = runtimeNeutralCityCells;
-      }
-
-      if (!this.runtimeCityAnchorByTeam || !this.runtimeNeutralCityCells) {
-        const derivedAnchors = this.deriveRuntimeCityAnchorsFromTerrain();
-        if (derivedAnchors) {
-          if (!this.runtimeCityAnchorByTeam) {
-            this.runtimeCityAnchorByTeam = derivedAnchors.cityAnchors;
-          }
-          if (!this.runtimeNeutralCityCells) {
-            this.runtimeNeutralCityCells = derivedAnchors.neutralCityAnchors;
-          }
-        }
-      }
-    } catch (error) {
-      console.error(`Failed to read runtime terrain grid for map "${mapId}".`, error);
-    }
   }
 
   private worldToGridCoordinate(x: number, y: number): GridCoordinate {
@@ -855,9 +679,9 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getTerrainTypeAtCell(cell: GridCoordinate): TerrainType {
-    const runtimeTerrainType = this.getRuntimeTerrainTypeAtCell(cell);
-    if (runtimeTerrainType) {
-      return runtimeTerrainType;
+    const bundleTerrainType = this.getMapBundleTerrainTypeAtCell(cell);
+    if (bundleTerrainType) {
+      return bundleTerrainType;
     }
     return getGridCellTerrainType(cell.col, cell.row);
   }
@@ -888,14 +712,8 @@ export class BattleRoom extends Room<BattleState> {
         BattleRoom.GRID_HEIGHT - 1,
       ),
     };
-    const currentElevationByte = getGridCellPaletteElevationByte(
-      currentCell.col,
-      currentCell.row,
-    );
-    const forwardElevationByte = getGridCellPaletteElevationByte(
-      forwardCell.col,
-      forwardCell.row,
-    );
+    const currentElevationByte = this.getElevationByteAtCell(currentCell);
+    const forwardElevationByte = this.getElevationByteAtCell(forwardCell);
     const elevationDeltaBytes = forwardElevationByte - currentElevationByte;
     const moralePerInfluenceDot =
       BattleRoom.MORALE_MAX_SCORE /
@@ -936,7 +754,7 @@ export class BattleRoom extends Room<BattleState> {
 
   private getCityWorldPosition(team: PlayerTeam): Vector2 {
     const cityCell =
-      this.runtimeCityAnchorByTeam?.[team] ?? getTeamCityGridCoordinate(team);
+      this.activeMapBundle?.cityAnchors[team] ?? getTeamCityGridCoordinate(team);
     return this.gridToWorldCenter(cityCell);
   }
 
@@ -1258,59 +1076,18 @@ export class BattleRoom extends Room<BattleState> {
         ? requestedMethod
         : "wfc";
     const mapId = this.lobbyService.getGeneratedMapId();
-    const sharedDir = this.resolveSharedDirectory();
-    if (!sharedDir) {
-      console.error("Could not resolve shared directory for map generation.");
-      return;
-    }
-
-    const generatorScriptPath = path.join(
-      sharedDir,
-      "scripts",
-      "generate-random-map.mjs",
-    );
-    if (!existsSync(generatorScriptPath)) {
-      console.error(`Map generator script not found: ${generatorScriptPath}`);
-      return;
-    }
-
     const seed = `lobby-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
     this.isGeneratingMap = true;
     this.broadcastLobbyState();
 
     try {
-      const commandResult = spawnSync(
-        process.execPath,
-        [
-          generatorScriptPath,
-          "--map-id",
-          mapId,
-          "--seed",
-          seed,
-          "--method",
-          generationMethod,
-          "--output-dir",
-          sharedDir,
-          "--no-sync",
-        ],
-        {
-          cwd: sharedDir,
-          encoding: "utf8",
-        },
+      const generated = this.generateRuntimeMap(
+        mapId,
+        generationMethod,
+        seed,
+        "lobby",
       );
-
-      if (commandResult.status !== 0) {
-        const stderr = (commandResult.stderr ?? "").trim();
-        const stdout = (commandResult.stdout ?? "").trim();
-        console.error(
-          `Map generation failed (status ${commandResult.status ?? "unknown"}).`,
-        );
-        if (stderr.length > 0) {
-          console.error(stderr);
-        }
-        if (stdout.length > 0) {
-          console.error(stdout);
-        }
+      if (!generated) {
         return;
       }
 
@@ -1323,6 +1100,80 @@ export class BattleRoom extends Room<BattleState> {
       this.isGeneratingMap = false;
       this.broadcastLobbyState();
     }
+  }
+
+  private ensureStartupRuntimeGeneratedMap(mapId: string): void {
+    if (!mapId.startsWith("runtime-generated-")) {
+      return;
+    }
+
+    const seed = `startup-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    const generated = this.generateRuntimeMap(mapId, "auto", seed, "startup");
+    if (!generated) {
+      console.error(
+        `Failed to generate startup runtime map "${mapId}". Continuing with existing artifacts if available.`,
+      );
+    }
+  }
+
+  private generateRuntimeMap(
+    mapId: string,
+    generationMethod: "noise" | "wfc" | "auto",
+    seed: string,
+    contextLabel: string,
+  ): boolean {
+    const sharedDir = this.resolveSharedDirectory();
+    if (!sharedDir) {
+      console.error("Could not resolve shared directory for map generation.");
+      return false;
+    }
+
+    const generatorScriptPath = path.join(
+      sharedDir,
+      "scripts",
+      "generate-random-map.mjs",
+    );
+    if (!existsSync(generatorScriptPath)) {
+      console.error(`Map generator script not found: ${generatorScriptPath}`);
+      return false;
+    }
+
+    const commandResult = spawnSync(
+      process.execPath,
+      [
+        generatorScriptPath,
+        "--map-id",
+        mapId,
+        "--seed",
+        seed,
+        "--method",
+        generationMethod,
+        "--output-dir",
+        sharedDir,
+        "--no-sync",
+      ],
+      {
+        cwd: sharedDir,
+        encoding: "utf8",
+      },
+    );
+
+    if (commandResult.status !== 0) {
+      const stderr = (commandResult.stderr ?? "").trim();
+      const stdout = (commandResult.stdout ?? "").trim();
+      console.error(
+        `Map generation failed during ${contextLabel} (status ${commandResult.status ?? "unknown"}).`,
+      );
+      if (stderr.length > 0) {
+        console.error(stderr);
+      }
+      if (stdout.length > 0) {
+        console.error(stdout);
+      }
+      return false;
+    }
+
+    return true;
   }
 
   private rescaleUnitHealthForNewBase(
@@ -1355,8 +1206,10 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private refreshNeutralCityCells(): void {
-    if (this.runtimeNeutralCityCells) {
-      this.neutralCityCells = this.runtimeNeutralCityCells.map((cell) => ({ ...cell }));
+    if (this.activeMapBundle) {
+      this.neutralCityCells = this.activeMapBundle.neutralCityAnchors.map((cell) => ({
+        ...cell,
+      }));
       return;
     }
     this.neutralCityCells = getNeutralCityGridCoordinates();
@@ -1405,9 +1258,12 @@ export class BattleRoom extends Room<BattleState> {
   ): void {
     const incrementMapRevision = options?.incrementMapRevision ?? true;
     const resetReadyStates = options?.resetReadyStates ?? true;
+    const nextMapRevision = incrementMapRevision
+      ? this.mapRevision + 1
+      : this.mapRevision;
     this.state.mapId = mapId;
     this.applyMapIdToRuntimeTerrain(mapId);
-    this.rebuildRuntimeBlockedSpawnCellIndexSet(mapId);
+    this.loadActiveMapBundle(mapId, nextMapRevision);
     this.refreshNeutralCityCells();
     this.state.redCityOwner = "RED";
     this.state.blueCityOwner = "BLUE";
@@ -1423,9 +1279,7 @@ export class BattleRoom extends Room<BattleState> {
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
     this.simulationFrame = 0;
-    if (incrementMapRevision) {
-      this.mapRevision += 1;
-    }
+    this.mapRevision = nextMapRevision;
   }
 
   private resolveSharedDirectory(): string | null {
@@ -1784,6 +1638,7 @@ export class BattleRoom extends Room<BattleState> {
       worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
       getTerrainSpeedMultiplierAtCell: (cell) =>
         this.getTerrainSpeedMultiplierAtCell(cell),
+      isCellImpassable: (cell) => this.isCellImpassable(cell),
       isWaterCell: (cell) => this.getTerrainTypeAtCell(cell) === "water",
       waterTransitionPauseSeconds: BattleRoom.WATER_TRANSITION_PAUSE_SECONDS,
       gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),

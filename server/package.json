@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "PORT=2567 tsx watch src/index.ts",
+    "dev:nowatch": "PORT=2567 tsx src/index.ts",
     "start": "node --enable-source-maps dist/server/src/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"

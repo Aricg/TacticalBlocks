@@ -29,7 +29,7 @@ To override it, set one of these Vite env vars:
 ### Runtime map image loading
 
 Map textures are loaded at runtime instead of build-hashed `dist/assets/*` URLs.
-This allows generated maps (for example `random-frontier-01-16c.png`) to update
+This allows generated maps (for example `runtime-generated-lobby-16c.png`) to update
 without rebuilding the client bundle.
 
 Default runtime map URL base:
@@ -60,3 +60,6 @@ cd /Users/agardner/Github/TacticalBlocks/server
 npm install
 npm run dev
 ```
+
+On server startup, the active runtime map (`runtime-generated-lobby`) is
+generated automatically so each run starts from a fresh generated map state.

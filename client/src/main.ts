@@ -253,6 +253,7 @@ class BattleScene extends Phaser.Scene {
   private mapSamplingWidth = 0;
   private mapSamplingHeight = 0;
   private readonly impassableCellIndexSet: Set<number> = new Set<number>();
+  private mapTextureRetryTimer: Phaser.Time.TimerEvent | null = null;
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
@@ -298,9 +299,9 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
   private static readonly SHOW_IMPASSABLE_OVERLAY = true;
-  private static readonly IMPASSABLE_OVERLAY_DEPTH = 930;
+  private static readonly IMPASSABLE_OVERLAY_DEPTH = 995;
   private static readonly IMPASSABLE_OVERLAY_FILL_COLOR = 0xff1f1f;
-  private static readonly IMPASSABLE_OVERLAY_FILL_ALPHA = 0.28;
+  private static readonly IMPASSABLE_OVERLAY_FILL_ALPHA = 0.45;
   private static readonly IMPASSABLE_OVERLAY_STROKE_COLOR = 0xb30000;
   private static readonly IMPASSABLE_OVERLAY_STROKE_ALPHA = 0.55;
   private static readonly LOBBY_OVERLAY_DEPTH = 2200;
@@ -356,6 +357,7 @@ class BattleScene extends Phaser.Scene {
     this.impassableOverlay = this.add.graphics();
     this.impassableOverlay.setDepth(BattleScene.IMPASSABLE_OVERLAY_DEPTH);
     this.drawImpassableOverlay();
+    this.ensureActiveMapTextureLoaded();
     this.influenceRenderer = new InfluenceRenderer(this);
     this.influenceRenderer.setVisibleTeam(
       this.localPlayerTeam === Team.RED ? 'RED' : 'BLUE',
@@ -556,6 +558,7 @@ class BattleScene extends Phaser.Scene {
       this.moraleBreakdownOverlay = null;
       this.latestInfluenceGrid = null;
       this.mapBackground = null;
+      this.stopMapTextureRetryLoop();
     });
   }
 
@@ -623,7 +626,7 @@ class BattleScene extends Phaser.Scene {
 
     const textureKey = getTextureKeyForMapId(mapId);
     const pendingTextureKey = `${textureKey}--pending-${revision}`;
-    const cacheBustedPath = `${imagePath}${imagePath.includes('?') ? '&' : '?'}rev=${revision}`;
+    const cacheBustedPath = `${imagePath}${imagePath.includes('?') ? '&' : '?'}rev=${revision}&t=${Date.now()}`;
     if (this.textures.exists(pendingTextureKey)) {
       this.textures.remove(pendingTextureKey);
     }
@@ -659,6 +662,7 @@ class BattleScene extends Phaser.Scene {
       this.rebuildImpassableCellIndexSetFromMapTexture();
       this.drawImpassableOverlay();
       this.refreshFogOfWar();
+      this.stopMapTextureRetryLoop();
     });
     this.load.image(pendingTextureKey, cacheBustedPath);
     if (!this.load.isLoading()) {
@@ -666,16 +670,64 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private stopMapTextureRetryLoop(): void {
+    if (!this.mapTextureRetryTimer) {
+      return;
+    }
+    this.mapTextureRetryTimer.remove();
+    this.mapTextureRetryTimer = null;
+  }
+
+  private ensureActiveMapTextureLoaded(): void {
+    const activeTextureKey = getTextureKeyForMapId(this.activeMapId);
+    if (this.textures.exists(activeTextureKey)) {
+      this.stopMapTextureRetryLoop();
+      if (this.mapBackground) {
+        this.mapBackground.setTexture(activeTextureKey);
+      }
+      this.mapTextureKey = activeTextureKey;
+      this.initializeMapTerrainSampling();
+      this.rebuildImpassableCellIndexSetFromMapTexture();
+      this.drawImpassableOverlay();
+      this.refreshFogOfWar();
+      return;
+    }
+
+    this.reloadMapTexture(this.activeMapId, this.lobbyMapRevision);
+    if (this.mapTextureRetryTimer) {
+      return;
+    }
+
+    this.mapTextureRetryTimer = this.time.addEvent({
+      delay: 1000,
+      loop: true,
+      callback: () => {
+        const textureKey = getTextureKeyForMapId(this.activeMapId);
+        if (this.textures.exists(textureKey)) {
+          this.stopMapTextureRetryLoop();
+          return;
+        }
+        this.reloadMapTexture(this.activeMapId, this.lobbyMapRevision);
+      },
+    });
+  }
+
   private applySelectedLobbyMap(
     requestedMapId: string,
     forceTextureReload = false,
   ): void {
+    const hasLoadedTexture = this.textures.exists(
+      getTextureKeyForMapId(requestedMapId),
+    );
+    const effectiveForceTextureReload =
+      forceTextureReload || !hasLoadedTexture;
+
     applySelectedLobbyMapFlow({
       requestedMapId,
       availableMapIds: this.availableMapIds,
       activeMapId: this.activeMapId,
       lobbyMapRevision: this.lobbyMapRevision,
-      forceTextureReload,
+      forceTextureReload: effectiveForceTextureReload,
       hasMapImage: (mapId) => Boolean(resolveMapImageById(mapId)),
       resolveFallbackMapId: () => resolveInitialMapId(),
       effects: {
@@ -714,10 +766,12 @@ class BattleScene extends Phaser.Scene {
           }
           this.initializeMapTerrainSampling();
           this.rebuildImpassableCellIndexSetFromMapTexture();
+          this.drawImpassableOverlay();
         },
         initializeMapTerrainSampling: () => {
           this.initializeMapTerrainSampling();
           this.rebuildImpassableCellIndexSetFromMapTexture();
+          this.drawImpassableOverlay();
         },
         refreshFogOfWar: () => {
           this.refreshFogOfWar();
