@@ -90,6 +90,14 @@ Replace hardcoded initial deployment with strategy interface:
 
 ## Implementation Checklist
 
+### Recent Completed Work (Post-Phase 1)
+- [x] Extracted `MapGenerationService` from `BattleRoom` (generation method normalization + generator process execution).
+- [x] Extracted `MapRuntimeService` from `BattleRoom` (runtime map apply/load/switch orchestration).
+- [x] Added structured map-generation failure reasons (`shared-dir-unresolved`, `generator-script-missing`, `generator-process-failed`).
+- [x] Added structured sidecar load warning codes (`shared-dir-unresolved`, `sidecar-parse-failed`, `sidecar-grid-mismatch`, `sidecar-data-invalid`).
+- [x] Moved neutral-city ownership reset and influence-grid clear helpers into `MapRuntimeService`.
+- [x] Added runtime city-anchor sync to client: server now includes active `cityAnchors` and `neutralCityAnchors` in lobby state; client consumes these for city star placement and city-based fog ownership logic.
+
 ### Stabilization (Already Completed)
 - [x] Disable runtime `map:sync` in lobby generation (`--no-sync`) so runtime map generation does not rewrite shared TS files.
 - [x] Move runtime-generated map IDs to a dedicated prefix (`runtime-generated-*`) to separate runtime artifacts from curated/static maps.
@@ -121,7 +129,8 @@ Replace hardcoded initial deployment with strategy interface:
 - [ ] Eliminate direct static terrain/elevation reads inside server gameplay loops for generated-map decisions (grep guard: `rg "getGridCellTerrainType|getGridCellElevation|getGridCellPaletteElevationByte" server/src`).
 - [ ] Keep sidecar schema validation strict (dimensions/lengths/types) and reject invalid artifacts before apply.
 - [ ] Verify no-restart runtime map cycle at least 3 times using the smoke flow; confirm map visuals, city anchors, and gameplay blocking remain aligned each cycle.
-- [ ] Client parity note: document that client still uses static/shared elevation sources for rendering until a runtime elevation feed is introduced, and track this separately from server gameplay correctness.
+- [x] Client city-anchor parity: lobby-state payload now carries runtime `cityAnchors` + `neutralCityAnchors`, and client city star placement reads this runtime data (fixes missing/misaligned city stars on runtime-generated maps).
+- [ ] Client terrain/elevation parity note: client still uses static/shared elevation sources for terrain rendering and some local sampling until a runtime elevation feed is introduced.
 
 ### Phase 2: Extract Server Services
 - [x] Introduce `MapGenerationService` (process execution + artifact metadata handling).

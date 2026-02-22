@@ -1937,12 +1937,27 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getLobbyStateMessage(): LobbyStateMessage {
-    return this.lobbyService.getLobbyStateMessage({
+    const baseLobbyStateMessage = this.lobbyService.getLobbyStateMessage({
       phase: this.matchPhase,
       mapId: this.state.mapId,
       mapRevision: this.mapRevision,
       isGeneratingMap: this.isGeneratingMap,
     });
+
+    if (!this.activeMapBundle) {
+      return baseLobbyStateMessage;
+    }
+
+    return {
+      ...baseLobbyStateMessage,
+      cityAnchors: {
+        RED: { ...this.activeMapBundle.cityAnchors.RED },
+        BLUE: { ...this.activeMapBundle.cityAnchors.BLUE },
+      },
+      neutralCityAnchors: this.activeMapBundle.neutralCityAnchors.map((cell) => ({
+        ...cell,
+      })),
+    };
   }
 
   private broadcastLobbyState(): void {

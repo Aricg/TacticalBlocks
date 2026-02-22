@@ -171,6 +171,11 @@ export type NetworkLobbyPlayer = {
   ready: boolean;
 };
 
+export type NetworkGridCoordinate = {
+  col: number;
+  row: number;
+};
+
 export type NetworkLobbyStateUpdate = {
   phase: NetworkMatchPhase;
   players: NetworkLobbyPlayer[];
@@ -179,6 +184,11 @@ export type NetworkLobbyStateUpdate = {
   mapRevision: number;
   isGeneratingMap: boolean;
   selfSessionId: string;
+  cityAnchors: {
+    RED: NetworkGridCoordinate;
+    BLUE: NetworkGridCoordinate;
+  } | null;
+  neutralCityAnchors: NetworkGridCoordinate[] | null;
 };
 
 export type NetworkBattleEndedUpdate = BattleEndedMessage;
@@ -692,6 +702,45 @@ export class NetworkManager {
       })
       .filter((player): player is NetworkLobbyPlayer => player !== null);
 
+    const parseGridCoordinate = (
+      value: unknown,
+    ): NetworkGridCoordinate | null => {
+      if (typeof value !== 'object' || value === null) {
+        return null;
+      }
+      const candidate = value as { col?: unknown; row?: unknown };
+      if (
+        typeof candidate.col !== 'number' ||
+        !Number.isFinite(candidate.col) ||
+        typeof candidate.row !== 'number' ||
+        !Number.isFinite(candidate.row)
+      ) {
+        return null;
+      }
+      return {
+        col: Math.round(candidate.col),
+        row: Math.round(candidate.row),
+      };
+    };
+
+    const parsedRedCityAnchor = parseGridCoordinate(message?.cityAnchors?.RED);
+    const parsedBlueCityAnchor = parseGridCoordinate(message?.cityAnchors?.BLUE);
+    const cityAnchors =
+      parsedRedCityAnchor && parsedBlueCityAnchor
+        ? {
+            RED: parsedRedCityAnchor,
+            BLUE: parsedBlueCityAnchor,
+          }
+        : null;
+
+    const neutralCityAnchors = Array.isArray(message?.neutralCityAnchors)
+      ? message.neutralCityAnchors
+          .map((anchor) => parseGridCoordinate(anchor))
+          .filter(
+            (anchor): anchor is NetworkGridCoordinate => anchor !== null,
+          )
+      : null;
+
     return {
       phase,
       players: normalizedPlayers,
@@ -708,6 +757,8 @@ export class NetworkManager {
           : 0,
       isGeneratingMap: message?.isGeneratingMap === true,
       selfSessionId,
+      cityAnchors,
+      neutralCityAnchors,
     };
   }
 

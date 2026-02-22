@@ -213,6 +213,7 @@ class BattleScene extends Phaser.Scene {
     [Team.RED]: null,
     [Team.BLUE]: null,
   };
+  private cityGridCoordinatesByTeam: Record<Team, GridCoordinate> | null = null;
   private neutralCityGridCoordinates: GridCoordinate[] = [];
   private readonly neutralCities: City[] = [];
   private cityOwnerByHomeTeam: Record<Team, Team> = {
@@ -738,7 +739,13 @@ class BattleScene extends Phaser.Scene {
           this.applyMapIdToRuntimeTerrain(mapId);
         },
         resetNeutralCities: () => {
-          this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+          if (!this.cityGridCoordinatesByTeam) {
+            this.neutralCityGridCoordinates = getNeutralCityGridCoordinates();
+          } else {
+            this.neutralCityGridCoordinates = this.neutralCityGridCoordinates.map(
+              (anchor) => ({ ...anchor }),
+            );
+          }
           this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
         },
         rebuildCitiesForCurrentMap: () => {
@@ -869,6 +876,17 @@ class BattleScene extends Phaser.Scene {
   }
 
   private applyLobbyState(lobbyStateUpdate: NetworkLobbyStateUpdate): void {
+    this.cityGridCoordinatesByTeam = lobbyStateUpdate.cityAnchors
+      ? {
+          [Team.RED]: { ...lobbyStateUpdate.cityAnchors.RED },
+          [Team.BLUE]: { ...lobbyStateUpdate.cityAnchors.BLUE },
+        }
+      : null;
+    this.neutralCityGridCoordinates = Array.isArray(lobbyStateUpdate.neutralCityAnchors)
+      ? lobbyStateUpdate.neutralCityAnchors.map((anchor) => ({ ...anchor }))
+      : getNeutralCityGridCoordinates();
+    this.neutralCityOwners = this.neutralCityGridCoordinates.map(() => 'NEUTRAL');
+
     const previousPhase = this.matchPhase;
     applyLobbyStateFlow({
       lobbyStateUpdate,
@@ -1868,6 +1886,10 @@ class BattleScene extends Phaser.Scene {
   }
 
   private getCityWorldPosition(team: Team): Phaser.Math.Vector2 {
+    const overrideCell = this.cityGridCoordinatesByTeam?.[team];
+    if (overrideCell) {
+      return gridToWorldCenter(overrideCell, BattleScene.UNIT_COMMAND_GRID_METRICS);
+    }
     return gridToWorldCenter(
       getTeamCityGridCoordinate(team),
       BattleScene.UNIT_COMMAND_GRID_METRICS,

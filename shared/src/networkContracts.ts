@@ -82,6 +82,11 @@ export type LobbyPlayerSnapshot = {
   ready: boolean;
 };
 
+export type GridCoordinate = {
+  col: number;
+  row: number;
+};
+
 export type LobbyStateMessage = {
   phase: MatchPhase;
   players: LobbyPlayerSnapshot[];
@@ -89,6 +94,8 @@ export type LobbyStateMessage = {
   availableMapIds: string[];
   mapRevision: number;
   isGeneratingMap: boolean;
+  cityAnchors?: Record<PlayerTeam, GridCoordinate>;
+  neutralCityAnchors?: GridCoordinate[];
 };
 
 export type BattleEndedMessage = {
