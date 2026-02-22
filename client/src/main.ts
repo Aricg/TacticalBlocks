@@ -19,7 +19,6 @@ import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
-  isGridCellImpassable,
 } from '../../shared/src/terrainGrid.js';
 import { getGridCellPaletteElevationByte } from '../../shared/src/terrainPaletteElevation.js';
 import {
@@ -253,6 +252,7 @@ class BattleScene extends Phaser.Scene {
   private latestInfluenceGrid: NetworkInfluenceGridUpdate | null = null;
   private mapSamplingWidth = 0;
   private mapSamplingHeight = 0;
+  private readonly impassableCellIndexSet: Set<number> = new Set<number>();
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
@@ -336,6 +336,7 @@ class BattleScene extends Phaser.Scene {
       .setDisplaySize(BattleScene.MAP_WIDTH, BattleScene.MAP_HEIGHT)
       .setDepth(-1000);
     this.initializeMapTerrainSampling();
+    this.rebuildImpassableCellIndexSetFromMapTexture();
     this.input.mouse?.disableContextMenu();
     this.shiftKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
@@ -632,6 +633,8 @@ class BattleScene extends Phaser.Scene {
       }
       this.mapBackground.setTexture(textureKey);
       this.initializeMapTerrainSampling();
+      this.rebuildImpassableCellIndexSetFromMapTexture();
+      this.drawImpassableOverlay();
       this.refreshFogOfWar();
     });
     this.load.image(textureKey, cacheBustedPath);
@@ -686,9 +689,12 @@ class BattleScene extends Phaser.Scene {
           if (this.mapBackground) {
             this.mapBackground.setTexture(this.mapTextureKey);
           }
+          this.initializeMapTerrainSampling();
+          this.rebuildImpassableCellIndexSetFromMapTexture();
         },
         initializeMapTerrainSampling: () => {
           this.initializeMapTerrainSampling();
+          this.rebuildImpassableCellIndexSetFromMapTexture();
         },
         refreshFogOfWar: () => {
           this.refreshFogOfWar();
@@ -1448,6 +1454,42 @@ class BattleScene extends Phaser.Scene {
     this.selectionBox.clear();
   }
 
+  private getGridCellIndex(col: number, row: number): number {
+    return row * BattleScene.GRID_WIDTH + col;
+  }
+
+  private isGridCellImpassable(col: number, row: number): boolean {
+    if (
+      col < 0 ||
+      row < 0 ||
+      col >= BattleScene.GRID_WIDTH ||
+      row >= BattleScene.GRID_HEIGHT
+    ) {
+      return true;
+    }
+
+    return this.impassableCellIndexSet.has(this.getGridCellIndex(col, row));
+  }
+
+  private rebuildImpassableCellIndexSetFromMapTexture(): void {
+    this.impassableCellIndexSet.clear();
+
+    for (let row = 0; row < BattleScene.GRID_HEIGHT; row += 1) {
+      for (let col = 0; col < BattleScene.GRID_WIDTH; col += 1) {
+        const worldCenter = gridToWorldCenter(
+          { col, row },
+          BattleScene.UNIT_COMMAND_GRID_METRICS,
+        );
+        const color = this.sampleMapColorAt(worldCenter.x, worldCenter.y);
+        if (this.resolveTerrainType(color) !== 'mountains') {
+          continue;
+        }
+
+        this.impassableCellIndexSet.add(this.getGridCellIndex(col, row));
+      }
+    }
+  }
+
   private drawImpassableOverlay(): void {
     this.impassableOverlay.clear();
     if (!BattleScene.SHOW_IMPASSABLE_OVERLAY) {
@@ -1466,7 +1508,7 @@ class BattleScene extends Phaser.Scene {
 
     for (let row = 0; row < BattleScene.GRID_HEIGHT; row += 1) {
       for (let col = 0; col < BattleScene.GRID_WIDTH; col += 1) {
-        if (!isGridCellImpassable(col, row)) {
+        if (!this.isGridCellImpassable(col, row)) {
           continue;
         }
 
@@ -1552,7 +1594,7 @@ class BattleScene extends Phaser.Scene {
       const clippedTargetCells = clipPathTargetsByTerrain({
         start: unitCell,
         targets: [sharedTargetCell],
-        isGridCellImpassable,
+        isGridCellImpassable: (col, row) => this.isGridCellImpassable(col, row),
       });
       if (clippedTargetCells.length === 0) {
         this.plannedPathsByUnitId.delete(unitId);
@@ -1617,7 +1659,7 @@ class BattleScene extends Phaser.Scene {
       const clippedTargetCells = clipPathTargetsByTerrain({
         start: unitCell,
         targets: targetCells,
-        isGridCellImpassable,
+        isGridCellImpassable: (col, row) => this.isGridCellImpassable(col, row),
       });
       if (clippedTargetCells.length === 0) {
         this.plannedPathsByUnitId.delete(unitId);
