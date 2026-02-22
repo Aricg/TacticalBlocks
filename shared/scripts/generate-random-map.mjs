@@ -23,6 +23,7 @@ const DEFAULT_OUTPUT_HEIGHT = 1080;
 const DEFAULT_WATER_BIAS = 0.05;
 const DEFAULT_MOUNTAIN_BIAS = 0.03;
 const DEFAULT_FOREST_BIAS = 0.0;
+const DEFAULT_RIVER_COUNT = 2;
 const DEFAULT_METHOD = 'wfc';
 const DEFAULT_WATER_MODE = 'auto';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -61,6 +62,7 @@ function printUsage() {
   console.log(`  --width <pixels>       Default: ${DEFAULT_OUTPUT_WIDTH}`);
   console.log(`  --height <pixels>      Default: ${DEFAULT_OUTPUT_HEIGHT}`);
   console.log(`  --water-bias <value>   Default: ${DEFAULT_WATER_BIAS}`);
+  console.log(`  --river-count <n>      Default: ${DEFAULT_RIVER_COUNT}`);
   console.log(`  --mountain-bias <value> Default: ${DEFAULT_MOUNTAIN_BIAS}`);
   console.log(`  --forest-bias <value>  Default: ${DEFAULT_FOREST_BIAS}`);
   console.log(`  --method <name>        noise | wfc | auto (default: ${DEFAULT_METHOD})`);
@@ -81,6 +83,7 @@ function parseArgs(argv) {
     width: DEFAULT_OUTPUT_WIDTH,
     height: DEFAULT_OUTPUT_HEIGHT,
     waterBias: DEFAULT_WATER_BIAS,
+    riverCount: DEFAULT_RIVER_COUNT,
     mountainBias: DEFAULT_MOUNTAIN_BIAS,
     forestBias: DEFAULT_FOREST_BIAS,
     method: DEFAULT_METHOD,
@@ -118,6 +121,10 @@ function parseArgs(argv) {
         break;
       case '--water-bias':
         options.waterBias = Number.parseFloat(argv[i + 1] ?? '');
+        i += 1;
+        break;
+      case '--river-count':
+        options.riverCount = Number.parseInt(argv[i + 1] ?? '', 10);
         i += 1;
         break;
       case '--mountain-bias':
@@ -160,6 +167,13 @@ function parseArgs(argv) {
 function assertInteger(name, value, min) {
   if (!Number.isInteger(value) || value < min) {
     console.error(`Invalid ${name}: ${value}`);
+    process.exit(1);
+  }
+}
+
+function assertIntegerInRange(name, value, min, max) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    console.error(`Invalid ${name}: ${value}. Expected ${min}..${max}.`);
     process.exit(1);
   }
 }
@@ -383,15 +397,25 @@ function colorIntToRgb(color) {
 function buildNoiseTerrainGrid(config, rng) {
   const width = config.gridWidth;
   const height = config.gridHeight;
+  const waterMode = config.waterMode ?? 'river';
+  const riverCount =
+    waterMode === 'river'
+      ? clamp(Math.round(config.riverCount ?? DEFAULT_RIVER_COUNT), 0, 8)
+      : 0;
   const heightNoise = blurNoise(createNoise(width, height, rng), width, height, 4);
   const moistureNoise = blurNoise(createNoise(width, height, rng), width, height, 3);
   const roughnessNoise = blurNoise(createNoise(width, height, rng), width, height, 2);
   const terrain = new Array(width * height).fill('grass');
   const elevationGrid = new Float32Array(width * height);
-
-  const riverPhase = rng() * Math.PI * 2;
-  const riverAmplitude = 0.18 + rng() * 0.12;
-  const riverWidth = 0.03 + rng() * 0.03;
+  const riverPatterns = [];
+  for (let riverIndex = 0; riverIndex < riverCount; riverIndex += 1) {
+    riverPatterns.push({
+      phase: rng() * Math.PI * 2,
+      amplitude: 0.10 + rng() * 0.16,
+      width: 0.018 + rng() * 0.024,
+      carveChance: Math.max(0.24, 0.66 - riverIndex * 0.08),
+    });
+  }
 
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
@@ -406,11 +430,21 @@ function buildNoiseTerrainGrid(config, rng) {
       elevationGrid[index] = clamp(elevation, 0, 1);
       const moisture = moistureNoise[index];
 
-      const riverCenterX =
-        (0.5 + Math.sin((row / Math.max(1, height - 1)) * Math.PI * 2 + riverPhase) * riverAmplitude) *
-        width;
-      const riverDistance = Math.abs(col - riverCenterX) / width;
-      const riverCarves = riverDistance < riverWidth && rng() < 0.68;
+      let riverCarves = false;
+      for (const riverPattern of riverPatterns) {
+        const riverCenterX =
+          (0.5 +
+            Math.sin(
+              (row / Math.max(1, height - 1)) * Math.PI * 2 + riverPattern.phase,
+            ) *
+              riverPattern.amplitude) *
+          width;
+        const riverDistance = Math.abs(col - riverCenterX) / width;
+        if (riverDistance < riverPattern.width && rng() < riverPattern.carveChance) {
+          riverCarves = true;
+          break;
+        }
+      }
 
       const waterThreshold =
         0.35 - edgeDistance * 0.18 + config.waterBias;
@@ -850,51 +884,70 @@ function createMeanderingPathToTarget(start, target, width, height, rng) {
   return path;
 }
 
-function createRiverWaterPlan(width, height, rng) {
+function createRiverWaterPlan(width, height, rng, requestedRiverCount = DEFAULT_RIVER_COUNT) {
   const waterIndexes = new Set();
-  const mainRiver = createMainRiverPath(width, height, rng);
-  stampWaterPath(mainRiver.cells, width, height, waterIndexes, rng, {
-    baseRadius: rng() < 0.74 ? 0 : 1,
-    widenChance: 0.22,
-  });
-
-  const tributaryCount = randomIntInclusive(rng, 0, 3);
-  for (let i = 0; i < tributaryCount; i += 1) {
-    const branchIndex = randomIntInclusive(
-      rng,
-      Math.max(1, Math.floor(mainRiver.cells.length * 0.20)),
-      Math.max(1, Math.floor(mainRiver.cells.length * 0.80)),
-    );
-    const branchCell = mainRiver.cells[branchIndex] ?? mainRiver.cells[Math.floor(mainRiver.cells.length / 2)];
-    let start;
-    if (mainRiver.horizontal) {
-      const fromTop = rng() < 0.5;
-      const colOffsetRange = Math.max(4, Math.floor(width * 0.24));
-      start = {
-        col: clamp(
-          branchCell.col + randomIntInclusive(rng, -colOffsetRange, colOffsetRange),
-          0,
-          width - 1,
-        ),
-        row: fromTop ? 0 : height - 1,
-      };
-    } else {
-      const fromLeft = rng() < 0.5;
-      const rowOffsetRange = Math.max(3, Math.floor(height * 0.24));
-      start = {
-        col: fromLeft ? 0 : width - 1,
-        row: clamp(
-          branchCell.row + randomIntInclusive(rng, -rowOffsetRange, rowOffsetRange),
-          0,
-          height - 1,
-        ),
-      };
-    }
-    const tributaryPath = createMeanderingPathToTarget(start, branchCell, width, height, rng);
-    stampWaterPath(tributaryPath, width, height, waterIndexes, rng, {
-      baseRadius: 0,
-      widenChance: 0.12,
+  const riverCount = clamp(Math.round(requestedRiverCount), 0, 8);
+  let tributaryCount = 0;
+  for (let riverIndex = 0; riverIndex < riverCount; riverIndex += 1) {
+    const mainRiver = createMainRiverPath(width, height, rng);
+    stampWaterPath(mainRiver.cells, width, height, waterIndexes, rng, {
+      baseRadius: rng() < 0.72 ? 0 : 1,
+      widenChance: Math.max(0.12, 0.24 - riverIndex * 0.02),
     });
+
+    const tributariesForRiver = randomIntInclusive(
+      rng,
+      0,
+      Math.max(1, 3 - Math.floor(riverIndex / 2)),
+    );
+    tributaryCount += tributariesForRiver;
+    for (let i = 0; i < tributariesForRiver; i += 1) {
+      const branchIndex = randomIntInclusive(
+        rng,
+        Math.max(1, Math.floor(mainRiver.cells.length * 0.20)),
+        Math.max(1, Math.floor(mainRiver.cells.length * 0.80)),
+      );
+      const branchCell =
+        mainRiver.cells[branchIndex] ??
+        mainRiver.cells[Math.floor(mainRiver.cells.length / 2)];
+      let start;
+      if (mainRiver.horizontal) {
+        const fromTop = rng() < 0.5;
+        const colOffsetRange = Math.max(4, Math.floor(width * 0.24));
+        start = {
+          col: clamp(
+            branchCell.col +
+              randomIntInclusive(rng, -colOffsetRange, colOffsetRange),
+            0,
+            width - 1,
+          ),
+          row: fromTop ? 0 : height - 1,
+        };
+      } else {
+        const fromLeft = rng() < 0.5;
+        const rowOffsetRange = Math.max(3, Math.floor(height * 0.24));
+        start = {
+          col: fromLeft ? 0 : width - 1,
+          row: clamp(
+            branchCell.row +
+              randomIntInclusive(rng, -rowOffsetRange, rowOffsetRange),
+            0,
+            height - 1,
+          ),
+        };
+      }
+      const tributaryPath = createMeanderingPathToTarget(
+        start,
+        branchCell,
+        width,
+        height,
+        rng,
+      );
+      stampWaterPath(tributaryPath, width, height, waterIndexes, rng, {
+        baseRadius: 0,
+        widenChance: 0.12,
+      });
+    }
   }
 
   const seedCells = Array.from(waterIndexes, (index) => indexToCell(index, width));
@@ -1527,7 +1580,12 @@ function buildWfcTerrainGrid(config, rng) {
         forcedWaterIndexes.add(index);
       }
     } else {
-      const riverPlan = createRiverWaterPlan(width, height, rng);
+      const riverPlan = createRiverWaterPlan(
+        width,
+        height,
+        rng,
+        config.riverCount ?? DEFAULT_RIVER_COUNT,
+      );
       waterSeeds = riverPlan.seedCells;
       for (const index of riverPlan.waterIndexes) {
         forcedWaterIndexes.add(index);
@@ -2099,6 +2157,7 @@ assertInteger('grid width', options.gridWidth, 8);
 assertInteger('grid height', options.gridHeight, 8);
 assertInteger('output width', options.width, 64);
 assertInteger('output height', options.height, 64);
+assertIntegerInRange('river count', options.riverCount, 0, 8);
 assertFinite('water bias', options.waterBias, -0.25, 0.25);
 assertFinite('mountain bias', options.mountainBias, -0.25, 0.25);
 assertFinite('forest bias', options.forestBias, -0.25, 0.25);
@@ -2135,6 +2194,7 @@ const generationConfig = {
   gridWidth: options.gridWidth,
   gridHeight: options.gridHeight,
   waterBias: options.waterBias,
+  riverCount: options.riverCount,
   mountainBias: options.mountainBias,
   forestBias: options.forestBias,
   waterMode: resolvedWaterMode,
@@ -2186,6 +2246,7 @@ const elevationSidecar = {
   mapId,
   method: generationMethod,
   waterMode: resolvedWaterMode,
+  riverCount: options.riverCount,
   gridWidth: options.gridWidth,
   gridHeight: options.gridHeight,
   elevation: Array.from(elevationBytes),

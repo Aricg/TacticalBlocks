@@ -1110,6 +1110,7 @@ export class BattleRoom extends Room<BattleState> {
         method: profile.method,
         seed: profile.seed,
         waterMode: profile.terrain.waterMode,
+        riverCount: profile.terrain.riverCount,
         mountainBias: profile.terrain.mountainDensity,
         forestBias: profile.terrain.forestDensity,
         contextLabel: "lobby",

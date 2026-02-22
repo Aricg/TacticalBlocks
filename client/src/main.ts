@@ -238,6 +238,7 @@ class BattleScene extends Phaser.Scene {
   private selectedGenerationMethod: MapGenerationMethod = 'wfc';
   private selectedWaterMode: GenerationWaterMode =
     DEFAULT_GENERATION_PROFILE.terrain.waterMode;
+  private selectedRiverCount = DEFAULT_GENERATION_PROFILE.terrain.riverCount;
   private selectedMountainDensity = DEFAULT_GENERATION_PROFILE.terrain.mountainDensity;
   private selectedForestDensity = DEFAULT_GENERATION_PROFILE.terrain.forestDensity;
   private selectedLayoutStrategy: StartingForceLayoutStrategy =
@@ -280,6 +281,7 @@ class BattleScene extends Phaser.Scene {
   ];
   private static readonly MOUNTAIN_DENSITY_PRESETS = [0, 0.01, 0.03, 0.05, 0.08, 0.12];
   private static readonly FOREST_DENSITY_PRESETS = [0, 0.04, 0.08, 0.12, 0.18, 0.24];
+  private static readonly RIVER_COUNT_PRESETS = [0, 1, 2, 3, 4];
   private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly ENEMY_VISIBILITY_PADDING =
@@ -870,6 +872,7 @@ class BattleScene extends Phaser.Scene {
       {
         terrain: {
           waterMode: this.selectedWaterMode,
+          riverCount: this.selectedRiverCount,
           mountainDensity: this.selectedMountainDensity,
           forestDensity: this.selectedForestDensity,
         },
@@ -926,6 +929,17 @@ class BattleScene extends Phaser.Scene {
     this.refreshLobbyOverlay();
   }
 
+  private cycleRiverCount(step: number): void {
+    const presets = BattleScene.RIVER_COUNT_PRESETS;
+    const currentIndex = presets.indexOf(this.selectedRiverCount);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const presetCount = presets.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
+    this.selectedRiverCount = presets[nextIndex] ?? presets[0];
+    this.refreshLobbyOverlay();
+  }
+
   private cycleForestDensity(step: number): void {
     const presets = BattleScene.FOREST_DENSITY_PRESETS;
     const currentIndex = presets.indexOf(this.selectedForestDensity);
@@ -945,6 +959,7 @@ class BattleScene extends Phaser.Scene {
         onRandomMap: () => this.requestRandomLobbyMap(),
         onCycleGenerationMethod: (step: number) => this.cycleGenerationMethod(step),
         onCycleWaterMode: (step: number) => this.cycleWaterMode(step),
+        onCycleRiverCount: (step: number) => this.cycleRiverCount(step),
         onCycleMountainDensity: (step: number) => this.cycleMountainDensity(step),
         onCycleForestDensity: (step: number) => this.cycleForestDensity(step),
         onCycleLayoutStrategy: (step: number) => this.cycleLayoutStrategy(step),
@@ -1046,6 +1061,7 @@ class BattleScene extends Phaser.Scene {
       availableMapIds: this.availableMapIds,
       selectedGenerationMethod: this.selectedGenerationMethod,
       selectedWaterMode: this.selectedWaterMode,
+      selectedRiverCount: this.selectedRiverCount,
       selectedMountainDensity: this.selectedMountainDensity,
       selectedForestDensity: this.selectedForestDensity,
       selectedLayoutStrategy: this.selectedLayoutStrategy,

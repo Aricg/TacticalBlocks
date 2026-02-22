@@ -22,6 +22,7 @@ export type LobbyOverlayViewModel = {
   availableMapIds: string[];
   selectedGenerationMethod: MapGenerationMethod;
   selectedWaterMode: GenerationWaterMode;
+  selectedRiverCount: number;
   selectedMountainDensity: number;
   selectedForestDensity: number;
   selectedLayoutStrategy: StartingForceLayoutStrategy;
@@ -35,6 +36,7 @@ type LobbyOverlayCallbacks = {
   onRandomMap: () => void;
   onCycleGenerationMethod: (step: number) => void;
   onCycleWaterMode: (step: number) => void;
+  onCycleRiverCount: (step: number) => void;
   onCycleMountainDensity: (step: number) => void;
   onCycleForestDensity: (step: number) => void;
   onCycleLayoutStrategy: (step: number) => void;
@@ -58,6 +60,7 @@ export class LobbyOverlayController {
   private readonly mapText: Phaser.GameObjects.Text;
   private readonly generationMethodText: Phaser.GameObjects.Text;
   private readonly waterModeText: Phaser.GameObjects.Text;
+  private readonly riverCountText: Phaser.GameObjects.Text;
   private readonly mountainDensityText: Phaser.GameObjects.Text;
   private readonly forestDensityText: Phaser.GameObjects.Text;
   private readonly layoutStrategyText: Phaser.GameObjects.Text;
@@ -77,7 +80,7 @@ export class LobbyOverlayController {
     this.panel.setDepth(config.depth);
     this.panel.setScrollFactor(0);
 
-    const panelBackground = scene.add.rectangle(0, 0, 680, 470, 0x121212, 0.9);
+    const panelBackground = scene.add.rectangle(0, 0, 680, 560, 0x121212, 0.9);
     panelBackground.setStrokeStyle(2, 0xffffff, 0.35);
 
     const titleText = scene.add.text(0, -145, 'Battle Lobby', {
@@ -151,7 +154,23 @@ export class LobbyOverlayController {
       this.callbacks.onCycleWaterMode(step);
     });
 
-    this.mountainDensityText = scene.add.text(0, 129, '', {
+    this.riverCountText = scene.add.text(0, 129, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#9ac2dd',
+      align: 'center',
+    });
+    this.riverCountText.setOrigin(0.5, 0.5);
+    this.riverCountText.setInteractive({ useHandCursor: true });
+    this.riverCountText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleRiverCount(step);
+    });
+
+    this.mountainDensityText = scene.add.text(0, 157, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ded0b2',
@@ -167,7 +186,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleMountainDensity(step);
     });
 
-    this.forestDensityText = scene.add.text(0, 157, '', {
+    this.forestDensityText = scene.add.text(0, 185, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#b8dfb7',
@@ -183,7 +202,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleForestDensity(step);
     });
 
-    this.layoutStrategyText = scene.add.text(0, 185, '', {
+    this.layoutStrategyText = scene.add.text(0, 213, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffd8b0',
@@ -199,7 +218,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleLayoutStrategy(step);
     });
 
-    this.actionText = scene.add.text(0, 213, '', {
+    this.actionText = scene.add.text(0, 241, '', {
       fontFamily: 'monospace',
       fontSize: '17px',
       color: '#f4e7b2',
@@ -208,14 +227,14 @@ export class LobbyOverlayController {
     });
     this.actionText.setOrigin(0.5, 0.5);
 
-    this.randomMapButtonBg = scene.add.rectangle(-220, 220, 180, 46, 0x47627a, 1);
+    this.randomMapButtonBg = scene.add.rectangle(-220, 248, 180, 46, 0x47627a, 1);
     this.randomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
     this.randomMapButtonBg.setInteractive({ useHandCursor: true });
     this.randomMapButtonBg.on('pointerdown', () => {
       this.callbacks.onRandomMap();
     });
 
-    this.randomMapButtonText = scene.add.text(-220, 220, 'RANDOM MAP', {
+    this.randomMapButtonText = scene.add.text(-220, 248, 'RANDOM MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -226,14 +245,14 @@ export class LobbyOverlayController {
       this.callbacks.onRandomMap();
     });
 
-    this.generateMapButtonBg = scene.add.rectangle(0, 220, 180, 46, 0x66573a, 1);
+    this.generateMapButtonBg = scene.add.rectangle(0, 248, 180, 46, 0x66573a, 1);
     this.generateMapButtonBg.setStrokeStyle(2, 0xffe7bd, 0.45);
     this.generateMapButtonBg.setInteractive({ useHandCursor: true });
     this.generateMapButtonBg.on('pointerdown', () => {
       this.callbacks.onGenerateMap();
     });
 
-    this.generateMapButtonText = scene.add.text(0, 220, 'GENERATE MAP', {
+    this.generateMapButtonText = scene.add.text(0, 248, 'GENERATE MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -244,14 +263,14 @@ export class LobbyOverlayController {
       this.callbacks.onGenerateMap();
     });
 
-    this.readyButtonBg = scene.add.rectangle(220, 220, 180, 46, 0x2f8f46, 1);
+    this.readyButtonBg = scene.add.rectangle(220, 248, 180, 46, 0x2f8f46, 1);
     this.readyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
     this.readyButtonBg.setInteractive({ useHandCursor: true });
     this.readyButtonBg.on('pointerdown', () => {
       this.callbacks.onToggleReady();
     });
 
-    this.readyButtonText = scene.add.text(220, 220, 'READY', {
+    this.readyButtonText = scene.add.text(220, 248, 'READY', {
       fontFamily: 'monospace',
       fontSize: '21px',
       color: '#ffffff',
@@ -270,6 +289,7 @@ export class LobbyOverlayController {
       this.mapText,
       this.generationMethodText,
       this.waterModeText,
+      this.riverCountText,
       this.mountainDensityText,
       this.forestDensityText,
       this.layoutStrategyText,
@@ -300,6 +320,8 @@ export class LobbyOverlayController {
       this.generationMethodText.disableInteractive();
       this.waterModeText.setVisible(false);
       this.waterModeText.disableInteractive();
+      this.riverCountText.setVisible(false);
+      this.riverCountText.disableInteractive();
       this.mountainDensityText.setVisible(false);
       this.mountainDensityText.disableInteractive();
       this.forestDensityText.setVisible(false);
@@ -341,6 +363,11 @@ export class LobbyOverlayController {
     this.waterModeText.setInteractive({ useHandCursor: true });
     this.waterModeText.setText(
       `Water: ${view.selectedWaterMode.toUpperCase()}  (click to cycle)`,
+    );
+    this.riverCountText.setVisible(true);
+    this.riverCountText.setInteractive({ useHandCursor: true });
+    this.riverCountText.setText(
+      `Rivers: ${view.selectedRiverCount}  (click to cycle)`,
     );
     this.mountainDensityText.setVisible(true);
     this.mountainDensityText.setInteractive({ useHandCursor: true });
