@@ -39,6 +39,13 @@ const TERRAIN_SWATCHES = {
 };
 const CITY_MARKER_COLOR = 0xefb72f;
 const TERRAIN_TYPES = ['water', 'grass', 'forest', 'hills', 'mountains'];
+const TERRAIN_CODE_BY_TYPE = {
+  water: 'w',
+  grass: 'g',
+  forest: 'f',
+  hills: 'h',
+  mountains: 'm',
+};
 
 function printUsage() {
   console.log('Usage: node ./scripts/generate-random-map.mjs [options]');
@@ -2057,6 +2064,13 @@ writeFileSync(
     gridWidth: options.gridWidth,
     gridHeight: options.gridHeight,
     elevation: Array.from(elevationBytes),
+    terrainCodeGrid: terrain
+      .map((row) =>
+        row
+          .map((terrainType) => TERRAIN_CODE_BY_TYPE[terrainType] ?? 'u')
+          .join(''),
+      )
+      .join(''),
   })}\n`,
   'utf8',
 );

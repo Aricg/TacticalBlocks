@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, Room } from "colyseus";
@@ -117,6 +117,7 @@ export class BattleRoom extends Room<BattleState> {
     RED: 1,
   };
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
+  private runtimeBlockedSpawnCellIndexSet: Set<number> | null = null;
 
   private static readonly UNIT_TURN_SPEED =
     GAMEPLAY_CONFIG.movement.unitTurnSpeedRadians;
@@ -170,12 +171,15 @@ export class BattleRoom extends Room<BattleState> {
       ? GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds * 1000
       : 3000;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
+  private static readonly RUNTIME_WATER_ELEVATION_MAX = 28;
+  private static readonly RUNTIME_MOUNTAIN_ELEVATION_MIN = 218;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
     this.state.mapId = this.lobbyService.getValidatedMapId(this.state.mapId);
     this.applyMapIdToRuntimeTerrain(this.state.mapId);
+    this.rebuildRuntimeBlockedSpawnCellIndexSet(this.state.mapId);
     this.refreshNeutralCityCells();
     this.initializeNeutralCityOwnership();
     this.resetCityUnitGenerationState();
@@ -485,6 +489,104 @@ export class BattleRoom extends Room<BattleState> {
     return value;
   }
 
+  private getGridCellIndex(col: number, row: number): number {
+    return row * BattleRoom.GRID_WIDTH + col;
+  }
+
+  private isBlockedSpawnCell(cell: GridCoordinate): boolean {
+    if (
+      cell.col < 0 ||
+      cell.row < 0 ||
+      cell.col >= BattleRoom.GRID_WIDTH ||
+      cell.row >= BattleRoom.GRID_HEIGHT
+    ) {
+      return true;
+    }
+
+    if (this.runtimeBlockedSpawnCellIndexSet) {
+      return this.runtimeBlockedSpawnCellIndexSet.has(
+        this.getGridCellIndex(cell.col, cell.row),
+      );
+    }
+
+    const terrainType = this.getTerrainTypeAtCell(cell);
+    return terrainType === "mountains" || terrainType === "water";
+  }
+
+  private rebuildRuntimeBlockedSpawnCellIndexSet(mapId: string): void {
+    this.runtimeBlockedSpawnCellIndexSet = null;
+    const sharedDir = this.resolveSharedDirectory();
+    if (!sharedDir) {
+      return;
+    }
+
+    const elevationGridPath = path.join(sharedDir, `${mapId}.elevation-grid.json`);
+    if (!existsSync(elevationGridPath)) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(readFileSync(elevationGridPath, "utf8")) as {
+        gridWidth?: unknown;
+        gridHeight?: unknown;
+        elevation?: unknown;
+        terrainCodeGrid?: unknown;
+      };
+      const fileGridWidth =
+        typeof parsed.gridWidth === "number" ? parsed.gridWidth : NaN;
+      const fileGridHeight =
+        typeof parsed.gridHeight === "number" ? parsed.gridHeight : NaN;
+      if (
+        !Number.isFinite(fileGridWidth) ||
+        !Number.isFinite(fileGridHeight) ||
+        fileGridWidth !== BattleRoom.GRID_WIDTH ||
+        fileGridHeight !== BattleRoom.GRID_HEIGHT
+      ) {
+        return;
+      }
+
+      const expectedLength = BattleRoom.GRID_WIDTH * BattleRoom.GRID_HEIGHT;
+      const blocked = new Set<number>();
+      const terrainCodeGrid =
+        typeof parsed.terrainCodeGrid === "string"
+          ? parsed.terrainCodeGrid
+          : "";
+      if (terrainCodeGrid.length === expectedLength) {
+        for (let index = 0; index < terrainCodeGrid.length; index += 1) {
+          const terrainCode = terrainCodeGrid.charAt(index);
+          if (terrainCode === "m" || terrainCode === "w") {
+            blocked.add(index);
+          }
+        }
+        this.runtimeBlockedSpawnCellIndexSet = blocked;
+        return;
+      }
+
+      if (!Array.isArray(parsed.elevation) || parsed.elevation.length !== expectedLength) {
+        return;
+      }
+
+      for (let index = 0; index < parsed.elevation.length; index += 1) {
+        const elevationValue = parsed.elevation[index];
+        if (typeof elevationValue !== "number" || !Number.isFinite(elevationValue)) {
+          continue;
+        }
+
+        const byte = Math.round(elevationValue);
+        if (
+          byte <= BattleRoom.RUNTIME_WATER_ELEVATION_MAX ||
+          byte >= BattleRoom.RUNTIME_MOUNTAIN_ELEVATION_MIN
+        ) {
+          blocked.add(index);
+        }
+      }
+
+      this.runtimeBlockedSpawnCellIndexSet = blocked;
+    } catch (error) {
+      console.error(`Failed to read runtime terrain grid for map "${mapId}".`, error);
+    }
+  }
+
   private worldToGridCoordinate(x: number, y: number): GridCoordinate {
     const colBasis = x / BattleRoom.CELL_WIDTH - 0.5;
     const rowBasis = y / BattleRoom.CELL_HEIGHT - 0.5;
@@ -750,7 +852,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private isCitySpawnCellOpen(targetCell: GridCoordinate): boolean {
-    if (isTerrainBlocked(targetCell)) {
+    if (this.isBlockedSpawnCell(targetCell)) {
       return false;
     }
     return !this.isCellOccupiedByActiveUnit(targetCell);
@@ -1093,6 +1195,7 @@ export class BattleRoom extends Room<BattleState> {
     const resetReadyStates = options?.resetReadyStates ?? true;
     this.state.mapId = mapId;
     this.applyMapIdToRuntimeTerrain(mapId);
+    this.rebuildRuntimeBlockedSpawnCellIndexSet(mapId);
     this.refreshNeutralCityCells();
     this.state.redCityOwner = "RED";
     this.state.blueCityOwner = "BLUE";
@@ -1223,8 +1326,6 @@ export class BattleRoom extends Room<BattleState> {
 
     const redSpawnCandidates: Vector2[] = [];
     const blueSpawnCandidates: Vector2[] = [];
-    const isBlockedSpawnTerrain = (terrainType: TerrainType): boolean =>
-      terrainType === "mountains" || terrainType === "water";
 
     for (let i = 0; i < unitsPerSide; i += 1) {
       const acrossOffset = centeredAcrossStart + i * spacingAcross;
@@ -1232,8 +1333,7 @@ export class BattleRoom extends Room<BattleState> {
         redLineX + lateralX * acrossOffset,
         redLineY + lateralY * acrossOffset,
       );
-      const redTerrain = this.getTerrainTypeAtCell(redCell);
-      if (!isBlockedSpawnTerrain(redTerrain)) {
+      if (!this.isBlockedSpawnCell(redCell)) {
         redSpawnCandidates.push(this.gridToWorldCenter(redCell));
       }
 
@@ -1241,8 +1341,7 @@ export class BattleRoom extends Room<BattleState> {
         blueLineX + lateralX * acrossOffset,
         blueLineY + lateralY * acrossOffset,
       );
-      const blueTerrain = this.getTerrainTypeAtCell(blueCell);
-      if (!isBlockedSpawnTerrain(blueTerrain)) {
+      if (!this.isBlockedSpawnCell(blueCell)) {
         blueSpawnCandidates.push(this.gridToWorldCenter(blueCell));
       }
     }
