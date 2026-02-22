@@ -226,15 +226,17 @@ export function resolveGenerationProfile(
       errors.push("profile.cities must be an object.");
     } else {
       if (input.cities.teamCityCount !== undefined) {
-        const parsedTeamCityCount = parseIntegerInRange(
-          input.cities.teamCityCount,
-          "profile.cities.teamCityCount",
-          1,
-          4,
-          errors,
-        );
-        if (parsedTeamCityCount !== null) {
-          profile.cities.teamCityCount = parsedTeamCityCount;
+        if (
+          typeof input.cities.teamCityCount !== "number" ||
+          !Number.isInteger(input.cities.teamCityCount)
+        ) {
+          errors.push("profile.cities.teamCityCount must be an integer.");
+        } else if (input.cities.teamCityCount !== 1) {
+          errors.push(
+            "profile.cities.teamCityCount currently supports only 1.",
+          );
+        } else {
+          profile.cities.teamCityCount = 1;
         }
       }
       if (input.cities.neutralCityCount !== undefined) {
@@ -269,15 +271,17 @@ export function resolveGenerationProfile(
         }
       }
       if (input.startingForces.commanderCount !== undefined) {
-        const parsedCommanderCount = parseIntegerInRange(
-          input.startingForces.commanderCount,
-          "profile.startingForces.commanderCount",
-          1,
-          4,
-          errors,
-        );
-        if (parsedCommanderCount !== null) {
-          profile.startingForces.commanderCount = parsedCommanderCount;
+        if (
+          typeof input.startingForces.commanderCount !== "number" ||
+          !Number.isInteger(input.startingForces.commanderCount)
+        ) {
+          errors.push("profile.startingForces.commanderCount must be an integer.");
+        } else if (input.startingForces.commanderCount !== 1) {
+          errors.push(
+            "profile.startingForces.commanderCount currently supports only 1.",
+          );
+        } else {
+          profile.startingForces.commanderCount = 1;
         }
       }
       if (input.startingForces.layoutStrategy !== undefined) {
