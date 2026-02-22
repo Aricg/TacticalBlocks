@@ -90,4 +90,54 @@ export class MapRuntimeService {
       })),
     };
   }
+
+  resolveNeutralCityCells(
+    activeMapBundle: MapBundle | null,
+    fallbackNeutralCityAnchors: ReadonlyArray<{
+      col: number;
+      row: number;
+    }>,
+  ): MapBundle["neutralCityAnchors"] {
+    const sourceAnchors =
+      activeMapBundle?.neutralCityAnchors ?? fallbackNeutralCityAnchors;
+    return sourceAnchors.map((cell) => ({ ...cell }));
+  }
+
+  initializeNeutralCityOwnership(
+    neutralCityOwners: {
+      push: (owner: "NEUTRAL") => number;
+    },
+    neutralCityCount: number,
+  ): void {
+    for (let index = 0; index < neutralCityCount; index += 1) {
+      neutralCityOwners.push("NEUTRAL");
+    }
+  }
+
+  resetNeutralCityOwnership(
+    neutralCityOwners: {
+      length: number;
+      pop: () => unknown;
+      push: (owner: "NEUTRAL") => number;
+    },
+    neutralCityCount: number,
+  ): void {
+    while (neutralCityOwners.length > 0) {
+      neutralCityOwners.pop();
+    }
+    this.initializeNeutralCityOwnership(neutralCityOwners, neutralCityCount);
+  }
+
+  clearInfluenceGrid(grid: {
+    cells: {
+      length: number;
+      [index: number]: number;
+    };
+    revision: number;
+  }): void {
+    for (let index = 0; index < grid.cells.length; index += 1) {
+      grid.cells[index] = 0;
+    }
+    grid.revision += 1;
+  }
 }

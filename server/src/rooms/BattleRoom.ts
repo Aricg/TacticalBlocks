@@ -184,8 +184,14 @@ export class BattleRoom extends Room<BattleState> {
     this.ensureStartupRuntimeGeneratedMap(this.state.mapId);
     this.mapRuntimeService.applyMapIdToRuntimeTerrain(this.state.mapId);
     this.loadActiveMapBundle(this.state.mapId, this.mapRevision);
-    this.refreshNeutralCityCells();
-    this.initializeNeutralCityOwnership();
+    this.neutralCityCells = this.mapRuntimeService.resolveNeutralCityCells(
+      this.activeMapBundle,
+      getNeutralCityGridCoordinates(),
+    );
+    this.mapRuntimeService.initializeNeutralCityOwnership(
+      this.state.neutralCityOwners,
+      this.neutralCityCells.length,
+    );
     this.resetCityUnitGenerationState();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
@@ -759,12 +765,6 @@ export class BattleRoom extends Room<BattleState> {
     );
   }
 
-  private initializeNeutralCityOwnership(): void {
-    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
-      this.state.neutralCityOwners.push("NEUTRAL");
-    }
-  }
-
   private getCityWorldPosition(team: PlayerTeam): Vector2 {
     const cityCell =
       this.activeMapBundle?.cityAnchors[team] ?? getTeamCityGridCoordinate(team);
@@ -1179,16 +1179,6 @@ export class BattleRoom extends Room<BattleState> {
     }
   }
 
-  private refreshNeutralCityCells(): void {
-    if (this.activeMapBundle) {
-      this.neutralCityCells = this.activeMapBundle.neutralCityAnchors.map((cell) => ({
-        ...cell,
-      }));
-      return;
-    }
-    this.neutralCityCells = getNeutralCityGridCoordinates();
-  }
-
   private clearSupplyLineState(): void {
     for (const unitId of Array.from(this.state.supplyLines.keys())) {
       this.state.supplyLines.delete(unitId);
@@ -1206,21 +1196,6 @@ export class BattleRoom extends Room<BattleState> {
     this.movementStateByUnitId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
     this.engagedUnitIds.clear();
-  }
-
-  private clearInfluenceGrid(): void {
-    const grid = this.state.influenceGrid;
-    for (let i = 0; i < grid.cells.length; i += 1) {
-      grid.cells[i] = 0;
-    }
-    grid.revision += 1;
-  }
-
-  private resetNeutralCityOwnership(): void {
-    while (this.state.neutralCityOwners.length > 0) {
-      this.state.neutralCityOwners.pop();
-    }
-    this.initializeNeutralCityOwnership();
   }
 
   private applyLobbyMapSelection(
@@ -1252,7 +1227,10 @@ export class BattleRoom extends Room<BattleState> {
     this.neutralCityCells = switchResult.neutralCityAnchors;
     this.state.redCityOwner = "RED";
     this.state.blueCityOwner = "BLUE";
-    this.resetNeutralCityOwnership();
+    this.mapRuntimeService.resetNeutralCityOwnership(
+      this.state.neutralCityOwners,
+      this.neutralCityCells.length,
+    );
     this.resetCityUnitGenerationState();
     if (resetReadyStates) {
       this.lobbyService.resetLobbyReadyStates();
@@ -1260,7 +1238,7 @@ export class BattleRoom extends Room<BattleState> {
     this.clearUnits();
     this.syncCityInfluenceSources();
     this.spawnTestUnits();
-    this.clearInfluenceGrid();
+    this.mapRuntimeService.clearInfluenceGrid(this.state.influenceGrid);
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
     this.simulationFrame = 0;
