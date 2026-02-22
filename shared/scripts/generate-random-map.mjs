@@ -23,6 +23,10 @@ const DEFAULT_OUTPUT_HEIGHT = 1080;
 const DEFAULT_WATER_BIAS = 0.05;
 const DEFAULT_MOUNTAIN_BIAS = 0.03;
 const DEFAULT_FOREST_BIAS = 0.0;
+const MIN_MOUNTAIN_BIAS = -0.25;
+const MAX_MOUNTAIN_BIAS = 0.25;
+const MIN_FOREST_BIAS = -0.25;
+const MAX_FOREST_BIAS = 0.25;
 const DEFAULT_RIVER_COUNT = 2;
 const DEFAULT_NEUTRAL_CITY_COUNT = 3;
 const DEFAULT_METHOD = 'wfc';
@@ -242,6 +246,22 @@ function clamp(value, min, max) {
   return value;
 }
 
+function removeAllForests(terrain) {
+  for (let index = 0; index < terrain.length; index += 1) {
+    if (terrain[index] === 'forest') {
+      terrain[index] = 'grass';
+    }
+  }
+}
+
+function removeAllMountains(terrain) {
+  for (let index = 0; index < terrain.length; index += 1) {
+    if (terrain[index] === 'mountains') {
+      terrain[index] = 'hills';
+    }
+  }
+}
+
 function hashSeed(value) {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
@@ -455,7 +475,7 @@ function buildNoiseTerrainGrid(config, rng) {
 
       const waterThreshold =
         0.35 - edgeDistance * 0.18 + config.waterBias;
-      if (elevation < waterThreshold || riverCarves) {
+      if (waterMode !== 'none' && (elevation < waterThreshold || riverCarves)) {
         terrain[index] = 'water';
         continue;
       }
@@ -2244,8 +2264,8 @@ assertInteger('output height', options.height, 64);
 assertIntegerInRange('river count', options.riverCount, 0, 8);
 assertIntegerInRange('neutral city count', options.neutralCityCount, 0, 12);
 assertFinite('water bias', options.waterBias, -0.25, 0.25);
-assertFinite('mountain bias', options.mountainBias, -0.25, 0.25);
-assertFinite('forest bias', options.forestBias, -0.25, 0.25);
+assertFinite('mountain bias', options.mountainBias, MIN_MOUNTAIN_BIAS, MAX_MOUNTAIN_BIAS);
+assertFinite('forest bias', options.forestBias, MIN_FOREST_BIAS, MAX_FOREST_BIAS);
 assertGenerationMethod(options.method);
 assertWaterMode(options.waterMode);
 
@@ -2298,6 +2318,12 @@ try {
 }
 
 const { terrain, elevationGrid } = generatedTerrain;
+if (options.mountainBias <= MIN_MOUNTAIN_BIAS + Number.EPSILON) {
+  removeAllMountains(terrain);
+}
+if (options.forestBias <= MIN_FOREST_BIAS + Number.EPSILON) {
+  removeAllForests(terrain);
+}
 const cityLayout = placeCityMarkers(
   terrain,
   options.gridWidth,

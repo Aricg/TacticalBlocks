@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { MapGenerationMethod } from "../../../../shared/src/networkContracts.js";
@@ -75,61 +75,76 @@ export class MapGenerationService {
       };
     }
 
-    const generatorArgs = [
-      generatorScriptPath,
-      "--map-id",
-      args.mapId,
-      "--seed",
-      args.seed,
-      "--method",
-      args.method,
-      "--output-dir",
-      sharedDir,
-      "--no-sync",
-    ];
-    if (typeof args.waterMode === "string") {
-      generatorArgs.push("--water-mode", args.waterMode);
-    }
-    if (typeof args.riverCount === "number" && Number.isInteger(args.riverCount)) {
-      generatorArgs.push("--river-count", `${args.riverCount}`);
-    }
-    if (
-      typeof args.neutralCityCount === "number" &&
-      Number.isInteger(args.neutralCityCount)
-    ) {
-      generatorArgs.push("--neutral-city-count", `${args.neutralCityCount}`);
-    }
-    if (typeof args.mountainBias === "number" && Number.isFinite(args.mountainBias)) {
-      generatorArgs.push("--mountain-bias", `${args.mountainBias}`);
-    }
-    if (typeof args.forestBias === "number" && Number.isFinite(args.forestBias)) {
-      generatorArgs.push("--forest-bias", `${args.forestBias}`);
+    const runGenerator = (
+      method: MapGenerationMethod,
+    ): SpawnSyncReturns<string> => {
+      const generatorArgs = [
+        generatorScriptPath,
+        "--map-id",
+        args.mapId,
+        "--seed",
+        args.seed,
+        "--method",
+        method,
+        "--output-dir",
+        sharedDir,
+        "--no-sync",
+      ];
+      if (typeof args.waterMode === "string") {
+        generatorArgs.push("--water-mode", args.waterMode);
+      }
+      if (typeof args.riverCount === "number" && Number.isInteger(args.riverCount)) {
+        generatorArgs.push("--river-count", `${args.riverCount}`);
+      }
+      if (
+        typeof args.neutralCityCount === "number" &&
+        Number.isInteger(args.neutralCityCount)
+      ) {
+        generatorArgs.push("--neutral-city-count", `${args.neutralCityCount}`);
+      }
+      if (
+        typeof args.mountainBias === "number" &&
+        Number.isFinite(args.mountainBias)
+      ) {
+        generatorArgs.push("--mountain-bias", `${args.mountainBias}`);
+      }
+      if (typeof args.forestBias === "number" && Number.isFinite(args.forestBias)) {
+        generatorArgs.push("--forest-bias", `${args.forestBias}`);
+      }
+      return spawnSync(
+        process.execPath,
+        generatorArgs,
+        {
+          cwd: sharedDir,
+          encoding: "utf8",
+        },
+      );
+    };
+
+    const commandResult = runGenerator(args.method);
+    if (commandResult.status === 0) {
+      return { ok: true };
     }
 
-    const commandResult = spawnSync(
-      process.execPath,
-      generatorArgs,
-      {
-        cwd: sharedDir,
-        encoding: "utf8",
-      },
-    );
-
-    if (commandResult.status !== 0) {
-      const stderr = (commandResult.stderr ?? "").trim();
-      const stdout = (commandResult.stdout ?? "").trim();
-      return {
-        ok: false,
-        reason: "generator-process-failed",
-        message: `Map generation failed during ${args.contextLabel} (status ${commandResult.status ?? "unknown"}).`,
-        stderr: stderr.length > 0 ? stderr : undefined,
-        stdout: stdout.length > 0 ? stdout : undefined,
-        exitStatus: commandResult.status ?? undefined,
-      };
+    if (args.method === "wfc") {
+      const fallbackResult = runGenerator("noise");
+      if (fallbackResult.status === 0) {
+        console.warn(
+          `[map-generation][fallback] context=${args.contextLabel} mapId=${args.mapId} requested=wfc fallback=noise`,
+        );
+        return { ok: true };
+      }
     }
 
+    const stderr = (commandResult.stderr ?? "").trim();
+    const stdout = (commandResult.stdout ?? "").trim();
     return {
-      ok: true,
+      ok: false,
+      reason: "generator-process-failed",
+      message: `Map generation failed during ${args.contextLabel} (status ${commandResult.status ?? "unknown"}).`,
+      stderr: stderr.length > 0 ? stderr : undefined,
+      stdout: stdout.length > 0 ? stdout : undefined,
+      exitStatus: commandResult.status ?? undefined,
     };
   }
 }

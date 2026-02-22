@@ -186,6 +186,12 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
   private static readonly RUNTIME_WATER_ELEVATION_MAX = 28;
   private static readonly RUNTIME_MOUNTAIN_ELEVATION_MIN = 218;
+  private static readonly MOUNTAIN_DENSITY_AT_MAX_BIAS = 0.12;
+  private static readonly MOUNTAIN_BIAS_MIN = -0.25;
+  private static readonly MOUNTAIN_BIAS_MAX = 0.25;
+  private static readonly FOREST_DENSITY_AT_MAX_BIAS = 0.24;
+  private static readonly FOREST_BIAS_MIN = -0.25;
+  private static readonly FOREST_BIAS_MAX = 0.25;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
@@ -512,6 +518,43 @@ export class BattleRoom extends Room<BattleState> {
       return max;
     }
     return value;
+  }
+
+  private resolveForestBiasFromDensity(forestDensity: number): number {
+    const safeForestDensity = Number.isFinite(forestDensity)
+      ? this.clamp(forestDensity, 0, 1)
+      : 0;
+    const normalizedDensity =
+      BattleRoom.FOREST_DENSITY_AT_MAX_BIAS > 0
+        ? this.clamp(
+            safeForestDensity / BattleRoom.FOREST_DENSITY_AT_MAX_BIAS,
+            0,
+            1,
+          )
+        : 0;
+    return (
+      BattleRoom.FOREST_BIAS_MIN +
+      normalizedDensity * (BattleRoom.FOREST_BIAS_MAX - BattleRoom.FOREST_BIAS_MIN)
+    );
+  }
+
+  private resolveMountainBiasFromDensity(mountainDensity: number): number {
+    const safeMountainDensity = Number.isFinite(mountainDensity)
+      ? this.clamp(mountainDensity, 0, 1)
+      : 0;
+    const normalizedDensity =
+      BattleRoom.MOUNTAIN_DENSITY_AT_MAX_BIAS > 0
+        ? this.clamp(
+            safeMountainDensity / BattleRoom.MOUNTAIN_DENSITY_AT_MAX_BIAS,
+            0,
+            1,
+          )
+        : 0;
+    return (
+      BattleRoom.MOUNTAIN_BIAS_MIN +
+      normalizedDensity *
+        (BattleRoom.MOUNTAIN_BIAS_MAX - BattleRoom.MOUNTAIN_BIAS_MIN)
+    );
   }
 
   private getGridCellIndex(col: number, row: number): number {
@@ -1115,8 +1158,12 @@ export class BattleRoom extends Room<BattleState> {
         waterMode: profile.terrain.waterMode,
         riverCount: profile.terrain.riverCount,
         neutralCityCount: profile.cities.neutralCityCount,
-        mountainBias: profile.terrain.mountainDensity,
-        forestBias: profile.terrain.forestDensity,
+        mountainBias: this.resolveMountainBiasFromDensity(
+          profile.terrain.mountainDensity,
+        ),
+        forestBias: this.resolveForestBiasFromDensity(
+          profile.terrain.forestDensity,
+        ),
         contextLabel: "lobby",
         roomModuleUrl: import.meta.url,
       });
