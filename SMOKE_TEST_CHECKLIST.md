@@ -44,3 +44,22 @@ npm run dev
    - Generated map appears mismatched vs gameplay collisions/city positions.
    - Switching maps requires server restart to take effect.
    - Runtime sidecar parse warnings for valid generated maps.
+
+## Automated Lobby Cycle Smoke (Optional)
+Use this to validate 3 no-restart generate/apply cycles from terminal.
+
+1. Start server without file-watch restarts:
+
+```bash
+cd /Users/agardner/Github/TacticalBlocks/server
+npm run dev:nowatch
+```
+
+2. In a second terminal, run:
+
+```bash
+cd /Users/agardner/Github/TacticalBlocks/client
+node ./scripts/runtime-map-cycle-smoke.mjs
+```
+
+Expected: script exits successfully and prints one line per cycle with incrementing `mapRevision`.
