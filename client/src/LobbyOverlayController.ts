@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
 import { Team } from './Team';
 import type { MapGenerationMethod } from '../../shared/src/networkContracts.js';
-import type { StartingForceLayoutStrategy } from '../../shared/src/generationProfile.js';
+import type {
+  GenerationWaterMode,
+  StartingForceLayoutStrategy,
+} from '../../shared/src/generationProfile.js';
 
 export type LobbyOverlayPlayerView = {
   sessionId: string;
@@ -18,6 +21,9 @@ export type LobbyOverlayViewModel = {
   selectedLobbyMapId: string;
   availableMapIds: string[];
   selectedGenerationMethod: MapGenerationMethod;
+  selectedWaterMode: GenerationWaterMode;
+  selectedMountainDensity: number;
+  selectedForestDensity: number;
   selectedLayoutStrategy: StartingForceLayoutStrategy;
   isLobbyGeneratingMap: boolean;
   localLobbyReady: boolean;
@@ -28,6 +34,9 @@ type LobbyOverlayCallbacks = {
   onCycleMap: (step: number) => void;
   onRandomMap: () => void;
   onCycleGenerationMethod: (step: number) => void;
+  onCycleWaterMode: (step: number) => void;
+  onCycleMountainDensity: (step: number) => void;
+  onCycleForestDensity: (step: number) => void;
   onCycleLayoutStrategy: (step: number) => void;
   onGenerateMap: () => void;
   onToggleReady: () => void;
@@ -48,6 +57,9 @@ export class LobbyOverlayController {
   private readonly actionText: Phaser.GameObjects.Text;
   private readonly mapText: Phaser.GameObjects.Text;
   private readonly generationMethodText: Phaser.GameObjects.Text;
+  private readonly waterModeText: Phaser.GameObjects.Text;
+  private readonly mountainDensityText: Phaser.GameObjects.Text;
+  private readonly forestDensityText: Phaser.GameObjects.Text;
   private readonly layoutStrategyText: Phaser.GameObjects.Text;
   private readonly randomMapButtonBg: Phaser.GameObjects.Rectangle;
   private readonly randomMapButtonText: Phaser.GameObjects.Text;
@@ -65,7 +77,7 @@ export class LobbyOverlayController {
     this.panel.setDepth(config.depth);
     this.panel.setScrollFactor(0);
 
-    const panelBackground = scene.add.rectangle(0, 0, 680, 420, 0x121212, 0.9);
+    const panelBackground = scene.add.rectangle(0, 0, 680, 470, 0x121212, 0.9);
     panelBackground.setStrokeStyle(2, 0xffffff, 0.35);
 
     const titleText = scene.add.text(0, -145, 'Battle Lobby', {
@@ -123,7 +135,55 @@ export class LobbyOverlayController {
       this.callbacks.onCycleGenerationMethod(step);
     });
 
-    this.layoutStrategyText = scene.add.text(0, 101, '', {
+    this.waterModeText = scene.add.text(0, 101, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#9fd9ff',
+      align: 'center',
+    });
+    this.waterModeText.setOrigin(0.5, 0.5);
+    this.waterModeText.setInteractive({ useHandCursor: true });
+    this.waterModeText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleWaterMode(step);
+    });
+
+    this.mountainDensityText = scene.add.text(0, 129, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#ded0b2',
+      align: 'center',
+    });
+    this.mountainDensityText.setOrigin(0.5, 0.5);
+    this.mountainDensityText.setInteractive({ useHandCursor: true });
+    this.mountainDensityText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleMountainDensity(step);
+    });
+
+    this.forestDensityText = scene.add.text(0, 157, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#b8dfb7',
+      align: 'center',
+    });
+    this.forestDensityText.setOrigin(0.5, 0.5);
+    this.forestDensityText.setInteractive({ useHandCursor: true });
+    this.forestDensityText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleForestDensity(step);
+    });
+
+    this.layoutStrategyText = scene.add.text(0, 185, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffd8b0',
@@ -139,7 +199,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleLayoutStrategy(step);
     });
 
-    this.actionText = scene.add.text(0, 129, '', {
+    this.actionText = scene.add.text(0, 213, '', {
       fontFamily: 'monospace',
       fontSize: '17px',
       color: '#f4e7b2',
@@ -148,14 +208,14 @@ export class LobbyOverlayController {
     });
     this.actionText.setOrigin(0.5, 0.5);
 
-    this.randomMapButtonBg = scene.add.rectangle(-220, 176, 180, 46, 0x47627a, 1);
+    this.randomMapButtonBg = scene.add.rectangle(-220, 220, 180, 46, 0x47627a, 1);
     this.randomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
     this.randomMapButtonBg.setInteractive({ useHandCursor: true });
     this.randomMapButtonBg.on('pointerdown', () => {
       this.callbacks.onRandomMap();
     });
 
-    this.randomMapButtonText = scene.add.text(-220, 176, 'RANDOM MAP', {
+    this.randomMapButtonText = scene.add.text(-220, 220, 'RANDOM MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -166,14 +226,14 @@ export class LobbyOverlayController {
       this.callbacks.onRandomMap();
     });
 
-    this.generateMapButtonBg = scene.add.rectangle(0, 176, 180, 46, 0x66573a, 1);
+    this.generateMapButtonBg = scene.add.rectangle(0, 220, 180, 46, 0x66573a, 1);
     this.generateMapButtonBg.setStrokeStyle(2, 0xffe7bd, 0.45);
     this.generateMapButtonBg.setInteractive({ useHandCursor: true });
     this.generateMapButtonBg.on('pointerdown', () => {
       this.callbacks.onGenerateMap();
     });
 
-    this.generateMapButtonText = scene.add.text(0, 176, 'GENERATE MAP', {
+    this.generateMapButtonText = scene.add.text(0, 220, 'GENERATE MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -184,14 +244,14 @@ export class LobbyOverlayController {
       this.callbacks.onGenerateMap();
     });
 
-    this.readyButtonBg = scene.add.rectangle(220, 176, 180, 46, 0x2f8f46, 1);
+    this.readyButtonBg = scene.add.rectangle(220, 220, 180, 46, 0x2f8f46, 1);
     this.readyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
     this.readyButtonBg.setInteractive({ useHandCursor: true });
     this.readyButtonBg.on('pointerdown', () => {
       this.callbacks.onToggleReady();
     });
 
-    this.readyButtonText = scene.add.text(220, 176, 'READY', {
+    this.readyButtonText = scene.add.text(220, 220, 'READY', {
       fontFamily: 'monospace',
       fontSize: '21px',
       color: '#ffffff',
@@ -209,6 +269,9 @@ export class LobbyOverlayController {
       this.statusText,
       this.mapText,
       this.generationMethodText,
+      this.waterModeText,
+      this.mountainDensityText,
+      this.forestDensityText,
       this.layoutStrategyText,
       this.actionText,
       this.randomMapButtonBg,
@@ -235,6 +298,12 @@ export class LobbyOverlayController {
       this.mapText.disableInteractive();
       this.generationMethodText.setVisible(false);
       this.generationMethodText.disableInteractive();
+      this.waterModeText.setVisible(false);
+      this.waterModeText.disableInteractive();
+      this.mountainDensityText.setVisible(false);
+      this.mountainDensityText.disableInteractive();
+      this.forestDensityText.setVisible(false);
+      this.forestDensityText.disableInteractive();
       this.layoutStrategyText.setVisible(false);
       this.layoutStrategyText.disableInteractive();
       this.setButtonVisibleAndInteractive(
@@ -267,6 +336,21 @@ export class LobbyOverlayController {
     this.generationMethodText.setInteractive({ useHandCursor: true });
     this.generationMethodText.setText(
       `Method: ${view.selectedGenerationMethod.toUpperCase()}  (click to cycle)`,
+    );
+    this.waterModeText.setVisible(true);
+    this.waterModeText.setInteractive({ useHandCursor: true });
+    this.waterModeText.setText(
+      `Water: ${view.selectedWaterMode.toUpperCase()}  (click to cycle)`,
+    );
+    this.mountainDensityText.setVisible(true);
+    this.mountainDensityText.setInteractive({ useHandCursor: true });
+    this.mountainDensityText.setText(
+      `Mountains: ${Math.round(view.selectedMountainDensity * 100)}%  (click to cycle)`,
+    );
+    this.forestDensityText.setVisible(true);
+    this.forestDensityText.setInteractive({ useHandCursor: true });
+    this.forestDensityText.setText(
+      `Forests: ${Math.round(view.selectedForestDensity * 100)}%  (click to cycle)`,
     );
     this.layoutStrategyText.setVisible(true);
     this.layoutStrategyText.setInteractive({ useHandCursor: true });

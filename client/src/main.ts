@@ -18,7 +18,9 @@ import {
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
   DEFAULT_GENERATION_PROFILE,
+  GENERATION_WATER_MODES,
   STARTING_FORCE_LAYOUT_STRATEGIES,
+  type GenerationWaterMode,
   type StartingForceLayoutStrategy,
 } from '../../shared/src/generationProfile.js';
 import type { MapGenerationMethod } from '../../shared/src/networkContracts.js';
@@ -234,6 +236,10 @@ class BattleScene extends Phaser.Scene {
   private availableMapIds: string[] = [...GAMEPLAY_CONFIG.map.availableMapIds];
   private selectedLobbyMapId = this.activeMapId;
   private selectedGenerationMethod: MapGenerationMethod = 'wfc';
+  private selectedWaterMode: GenerationWaterMode =
+    DEFAULT_GENERATION_PROFILE.terrain.waterMode;
+  private selectedMountainDensity = DEFAULT_GENERATION_PROFILE.terrain.mountainDensity;
+  private selectedForestDensity = DEFAULT_GENERATION_PROFILE.terrain.forestDensity;
   private selectedLayoutStrategy: StartingForceLayoutStrategy =
     DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy;
   private lobbyMapRevision = 0;
@@ -272,6 +278,8 @@ class BattleScene extends Phaser.Scene {
     'noise',
     'auto',
   ];
+  private static readonly MOUNTAIN_DENSITY_PRESETS = [0, 0.01, 0.03, 0.05, 0.08, 0.12];
+  private static readonly FOREST_DENSITY_PRESETS = [0, 0.04, 0.08, 0.12, 0.18, 0.24];
   private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly ENEMY_VISIBILITY_PADDING =
@@ -860,6 +868,11 @@ class BattleScene extends Phaser.Scene {
     this.networkManager.sendLobbyGenerateMap(
       this.selectedGenerationMethod,
       {
+        terrain: {
+          waterMode: this.selectedWaterMode,
+          mountainDensity: this.selectedMountainDensity,
+          forestDensity: this.selectedForestDensity,
+        },
         startingForces: {
           layoutStrategy: this.selectedLayoutStrategy,
         },
@@ -891,6 +904,39 @@ class BattleScene extends Phaser.Scene {
     this.refreshLobbyOverlay();
   }
 
+  private cycleWaterMode(step: number): void {
+    const modes = GENERATION_WATER_MODES;
+    const currentIndex = modes.indexOf(this.selectedWaterMode);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const modeCount = modes.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex = (safeCurrentIndex + normalizedStep + modeCount) % modeCount;
+    this.selectedWaterMode = modes[nextIndex] ?? modes[0];
+    this.refreshLobbyOverlay();
+  }
+
+  private cycleMountainDensity(step: number): void {
+    const presets = BattleScene.MOUNTAIN_DENSITY_PRESETS;
+    const currentIndex = presets.indexOf(this.selectedMountainDensity);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const presetCount = presets.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
+    this.selectedMountainDensity = presets[nextIndex] ?? presets[0];
+    this.refreshLobbyOverlay();
+  }
+
+  private cycleForestDensity(step: number): void {
+    const presets = BattleScene.FOREST_DENSITY_PRESETS;
+    const currentIndex = presets.indexOf(this.selectedForestDensity);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const presetCount = presets.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
+    this.selectedForestDensity = presets[nextIndex] ?? presets[0];
+    this.refreshLobbyOverlay();
+  }
+
   private createLobbyOverlay(): void {
     this.lobbyOverlayController = new LobbyOverlayController(
       this,
@@ -898,6 +944,9 @@ class BattleScene extends Phaser.Scene {
         onCycleMap: (step: number) => this.requestLobbyMapStep(step),
         onRandomMap: () => this.requestRandomLobbyMap(),
         onCycleGenerationMethod: (step: number) => this.cycleGenerationMethod(step),
+        onCycleWaterMode: (step: number) => this.cycleWaterMode(step),
+        onCycleMountainDensity: (step: number) => this.cycleMountainDensity(step),
+        onCycleForestDensity: (step: number) => this.cycleForestDensity(step),
         onCycleLayoutStrategy: (step: number) => this.cycleLayoutStrategy(step),
         onGenerateMap: () => this.requestGenerateLobbyMap(),
         onToggleReady: () => this.toggleLobbyReady(),
@@ -996,6 +1045,9 @@ class BattleScene extends Phaser.Scene {
       selectedLobbyMapId: this.selectedLobbyMapId,
       availableMapIds: this.availableMapIds,
       selectedGenerationMethod: this.selectedGenerationMethod,
+      selectedWaterMode: this.selectedWaterMode,
+      selectedMountainDensity: this.selectedMountainDensity,
+      selectedForestDensity: this.selectedForestDensity,
       selectedLayoutStrategy: this.selectedLayoutStrategy,
       isLobbyGeneratingMap: this.isLobbyGeneratingMap,
       localLobbyReady: this.localLobbyReady,
