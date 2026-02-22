@@ -12,7 +12,7 @@ const MAP_IDS = [
   'random-frontier-01',
 ] as const;
 
-const UNIT_BASE_MOVE_SPEED = 100;
+const UNIT_BASE_MOVE_SPEED = 50;
 
 export const GAMEPLAY_CONFIG = {
   map: {
