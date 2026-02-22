@@ -102,58 +102,65 @@ type RemoteUnitRenderState = {
   pendingRotation: number | null;
 };
 
-const MAP_IMAGE_BY_PATH = import.meta.glob('../../shared/*-16c.png', {
-  eager: true,
-  import: 'default',
-}) as Record<string, string>;
+const getNonEmptyString = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : null;
+};
+
+const normalizeMapImageBaseUrl = (baseUrl: string): string =>
+  baseUrl.replace(/\/+$/, '');
+
+const resolveDefaultMapImageBaseUrl = (): string => {
+  const pathname =
+    typeof window !== 'undefined' ? window.location.pathname : '';
+  if (
+    pathname === '/tacticalblocks'
+    || pathname.startsWith('/tacticalblocks/')
+  ) {
+    return '/tacticalblocks/maps';
+  }
+  return '/maps';
+};
+
+const MAP_IMAGE_BASE_URL = normalizeMapImageBaseUrl(
+  getNonEmptyString(import.meta.env.VITE_MAP_IMAGE_BASE_URL)
+    ?? resolveDefaultMapImageBaseUrl(),
+);
 
 function getTextureKeyForMapId(mapId: string): string {
   return `battle-map-${mapId}`;
 }
 
-function resolveMapImageById(mapId: string): string | undefined {
-  const exactPath = `../../shared/${mapId}-16c.png`;
-  const exactMatch = MAP_IMAGE_BY_PATH[exactPath];
-  if (exactMatch) {
-    return exactMatch;
+function resolveRuntimeMapImageById(mapId: string): string | undefined {
+  const normalizedMapId = mapId.trim();
+  if (normalizedMapId.length === 0) {
+    return undefined;
   }
 
-  const suffix = `/${mapId}-16c.png`;
-  for (const [path, image] of Object.entries(MAP_IMAGE_BY_PATH)) {
-    if (path.endsWith(suffix)) {
-      return image;
-    }
-  }
-
-  return undefined;
+  return `${MAP_IMAGE_BASE_URL}/${encodeURIComponent(normalizedMapId)}-16c.png`;
 }
 
-function getBundledMapIds(): string[] {
-  return Object.keys(MAP_IMAGE_BY_PATH)
-    .map((filePath) => filePath.replace('../../shared/', '').replace('-16c.png', ''))
-    .sort();
+function resolveMapImageById(mapId: string): string | undefined {
+  return resolveRuntimeMapImageById(mapId);
 }
 
 function resolveInitialMapId(): string {
   const configuredMapId = GAMEPLAY_CONFIG.map.activeMapId;
-  if (resolveMapImageById(configuredMapId)) {
+  if (configuredMapId.trim().length > 0) {
     return configuredMapId;
   }
 
   const fallbackFromConfig = GAMEPLAY_CONFIG.map.availableMapIds.find((mapId) =>
-    Boolean(resolveMapImageById(mapId)),
+    mapId.trim().length > 0,
   );
   if (fallbackFromConfig) {
     return fallbackFromConfig;
   }
 
-  const bundledMapIds = getBundledMapIds();
-  const firstBundledMapId = bundledMapIds[0];
-  if (firstBundledMapId) {
-    return firstBundledMapId;
-  }
-
-  throw new Error('No map images were bundled. Expected files matching "../../shared/*-16c.png".');
+  throw new Error('No valid map IDs were configured.');
 }
 
 class BattleScene extends Phaser.Scene {
@@ -303,8 +310,11 @@ class BattleScene extends Phaser.Scene {
   }
 
   preload(): void {
-    const bundledMapIds = getBundledMapIds();
-    for (const mapId of bundledMapIds) {
+    const mapIdsToPreload = new Set<string>([
+      this.activeMapId,
+      ...this.availableMapIds,
+    ]);
+    for (const mapId of mapIdsToPreload) {
       const imagePath = resolveMapImageById(mapId);
       if (!imagePath) {
         continue;
@@ -668,6 +678,10 @@ class BattleScene extends Phaser.Scene {
           this.authoritativeTerrainByUnitId.clear();
           for (const unit of this.unitsById.values()) {
             unit.clearWaterTransitionFlash();
+          }
+          if (!this.textures.exists(this.mapTextureKey)) {
+            this.reloadMapTexture(mapId, this.lobbyMapRevision);
+            return;
           }
           if (this.mapBackground) {
             this.mapBackground.setTexture(this.mapTextureKey);
