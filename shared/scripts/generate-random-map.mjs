@@ -1865,7 +1865,14 @@ function placeCityMarkers(terrain, width, height) {
   }
   markers.push(neutralA, neutralB);
 
-  return markers;
+  return {
+    markers,
+    cityAnchors: {
+      RED: redAnchor,
+      BLUE: blueAnchor,
+    },
+    neutralCityAnchors: [neutralA, neutralB],
+  };
 }
 
 function buildPixelColors(terrain, elevationGrid, cityMarkers, width, height, rng) {
@@ -2035,7 +2042,7 @@ try {
 }
 
 const { terrain, elevationGrid } = generatedTerrain;
-const cityMarkers = placeCityMarkers(
+const cityLayout = placeCityMarkers(
   terrain,
   options.gridWidth,
   options.gridHeight,
@@ -2043,7 +2050,7 @@ const cityMarkers = placeCityMarkers(
 const { pixels, elevationBytes } = buildPixelColors(
   terrain,
   elevationGrid,
-  cityMarkers,
+  cityLayout.markers,
   options.gridWidth,
   options.gridHeight,
   rng,
@@ -2095,6 +2102,8 @@ writeFileSync(
     gridWidth: options.gridWidth,
     gridHeight: options.gridHeight,
     elevation: Array.from(elevationBytes),
+    cityAnchors: cityLayout.cityAnchors,
+    neutralCityAnchors: cityLayout.neutralCityAnchors,
     terrainCodeGrid: buildTerrainCodeGrid(
       terrain,
       options.gridWidth,

@@ -622,22 +622,45 @@ class BattleScene extends Phaser.Scene {
     }
 
     const textureKey = getTextureKeyForMapId(mapId);
+    const pendingTextureKey = `${textureKey}--pending-${revision}`;
     const cacheBustedPath = `${imagePath}${imagePath.includes('?') ? '&' : '?'}rev=${revision}`;
-    if (this.textures.exists(textureKey)) {
-      this.textures.remove(textureKey);
+    if (this.textures.exists(pendingTextureKey)) {
+      this.textures.remove(pendingTextureKey);
     }
 
-    this.load.once('complete', () => {
+    const onLoadError = (file: Phaser.Loader.File): void => {
+      if (file.key !== pendingTextureKey) {
+        return;
+      }
+      this.load.off('loaderror', onLoadError);
+      if (this.textures.exists(pendingTextureKey)) {
+        this.textures.remove(pendingTextureKey);
+      }
+      console.error(`Failed to load map texture "${mapId}" from ${cacheBustedPath}.`);
+    };
+    this.load.on('loaderror', onLoadError);
+
+    this.load.once(`filecomplete-image-${pendingTextureKey}`, () => {
+      this.load.off('loaderror', onLoadError);
+      if (!this.textures.exists(pendingTextureKey)) {
+        return;
+      }
+      if (this.textures.exists(textureKey)) {
+        this.textures.remove(textureKey);
+      }
+      const renamed = this.textures.renameTexture(pendingTextureKey, textureKey);
+      this.mapTextureKey = renamed ? textureKey : pendingTextureKey;
+
       if (!this.mapBackground || this.activeMapId !== mapId) {
         return;
       }
-      this.mapBackground.setTexture(textureKey);
+      this.mapBackground.setTexture(this.mapTextureKey);
       this.initializeMapTerrainSampling();
       this.rebuildImpassableCellIndexSetFromMapTexture();
       this.drawImpassableOverlay();
       this.refreshFogOfWar();
     });
-    this.load.image(textureKey, cacheBustedPath);
+    this.load.image(pendingTextureKey, cacheBustedPath);
     if (!this.load.isLoading()) {
       this.load.start();
     }

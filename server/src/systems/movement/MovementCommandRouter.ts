@@ -6,6 +6,7 @@ import {
 } from "./gridPathing.js";
 
 export type WorldToGridCoordinate = (x: number, y: number) => GridCoordinate;
+export type IsCellImpassable = (cell: GridCoordinate) => boolean;
 
 function isFiniteWaypoint(waypoint: unknown): waypoint is Vector2 {
   if (typeof waypoint !== "object" || waypoint === null) {
@@ -37,6 +38,7 @@ export function buildTerrainAwareRoute(
   startCell: GridCoordinate,
   normalizedPath: Vector2[],
   worldToGridCoordinate: WorldToGridCoordinate,
+  isCellImpassable: IsCellImpassable = isTerrainBlocked,
 ): GridCoordinate[] {
   const snappedTargetCells = compactGridCoordinates(
     normalizedPath.map((waypoint) =>
@@ -52,7 +54,7 @@ export function buildTerrainAwareRoute(
     const segment = traceGridLine(pathCursor, targetCell);
     for (let i = 1; i < segment.length; i += 1) {
       const nextCell = segment[i];
-      if (isTerrainBlocked(nextCell)) {
+      if (isCellImpassable(nextCell)) {
         blockedByTerrain = true;
         break;
       }
