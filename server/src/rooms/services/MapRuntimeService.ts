@@ -1,6 +1,9 @@
 import { GAMEPLAY_CONFIG } from "../../../../shared/src/gameplayConfig.js";
 import type { MapBundle } from "../../../../shared/src/mapBundle.js";
-import { loadMapBundle } from "./MapBundleLoader.js";
+import {
+  loadMapBundle,
+  type MapBundleLoadWarning,
+} from "./MapBundleLoader.js";
 import { resolveSharedDirectory } from "./resolveSharedDirectory.js";
 
 type LoadActiveMapBundleArgs = {
@@ -13,7 +16,21 @@ type LoadActiveMapBundleArgs = {
   defaultNeutralCityAnchors: MapBundle["neutralCityAnchors"];
   waterElevationMax: number;
   mountainElevationMin: number;
-  logWarning?: (message: string, error?: unknown) => void;
+};
+
+export type LoadActiveMapBundleResult = {
+  bundle: MapBundle;
+  warnings: MapBundleLoadWarning[];
+};
+
+type SwitchRuntimeMapArgs = Omit<LoadActiveMapBundleArgs, "revision"> & {
+  currentMapRevision: number;
+  incrementMapRevision: boolean;
+};
+
+export type SwitchRuntimeMapResult = LoadActiveMapBundleResult & {
+  nextMapRevision: number;
+  neutralCityAnchors: MapBundle["neutralCityAnchors"];
 };
 
 export class MapRuntimeService {
@@ -25,8 +42,9 @@ export class MapRuntimeService {
     ).activeMapId = mapId;
   }
 
-  loadActiveMapBundle(args: LoadActiveMapBundleArgs): MapBundle {
-    return loadMapBundle({
+  loadActiveMapBundle(args: LoadActiveMapBundleArgs): LoadActiveMapBundleResult {
+    const warnings: MapBundleLoadWarning[] = [];
+    const bundle = loadMapBundle({
       mapId: args.mapId,
       revision: args.revision,
       sharedDir: resolveSharedDirectory(args.roomModuleUrl),
@@ -36,7 +54,40 @@ export class MapRuntimeService {
       defaultNeutralCityAnchors: args.defaultNeutralCityAnchors,
       waterElevationMax: args.waterElevationMax,
       mountainElevationMin: args.mountainElevationMin,
-      logWarning: args.logWarning,
+      logWarning: (warning) => {
+        warnings.push(warning);
+      },
     });
+
+    return {
+      bundle,
+      warnings,
+    };
+  }
+
+  switchRuntimeMap(args: SwitchRuntimeMapArgs): SwitchRuntimeMapResult {
+    const nextMapRevision = args.incrementMapRevision
+      ? args.currentMapRevision + 1
+      : args.currentMapRevision;
+    this.applyMapIdToRuntimeTerrain(args.mapId);
+    const loadResult = this.loadActiveMapBundle({
+      mapId: args.mapId,
+      roomModuleUrl: args.roomModuleUrl,
+      gridWidth: args.gridWidth,
+      gridHeight: args.gridHeight,
+      defaultCityAnchors: args.defaultCityAnchors,
+      defaultNeutralCityAnchors: args.defaultNeutralCityAnchors,
+      waterElevationMax: args.waterElevationMax,
+      mountainElevationMin: args.mountainElevationMin,
+      revision: nextMapRevision,
+    });
+
+    return {
+      ...loadResult,
+      nextMapRevision,
+      neutralCityAnchors: loadResult.bundle.neutralCityAnchors.map((cell) => ({
+        ...cell,
+      })),
+    };
   }
 }

@@ -12,6 +12,24 @@ type GenerateRuntimeMapArgs = {
   roomModuleUrl: string;
 };
 
+type MapGenerationFailureReason =
+  | "shared-dir-unresolved"
+  | "generator-script-missing"
+  | "generator-process-failed";
+
+export type MapGenerationResult =
+  | {
+      ok: true;
+    }
+  | {
+      ok: false;
+      reason: MapGenerationFailureReason;
+      message: string;
+      stderr?: string;
+      stdout?: string;
+      exitStatus?: number;
+    };
+
 export class MapGenerationService {
   normalizeGenerationMethod(
     requestedMethod: unknown,
@@ -28,11 +46,14 @@ export class MapGenerationService {
     return fallback;
   }
 
-  generateRuntimeMap(args: GenerateRuntimeMapArgs): boolean {
+  generateRuntimeMap(args: GenerateRuntimeMapArgs): MapGenerationResult {
     const sharedDir = resolveSharedDirectory(args.roomModuleUrl);
     if (!sharedDir) {
-      console.error("Could not resolve shared directory for map generation.");
-      return false;
+      return {
+        ok: false,
+        reason: "shared-dir-unresolved",
+        message: "Could not resolve shared directory for map generation.",
+      };
     }
 
     const generatorScriptPath = path.join(
@@ -41,8 +62,11 @@ export class MapGenerationService {
       "generate-random-map.mjs",
     );
     if (!existsSync(generatorScriptPath)) {
-      console.error(`Map generator script not found: ${generatorScriptPath}`);
-      return false;
+      return {
+        ok: false,
+        reason: "generator-script-missing",
+        message: `Map generator script not found: ${generatorScriptPath}`,
+      };
     }
 
     const commandResult = spawnSync(
@@ -68,18 +92,18 @@ export class MapGenerationService {
     if (commandResult.status !== 0) {
       const stderr = (commandResult.stderr ?? "").trim();
       const stdout = (commandResult.stdout ?? "").trim();
-      console.error(
-        `Map generation failed during ${args.contextLabel} (status ${commandResult.status ?? "unknown"}).`,
-      );
-      if (stderr.length > 0) {
-        console.error(stderr);
-      }
-      if (stdout.length > 0) {
-        console.error(stdout);
-      }
-      return false;
+      return {
+        ok: false,
+        reason: "generator-process-failed",
+        message: `Map generation failed during ${args.contextLabel} (status ${commandResult.status ?? "unknown"}).`,
+        stderr: stderr.length > 0 ? stderr : undefined,
+        stdout: stdout.length > 0 ? stdout : undefined,
+        exitStatus: commandResult.status ?? undefined,
+      };
     }
 
-    return true;
+    return {
+      ok: true,
+    };
   }
 }

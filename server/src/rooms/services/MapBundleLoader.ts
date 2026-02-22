@@ -16,7 +16,19 @@ type LoadMapBundleArgs = {
   defaultNeutralCityAnchors: MapBundleCoordinate[];
   waterElevationMax: number;
   mountainElevationMin: number;
-  logWarning?: (message: string, error?: unknown) => void;
+  logWarning?: (warning: MapBundleLoadWarning) => void;
+};
+
+export type MapBundleLoadWarningCode =
+  | "shared-dir-unresolved"
+  | "sidecar-parse-failed"
+  | "sidecar-grid-mismatch"
+  | "sidecar-data-invalid";
+
+export type MapBundleLoadWarning = {
+  code: MapBundleLoadWarningCode;
+  message: string;
+  error?: unknown;
 };
 
 type RuntimeMapSidecar = {
@@ -252,6 +264,11 @@ function createFallbackMapBundle(args: LoadMapBundleArgs): MapBundle {
 export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
   const fallbackBundle = createFallbackMapBundle(args);
   if (!args.sharedDir) {
+    args.logWarning?.({
+      code: "shared-dir-unresolved",
+      message:
+        "Shared directory could not be resolved. Using static fallback map bundle.",
+    });
     return fallbackBundle;
   }
 
@@ -267,10 +284,11 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
   try {
     parsed = JSON.parse(readFileSync(sidecarPath, "utf8")) as RuntimeMapSidecar;
   } catch (error) {
-    args.logWarning?.(
-      `Failed to parse runtime map sidecar: ${sidecarPath}`,
+    args.logWarning?.({
+      code: "sidecar-parse-failed",
+      message: `Failed to parse runtime map sidecar: ${sidecarPath}`,
       error,
-    );
+    });
     return fallbackBundle;
   }
 
@@ -284,9 +302,10 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
     fileGridWidth !== args.gridWidth ||
     fileGridHeight !== args.gridHeight
   ) {
-    args.logWarning?.(
-      `Ignoring runtime map sidecar with mismatched grid size: ${sidecarPath}`,
-    );
+    args.logWarning?.({
+      code: "sidecar-grid-mismatch",
+      message: `Ignoring runtime map sidecar with mismatched grid size: ${sidecarPath}`,
+    });
     return fallbackBundle;
   }
 
@@ -298,9 +317,10 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
       : null;
   const elevationBytes = parseElevationBytes(parsed.elevation, expectedLength);
   if (!terrainCodeGrid && !elevationBytes) {
-    args.logWarning?.(
-      `Ignoring runtime map sidecar without valid terrain/elevation data: ${sidecarPath}`,
-    );
+    args.logWarning?.({
+      code: "sidecar-data-invalid",
+      message: `Ignoring runtime map sidecar without valid terrain/elevation data: ${sidecarPath}`,
+    });
     return fallbackBundle;
   }
 

@@ -126,9 +126,9 @@ Replace hardcoded initial deployment with strategy interface:
 ### Phase 2: Extract Server Services
 - [x] Introduce `MapGenerationService` (process execution + artifact metadata handling).
 - [x] Introduce `MapRuntimeService` (load/parse/cache/apply active map bundle).
-- [ ] Move map-switch orchestration from `BattleRoom` into services.
+- [x] Move map-switch orchestration from `BattleRoom` into services.
 - [ ] Keep `BattleRoom` as coordinator only.
-- [ ] Add explicit error handling paths for missing script, parse error, and invalid sidecar.
+- [x] Add explicit error handling paths for missing script, parse error, and invalid sidecar.
 - [ ] Done when `BattleRoom` map-related methods are significantly reduced.
 
 ### Phase 3: Generator Modularization

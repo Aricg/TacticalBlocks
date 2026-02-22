@@ -42,7 +42,10 @@ import {
 import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
 import { MapGenerationService } from "./services/MapGenerationService.js";
-import { MapRuntimeService } from "./services/MapRuntimeService.js";
+import {
+  MapRuntimeService,
+  type LoadActiveMapBundleResult,
+} from "./services/MapRuntimeService.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import type { MapBundle } from "../../../shared/src/mapBundle.js";
@@ -546,7 +549,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private loadActiveMapBundle(mapId: string, revision: number): void {
-    this.activeMapBundle = this.mapRuntimeService.loadActiveMapBundle({
+    const bundleLoadResult = this.mapRuntimeService.loadActiveMapBundle({
       mapId,
       revision,
       roomModuleUrl: import.meta.url,
@@ -559,14 +562,25 @@ export class BattleRoom extends Room<BattleState> {
       defaultNeutralCityAnchors: getNeutralCityGridCoordinates(),
       waterElevationMax: BattleRoom.RUNTIME_WATER_ELEVATION_MAX,
       mountainElevationMin: BattleRoom.RUNTIME_MOUNTAIN_ELEVATION_MIN,
-      logWarning: (message, error) => {
-        if (error) {
-          console.warn(message, error);
-          return;
-        }
-        console.warn(message);
-      },
     });
+    this.applyLoadedMapBundle(mapId, bundleLoadResult);
+  }
+
+  private applyLoadedMapBundle(
+    mapId: string,
+    bundleLoadResult: LoadActiveMapBundleResult,
+  ): void {
+    this.activeMapBundle = bundleLoadResult.bundle;
+    for (const warning of bundleLoadResult.warnings) {
+      if (warning.error) {
+        console.warn(
+          `[map-bundle][${warning.code}] mapId=${mapId} ${warning.message}`,
+          warning.error,
+        );
+        continue;
+      }
+      console.warn(`[map-bundle][${warning.code}] mapId=${mapId} ${warning.message}`);
+    }
 
     console.log(
       `[map-bundle] revision=${this.activeMapBundle.revision} mapId=${this.activeMapBundle.mapId} source=${this.activeMapBundle.source} method=${this.activeMapBundle.method} blocked=${this.activeMapBundle.blockedSpawnCellIndexSet.size} impassable=${this.activeMapBundle.impassableCellIndexSet.size}`,
@@ -1083,7 +1097,8 @@ export class BattleRoom extends Room<BattleState> {
         contextLabel: "lobby",
         roomModuleUrl: import.meta.url,
       });
-      if (!generated) {
+      if (!generated.ok) {
+        this.logMapGenerationFailure("lobby", mapId, generated);
         return;
       }
 
@@ -1111,10 +1126,35 @@ export class BattleRoom extends Room<BattleState> {
       contextLabel: "startup",
       roomModuleUrl: import.meta.url,
     });
-    if (!generated) {
+    if (!generated.ok) {
       console.error(
-        `Failed to generate startup runtime map "${mapId}". Continuing with existing artifacts if available.`,
+        `Failed to generate startup runtime map "${mapId}" (reason ${generated.reason}). Continuing with existing artifacts if available.`,
       );
+      this.logMapGenerationFailure("startup", mapId, generated);
+    }
+  }
+
+  private logMapGenerationFailure(
+    contextLabel: string,
+    mapId: string,
+    failure: {
+      reason: string;
+      message: string;
+      stderr?: string;
+      stdout?: string;
+      exitStatus?: number;
+    },
+  ): void {
+    const statusSuffix =
+      typeof failure.exitStatus === "number" ? ` status=${failure.exitStatus}` : "";
+    console.error(
+      `[map-generation][${failure.reason}] context=${contextLabel} mapId=${mapId}${statusSuffix} ${failure.message}`,
+    );
+    if (failure.stderr) {
+      console.error(failure.stderr);
+    }
+    if (failure.stdout) {
+      console.error(failure.stdout);
     }
   }
 
@@ -1192,13 +1232,24 @@ export class BattleRoom extends Room<BattleState> {
   ): void {
     const incrementMapRevision = options?.incrementMapRevision ?? true;
     const resetReadyStates = options?.resetReadyStates ?? true;
-    const nextMapRevision = incrementMapRevision
-      ? this.mapRevision + 1
-      : this.mapRevision;
+    const switchResult = this.mapRuntimeService.switchRuntimeMap({
+      mapId,
+      currentMapRevision: this.mapRevision,
+      incrementMapRevision,
+      roomModuleUrl: import.meta.url,
+      gridWidth: BattleRoom.GRID_WIDTH,
+      gridHeight: BattleRoom.GRID_HEIGHT,
+      defaultCityAnchors: {
+        RED: getTeamCityGridCoordinate("RED"),
+        BLUE: getTeamCityGridCoordinate("BLUE"),
+      },
+      defaultNeutralCityAnchors: getNeutralCityGridCoordinates(),
+      waterElevationMax: BattleRoom.RUNTIME_WATER_ELEVATION_MAX,
+      mountainElevationMin: BattleRoom.RUNTIME_MOUNTAIN_ELEVATION_MIN,
+    });
     this.state.mapId = mapId;
-    this.mapRuntimeService.applyMapIdToRuntimeTerrain(mapId);
-    this.loadActiveMapBundle(mapId, nextMapRevision);
-    this.refreshNeutralCityCells();
+    this.applyLoadedMapBundle(mapId, switchResult);
+    this.neutralCityCells = switchResult.neutralCityAnchors;
     this.state.redCityOwner = "RED";
     this.state.blueCityOwner = "BLUE";
     this.resetNeutralCityOwnership();
@@ -1213,7 +1264,7 @@ export class BattleRoom extends Room<BattleState> {
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
     this.simulationFrame = 0;
-    this.mapRevision = nextMapRevision;
+    this.mapRevision = switchResult.nextMapRevision;
   }
 
   private spawnTestUnits(): void {
