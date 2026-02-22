@@ -28,6 +28,7 @@ export type LobbyOverlayViewModel = {
   selectedLayoutStrategy: StartingForceLayoutStrategy;
   selectedUnitCountPerTeam: number;
   selectedNeutralCityCount: number;
+  selectedFriendlyCityCount: number;
   isLobbyGeneratingMap: boolean;
   localLobbyReady: boolean;
   lastBattleAnnouncement: string | null;
@@ -44,6 +45,7 @@ type LobbyOverlayCallbacks = {
   onCycleLayoutStrategy: (step: number) => void;
   onCycleUnitCountPerTeam: (step: number) => void;
   onCycleNeutralCityCount: (step: number) => void;
+  onCycleFriendlyCityCount: (step: number) => void;
   onGenerateMap: () => void;
   onToggleReady: () => void;
   isShiftHeld: (pointer: Phaser.Input.Pointer) => boolean;
@@ -70,6 +72,7 @@ export class LobbyOverlayController {
   private readonly layoutStrategyText: Phaser.GameObjects.Text;
   private readonly unitCountText: Phaser.GameObjects.Text;
   private readonly neutralCityCountText: Phaser.GameObjects.Text;
+  private readonly friendlyCityCountText: Phaser.GameObjects.Text;
   private readonly randomMapButtonBg: Phaser.GameObjects.Rectangle;
   private readonly randomMapButtonText: Phaser.GameObjects.Text;
   private readonly generateMapButtonBg: Phaser.GameObjects.Rectangle;
@@ -87,7 +90,7 @@ export class LobbyOverlayController {
     this.panel.setScrollFactor(0);
 
     const panelWidth = 680;
-    const panelHeight = 700;
+    const panelHeight = 730;
     const topY = -panelHeight * 0.5 + 42;
     const titleY = topY;
     const teamY = titleY + 50;
@@ -101,7 +104,8 @@ export class LobbyOverlayController {
     const layoutStrategyY = forestDensityY + 28;
     const unitCountY = layoutStrategyY + 28;
     const neutralCityCountY = unitCountY + 28;
-    const actionY = neutralCityCountY + 34;
+    const friendlyCityCountY = neutralCityCountY + 28;
+    const actionY = friendlyCityCountY + 34;
     const buttonsY = actionY + 58;
 
     const panelBackground = scene.add.rectangle(0, 0, panelWidth, panelHeight, 0x121212, 0.9);
@@ -274,6 +278,22 @@ export class LobbyOverlayController {
       this.callbacks.onCycleNeutralCityCount(step);
     });
 
+    this.friendlyCityCountText = scene.add.text(0, friendlyCityCountY, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#f2d8ad',
+      align: 'center',
+    });
+    this.friendlyCityCountText.setOrigin(0.5, 0.5);
+    this.friendlyCityCountText.setInteractive({ useHandCursor: true });
+    this.friendlyCityCountText.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0) {
+        return;
+      }
+      const step = this.callbacks.isShiftHeld(pointer) ? -1 : 1;
+      this.callbacks.onCycleFriendlyCityCount(step);
+    });
+
     this.actionText = scene.add.text(0, actionY, '', {
       fontFamily: 'monospace',
       fontSize: '17px',
@@ -351,6 +371,7 @@ export class LobbyOverlayController {
       this.layoutStrategyText,
       this.unitCountText,
       this.neutralCityCountText,
+      this.friendlyCityCountText,
       this.actionText,
       this.randomMapButtonBg,
       this.randomMapButtonText,
@@ -390,6 +411,8 @@ export class LobbyOverlayController {
       this.unitCountText.disableInteractive();
       this.neutralCityCountText.setVisible(false);
       this.neutralCityCountText.disableInteractive();
+      this.friendlyCityCountText.setVisible(false);
+      this.friendlyCityCountText.disableInteractive();
       this.setButtonVisibleAndInteractive(
         this.randomMapButtonBg,
         this.randomMapButtonText,
@@ -455,6 +478,11 @@ export class LobbyOverlayController {
     this.neutralCityCountText.setInteractive({ useHandCursor: true });
     this.neutralCityCountText.setText(
       `Neutral Cities: ${view.selectedNeutralCityCount}  (click to cycle)`,
+    );
+    this.friendlyCityCountText.setVisible(true);
+    this.friendlyCityCountText.setInteractive({ useHandCursor: true });
+    this.friendlyCityCountText.setText(
+      `Friendly Cities/Team: ${view.selectedFriendlyCityCount}  (click to cycle)`,
     );
 
     const selectableMapIds = view.availableMapIds.filter((mapId) =>

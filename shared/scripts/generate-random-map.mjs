@@ -29,6 +29,7 @@ const MIN_FOREST_BIAS = -0.25;
 const MAX_FOREST_BIAS = 0.25;
 const DEFAULT_RIVER_COUNT = 2;
 const DEFAULT_NEUTRAL_CITY_COUNT = 3;
+const DEFAULT_FRIENDLY_CITY_COUNT = 0;
 const DEFAULT_METHOD = 'wfc';
 const DEFAULT_WATER_MODE = 'auto';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -69,6 +70,7 @@ function printUsage() {
   console.log(`  --water-bias <value>   Default: ${DEFAULT_WATER_BIAS}`);
   console.log(`  --river-count <n>      Default: ${DEFAULT_RIVER_COUNT}`);
   console.log(`  --neutral-city-count <n> Default: ${DEFAULT_NEUTRAL_CITY_COUNT}`);
+  console.log(`  --friendly-city-count <n> Default: ${DEFAULT_FRIENDLY_CITY_COUNT}`);
   console.log(`  --mountain-bias <value> Default: ${DEFAULT_MOUNTAIN_BIAS}`);
   console.log(`  --forest-bias <value>  Default: ${DEFAULT_FOREST_BIAS}`);
   console.log(`  --method <name>        noise | wfc | auto (default: ${DEFAULT_METHOD})`);
@@ -91,6 +93,7 @@ function parseArgs(argv) {
     waterBias: DEFAULT_WATER_BIAS,
     riverCount: DEFAULT_RIVER_COUNT,
     neutralCityCount: DEFAULT_NEUTRAL_CITY_COUNT,
+    friendlyCityCount: DEFAULT_FRIENDLY_CITY_COUNT,
     mountainBias: DEFAULT_MOUNTAIN_BIAS,
     forestBias: DEFAULT_FOREST_BIAS,
     method: DEFAULT_METHOD,
@@ -136,6 +139,10 @@ function parseArgs(argv) {
         break;
       case '--neutral-city-count':
         options.neutralCityCount = Number.parseInt(argv[i + 1] ?? '', 10);
+        i += 1;
+        break;
+      case '--friendly-city-count':
+        options.friendlyCityCount = Number.parseInt(argv[i + 1] ?? '', 10);
         i += 1;
         break;
       case '--mountain-bias':
@@ -1971,7 +1978,13 @@ function findNearestPlayableUnusedCell(
   return fallback;
 }
 
-function placeCityMarkers(terrain, width, height, neutralCityCount = DEFAULT_NEUTRAL_CITY_COUNT) {
+function placeCityMarkers(
+  terrain,
+  width,
+  height,
+  neutralCityCount = DEFAULT_NEUTRAL_CITY_COUNT,
+  friendlyCityCount = DEFAULT_FRIENDLY_CITY_COUNT,
+) {
   const redAnchor = findNearestPlayableCell(
     terrain,
     width,
@@ -1991,10 +2004,57 @@ function placeCityMarkers(terrain, width, height, neutralCityCount = DEFAULT_NEU
     0,
     12,
   );
+  const normalizedFriendlyCityCount = clamp(
+    Math.round(friendlyCityCount),
+    0,
+    6,
+  );
   const usedCellKeys = new Set([
     `${redAnchor.col}:${redAnchor.row}`,
     `${blueAnchor.col}:${blueAnchor.row}`,
   ]);
+  const redFriendlyCityAnchors = [];
+  const blueFriendlyCityAnchors = [];
+  for (let index = 0; index < normalizedFriendlyCityCount; index += 1) {
+    const progress = (index + 1) / (normalizedFriendlyCityCount + 1);
+    const verticalJitterRatio =
+      index % 2 === 0
+        ? -0.04
+        : 0.04;
+    const rowRatio = clamp(0.14 + progress * 0.72 + verticalJitterRatio, 0.08, 0.92);
+    const redColRatio =
+      index % 2 === 0
+        ? 0.22
+        : 0.26;
+    const blueColRatio =
+      index % 2 === 0
+        ? 0.78
+        : 0.74;
+    const targetRow = Math.round(height * rowRatio);
+    const redTargetCol = Math.round(width * redColRatio);
+    const blueTargetCol = Math.round(width * blueColRatio);
+    const redFriendlyAnchor = findNearestPlayableUnusedCell(
+      terrain,
+      width,
+      height,
+      redTargetCol,
+      targetRow,
+      usedCellKeys,
+    );
+    usedCellKeys.add(`${redFriendlyAnchor.col}:${redFriendlyAnchor.row}`);
+    redFriendlyCityAnchors.push(redFriendlyAnchor);
+    const blueFriendlyAnchor = findNearestPlayableUnusedCell(
+      terrain,
+      width,
+      height,
+      blueTargetCol,
+      targetRow,
+      usedCellKeys,
+    );
+    usedCellKeys.add(`${blueFriendlyAnchor.col}:${blueFriendlyAnchor.row}`);
+    blueFriendlyCityAnchors.push(blueFriendlyAnchor);
+  }
+
   const neutralCityAnchors = [];
   for (let index = 0; index < normalizedNeutralCityCount; index += 1) {
     const progress = (index + 1) / (normalizedNeutralCityCount + 1);
@@ -2015,6 +2075,11 @@ function placeCityMarkers(terrain, width, height, neutralCityCount = DEFAULT_NEU
     usedCellKeys.add(`${neutralAnchor.col}:${neutralAnchor.row}`);
     neutralCityAnchors.push(neutralAnchor);
   }
+  const allNonHomeCityAnchors = [
+    ...redFriendlyCityAnchors,
+    ...neutralCityAnchors,
+    ...blueFriendlyCityAnchors,
+  ];
 
   const markers = [];
   for (const anchor of [redAnchor, blueAnchor]) {
@@ -2028,7 +2093,7 @@ function placeCityMarkers(terrain, width, height, neutralCityCount = DEFAULT_NEU
       }
     }
   }
-  markers.push(...neutralCityAnchors);
+  markers.push(...allNonHomeCityAnchors);
 
   return {
     markers,
@@ -2036,7 +2101,7 @@ function placeCityMarkers(terrain, width, height, neutralCityCount = DEFAULT_NEU
       RED: redAnchor,
       BLUE: blueAnchor,
     },
-    neutralCityAnchors,
+    neutralCityAnchors: allNonHomeCityAnchors,
   };
 }
 
@@ -2263,6 +2328,7 @@ assertInteger('output width', options.width, 64);
 assertInteger('output height', options.height, 64);
 assertIntegerInRange('river count', options.riverCount, 0, 8);
 assertIntegerInRange('neutral city count', options.neutralCityCount, 0, 12);
+assertIntegerInRange('friendly city count', options.friendlyCityCount, 0, 6);
 assertFinite('water bias', options.waterBias, -0.25, 0.25);
 assertFinite('mountain bias', options.mountainBias, MIN_MOUNTAIN_BIAS, MAX_MOUNTAIN_BIAS);
 assertFinite('forest bias', options.forestBias, MIN_FOREST_BIAS, MAX_FOREST_BIAS);
@@ -2301,6 +2367,7 @@ const generationConfig = {
   waterBias: options.waterBias,
   riverCount: options.riverCount,
   neutralCityCount: options.neutralCityCount,
+  friendlyCityCount: options.friendlyCityCount,
   mountainBias: options.mountainBias,
   forestBias: options.forestBias,
   waterMode: resolvedWaterMode,
@@ -2329,6 +2396,7 @@ const cityLayout = placeCityMarkers(
   options.gridWidth,
   options.gridHeight,
   options.neutralCityCount,
+  options.friendlyCityCount,
 );
 const { pixels, elevationBytes } = buildPixelColors(
   terrain,
@@ -2361,6 +2429,7 @@ const elevationSidecar = {
   waterMode: resolvedWaterMode,
   riverCount: options.riverCount,
   neutralCityCount: options.neutralCityCount,
+  friendlyCityCount: options.friendlyCityCount,
   gridWidth: options.gridWidth,
   gridHeight: options.gridHeight,
   elevation: Array.from(elevationBytes),

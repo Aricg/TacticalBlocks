@@ -118,9 +118,12 @@ async function main() {
     const neutralAnchors = Array.isArray(completedLobbyState.neutralCityAnchors)
       ? completedLobbyState.neutralCityAnchors
       : [];
-    if (neutralAnchors.length !== profileSpec.profile.cities.neutralCityCount) {
+    const expectedNeutralAnchorCount =
+      (profileSpec.profile.cities.neutralCityCount ?? 0) +
+      (profileSpec.profile.cities.friendlyCityCount ?? 0) * 2;
+    if (neutralAnchors.length !== expectedNeutralAnchorCount) {
       throw new Error(
-        `Cycle ${cycleIndex + 1}: expected ${profileSpec.profile.cities.neutralCityCount} neutral cities, got ${neutralAnchors.length}.`,
+        `Cycle ${cycleIndex + 1}: expected ${expectedNeutralAnchorCount} non-home cities, got ${neutralAnchors.length}.`,
       );
     }
 

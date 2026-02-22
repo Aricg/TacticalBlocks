@@ -24,6 +24,7 @@ export type GenerationProfile = {
   cities: {
     teamCityCount: number;
     neutralCityCount: number;
+    friendlyCityCount: number;
   };
   startingForces: {
     unitCountPerTeam: number;
@@ -67,6 +68,7 @@ export const DEFAULT_GENERATION_PROFILE: GenerationProfile = {
   cities: {
     teamCityCount: 1,
     neutralCityCount: 3,
+    friendlyCityCount: 0,
   },
   startingForces: {
     unitCountPerTeam: 250,
@@ -249,6 +251,18 @@ export function resolveGenerationProfile(
         );
         if (parsedNeutralCityCount !== null) {
           profile.cities.neutralCityCount = parsedNeutralCityCount;
+        }
+      }
+      if (input.cities.friendlyCityCount !== undefined) {
+        const parsedFriendlyCityCount = parseIntegerInRange(
+          input.cities.friendlyCityCount,
+          "profile.cities.friendlyCityCount",
+          0,
+          6,
+          errors,
+        );
+        if (parsedFriendlyCityCount !== null) {
+          profile.cities.friendlyCityCount = parsedFriendlyCityCount;
         }
       }
     }

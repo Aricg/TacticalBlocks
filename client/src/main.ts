@@ -246,6 +246,7 @@ class BattleScene extends Phaser.Scene {
   private selectedUnitCountPerTeam =
     DEFAULT_GENERATION_PROFILE.startingForces.unitCountPerTeam;
   private selectedNeutralCityCount = DEFAULT_GENERATION_PROFILE.cities.neutralCityCount;
+  private selectedFriendlyCityCount = DEFAULT_GENERATION_PROFILE.cities.friendlyCityCount;
   private lobbyMapRevision = 0;
   private isLobbyGeneratingMap = false;
   private lastBattleAnnouncement: string | null = null;
@@ -287,6 +288,7 @@ class BattleScene extends Phaser.Scene {
   private static readonly RIVER_COUNT_PRESETS = [0, 1, 2, 3, 4];
   private static readonly UNIT_COUNT_PER_TEAM_PRESETS = [8, 16, 24, 32, 48, 64, 96, 128, 250];
   private static readonly NEUTRAL_CITY_COUNT_PRESETS = [0, 1, 2, 3, 4, 5, 6];
+  private static readonly FRIENDLY_CITY_COUNT_PRESETS = [0, 1, 2, 3];
   private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly ENEMY_VISIBILITY_PADDING =
@@ -883,6 +885,7 @@ class BattleScene extends Phaser.Scene {
         },
         cities: {
           neutralCityCount: this.selectedNeutralCityCount,
+          friendlyCityCount: this.selectedFriendlyCityCount,
         },
         startingForces: {
           layoutStrategy: this.selectedLayoutStrategy,
@@ -982,6 +985,17 @@ class BattleScene extends Phaser.Scene {
     this.refreshLobbyOverlay();
   }
 
+  private cycleFriendlyCityCount(step: number): void {
+    const presets = BattleScene.FRIENDLY_CITY_COUNT_PRESETS;
+    const currentIndex = presets.indexOf(this.selectedFriendlyCityCount);
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const presetCount = presets.length;
+    const normalizedStep = step >= 0 ? 1 : -1;
+    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
+    this.selectedFriendlyCityCount = presets[nextIndex] ?? presets[0];
+    this.refreshLobbyOverlay();
+  }
+
   private createLobbyOverlay(): void {
     this.lobbyOverlayController = new LobbyOverlayController(
       this,
@@ -996,6 +1010,7 @@ class BattleScene extends Phaser.Scene {
         onCycleLayoutStrategy: (step: number) => this.cycleLayoutStrategy(step),
         onCycleUnitCountPerTeam: (step: number) => this.cycleUnitCountPerTeam(step),
         onCycleNeutralCityCount: (step: number) => this.cycleNeutralCityCount(step),
+        onCycleFriendlyCityCount: (step: number) => this.cycleFriendlyCityCount(step),
         onGenerateMap: () => this.requestGenerateLobbyMap(),
         onToggleReady: () => this.toggleLobbyReady(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
@@ -1100,6 +1115,7 @@ class BattleScene extends Phaser.Scene {
       selectedLayoutStrategy: this.selectedLayoutStrategy,
       selectedUnitCountPerTeam: this.selectedUnitCountPerTeam,
       selectedNeutralCityCount: this.selectedNeutralCityCount,
+      selectedFriendlyCityCount: this.selectedFriendlyCityCount,
       isLobbyGeneratingMap: this.isLobbyGeneratingMap,
       localLobbyReady: this.localLobbyReady,
       lastBattleAnnouncement: this.lastBattleAnnouncement,

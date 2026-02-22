@@ -12,6 +12,7 @@ type GenerateRuntimeMapArgs = {
   waterMode?: GenerationWaterMode;
   riverCount?: number;
   neutralCityCount?: number;
+  friendlyCityCount?: number;
   mountainBias?: number;
   forestBias?: number;
   contextLabel: string;
@@ -101,6 +102,12 @@ export class MapGenerationService {
         Number.isInteger(args.neutralCityCount)
       ) {
         generatorArgs.push("--neutral-city-count", `${args.neutralCityCount}`);
+      }
+      if (
+        typeof args.friendlyCityCount === "number" &&
+        Number.isInteger(args.friendlyCityCount)
+      ) {
+        generatorArgs.push("--friendly-city-count", `${args.friendlyCityCount}`);
       }
       if (
         typeof args.mountainBias === "number" &&

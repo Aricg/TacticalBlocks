@@ -1158,6 +1158,7 @@ export class BattleRoom extends Room<BattleState> {
         waterMode: profile.terrain.waterMode,
         riverCount: profile.terrain.riverCount,
         neutralCityCount: profile.cities.neutralCityCount,
+        friendlyCityCount: profile.cities.friendlyCityCount,
         mountainBias: this.resolveMountainBiasFromDensity(
           profile.terrain.mountainDensity,
         ),
