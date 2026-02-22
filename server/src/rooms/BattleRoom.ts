@@ -46,6 +46,7 @@ import {
   MapRuntimeService,
   type LoadActiveMapBundleResult,
 } from "./services/MapRuntimeService.js";
+import { StartingForcePlanner } from "./services/StartingForcePlanner.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import type { MapBundle } from "../../../shared/src/mapBundle.js";
@@ -94,6 +95,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly battleLifecycleService = new BattleLifecycleService();
   private readonly mapGenerationService = new MapGenerationService();
   private readonly mapRuntimeService = new MapRuntimeService();
+  private readonly startingForcePlanner = new StartingForcePlanner();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
   private readonly supplySignatureByUnitId = new Map<string, string>();
@@ -193,7 +195,7 @@ export class BattleRoom extends Room<BattleState> {
     this.resetCityUnitGenerationState();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
-    this.spawnTestUnits();
+    this.spawnStartingForces();
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
 
@@ -1227,7 +1229,7 @@ export class BattleRoom extends Room<BattleState> {
     }
     this.clearUnits();
     this.syncCityInfluenceSources();
-    this.spawnTestUnits();
+    this.spawnStartingForces();
     this.mapRuntimeService.clearInfluenceGrid(this.state.influenceGrid);
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
@@ -1235,182 +1237,37 @@ export class BattleRoom extends Room<BattleState> {
     this.mapRevision = switchResult.nextMapRevision;
   }
 
-  private spawnTestUnits(): void {
-    const redSpawn = this.getCityWorldPosition("RED");
-    const blueSpawn = this.getCityWorldPosition("BLUE");
-    const axisX = blueSpawn.x - redSpawn.x;
-    const axisY = blueSpawn.y - redSpawn.y;
-    const axisLength = Math.hypot(axisX, axisY);
-    const redForwardX = axisLength > 0.0001 ? axisX / axisLength : 1;
-    const redForwardY = axisLength > 0.0001 ? axisY / axisLength : 0;
-    const blueForwardX = -redForwardX;
-    const blueForwardY = -redForwardY;
-    const lateralX = -redForwardY;
-    const lateralY = redForwardX;
-    const redRotation =
-      Math.atan2(redForwardY, redForwardX) - BattleRoom.UNIT_FORWARD_OFFSET;
-    const blueRotation =
-      Math.atan2(blueForwardY, blueForwardX) - BattleRoom.UNIT_FORWARD_OFFSET;
-    const battleLineCenterX = (redSpawn.x + blueSpawn.x) * 0.5;
-    const battleLineCenterY = (redSpawn.y + blueSpawn.y) * 0.5;
-    const blockSize = Math.min(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT);
-    const oneBlockBackOffset = blockSize * 2;
-    const spacingAcross = Math.max(1, blockSize);
-    const redLineX = battleLineCenterX - redForwardX * oneBlockBackOffset;
-    const redLineY = battleLineCenterY - redForwardY * oneBlockBackOffset;
-    const blueLineX = battleLineCenterX - blueForwardX * oneBlockBackOffset;
-    const blueLineY = battleLineCenterY - blueForwardY * oneBlockBackOffset;
-    const mapMinX = BattleRoom.CELL_WIDTH * 0.5;
-    const mapMaxX = GAMEPLAY_CONFIG.map.width - BattleRoom.CELL_WIDTH * 0.5;
-    const mapMinY = BattleRoom.CELL_HEIGHT * 0.5;
-    const mapMaxY = GAMEPLAY_CONFIG.map.height - BattleRoom.CELL_HEIGHT * 0.5;
-    const resolveLineInterval = (
-      origin: number,
-      direction: number,
-      min: number,
-      max: number,
-    ): { min: number; max: number } | null => {
-      if (Math.abs(direction) <= 0.0001) {
-        if (origin < min || origin > max) {
-          return null;
-        }
-
-        return {
-          min: Number.NEGATIVE_INFINITY,
-          max: Number.POSITIVE_INFINITY,
-        };
-      }
-
-      const intervalA = (min - origin) / direction;
-      const intervalB = (max - origin) / direction;
-      return {
-        min: Math.min(intervalA, intervalB),
-        max: Math.max(intervalA, intervalB),
-      };
+  private spawnStartingForces(): void {
+    const cityAnchors = this.activeMapBundle?.cityAnchors ?? {
+      RED: getTeamCityGridCoordinate("RED"),
+      BLUE: getTeamCityGridCoordinate("BLUE"),
     };
-    const xInterval = resolveLineInterval(
-      battleLineCenterX,
-      lateralX,
-      mapMinX,
-      mapMaxX,
-    );
-    const yInterval = resolveLineInterval(
-      battleLineCenterY,
-      lateralY,
-      mapMinY,
-      mapMaxY,
-    );
-    if (!xInterval || !yInterval) {
-      return;
-    }
-    const minAcrossOffset = Math.max(xInterval.min, yInterval.min);
-    const maxAcrossOffset = Math.min(xInterval.max, yInterval.max);
-    if (
-      !Number.isFinite(minAcrossOffset) ||
-      !Number.isFinite(maxAcrossOffset) ||
-      minAcrossOffset > maxAcrossOffset
-    ) {
-      return;
-    }
-    const lineLengthAcross = maxAcrossOffset - minAcrossOffset;
-    const unitsPerSide = Math.max(1, Math.floor(lineLengthAcross / spacingAcross) + 1);
-    const usedAcrossLength = (unitsPerSide - 1) * spacingAcross;
-    const centeredAcrossStart =
-      (minAcrossOffset + maxAcrossOffset - usedAcrossLength) * 0.5;
+    const plannedUnits = this.startingForcePlanner.computeInitialSpawns({
+      strategy: "battle-line",
+      cityAnchors,
+      blockedSpawnCellIndexSet:
+        this.activeMapBundle?.blockedSpawnCellIndexSet ?? new Set<number>(),
+      baseUnitHealth: this.runtimeTuning.baseUnitHealth,
+      unitForwardOffset: BattleRoom.UNIT_FORWARD_OFFSET,
+      mapWidth: GAMEPLAY_CONFIG.map.width,
+      mapHeight: GAMEPLAY_CONFIG.map.height,
+      gridWidth: BattleRoom.GRID_WIDTH,
+      gridHeight: BattleRoom.GRID_HEIGHT,
+      citySpawnSearchRadius: BattleRoom.CITY_SPAWN_SEARCH_RADIUS,
+    });
 
-    const redSpawnCandidates: Vector2[] = [];
-    const blueSpawnCandidates: Vector2[] = [];
-
-    for (let i = 0; i < unitsPerSide; i += 1) {
-      const acrossOffset = centeredAcrossStart + i * spacingAcross;
-      const redCell = this.worldToGridCoordinate(
-        redLineX + lateralX * acrossOffset,
-        redLineY + lateralY * acrossOffset,
+    for (const plannedUnit of plannedUnits.units) {
+      const unit = new Unit(
+        plannedUnit.unitId,
+        plannedUnit.team.toLowerCase(),
+        plannedUnit.position.x,
+        plannedUnit.position.y,
+        plannedUnit.rotation,
+        plannedUnit.health,
+        plannedUnit.unitType,
       );
-      if (!this.isBlockedSpawnCell(redCell)) {
-        redSpawnCandidates.push(this.gridToWorldCenter(redCell));
-      }
-
-      const blueCell = this.worldToGridCoordinate(
-        blueLineX + lateralX * acrossOffset,
-        blueLineY + lateralY * acrossOffset,
-      );
-      if (!this.isBlockedSpawnCell(blueCell)) {
-        blueSpawnCandidates.push(this.gridToWorldCenter(blueCell));
-      }
-    }
-
-    const mirroredUnitsPerSide = Math.min(
-      redSpawnCandidates.length,
-      blueSpawnCandidates.length,
-    );
-
-    const commanderHealth = getUnitHealthMax(
-      this.runtimeTuning.baseUnitHealth,
-      "COMMANDER",
-    );
-    const redCommanderSpawnCell =
-      this.findOpenSpawnCellNearCity(this.getCityCell("RED")) ?? this.getCityCell("RED");
-    const blueCommanderSpawnCell =
-      this.findOpenSpawnCellNearCity(this.getCityCell("BLUE")) ?? this.getCityCell("BLUE");
-    const redCommanderSpawn = this.gridToWorldCenter(redCommanderSpawnCell);
-    const blueCommanderSpawn = this.gridToWorldCenter(blueCommanderSpawnCell);
-    const redCommander = new Unit(
-      "red-commander",
-      "red",
-      redCommanderSpawn.x,
-      redCommanderSpawn.y,
-      redRotation,
-      commanderHealth,
-      "COMMANDER",
-    );
-    const blueCommander = new Unit(
-      "blue-commander",
-      "blue",
-      blueCommanderSpawn.x,
-      blueCommanderSpawn.y,
-      blueRotation,
-      commanderHealth,
-      "COMMANDER",
-    );
-    this.state.units.set(redCommander.unitId, redCommander);
-    this.state.units.set(blueCommander.unitId, blueCommander);
-    this.movementStateByUnitId.set(
-      redCommander.unitId,
-      this.createMovementState(),
-    );
-    this.movementStateByUnitId.set(
-      blueCommander.unitId,
-      this.createMovementState(),
-    );
-
-    for (let i = 0; i < mirroredUnitsPerSide; i += 1) {
-      const redPosition = redSpawnCandidates[i];
-      const bluePosition = blueSpawnCandidates[i];
-
-      const redUnit = new Unit(
-        `red-${i + 1}`,
-        "red",
-        redPosition.x,
-        redPosition.y,
-        redRotation,
-        this.runtimeTuning.baseUnitHealth,
-        DEFAULT_UNIT_TYPE,
-      );
-      const blueUnit = new Unit(
-        `blue-${i + 1}`,
-        "blue",
-        bluePosition.x,
-        bluePosition.y,
-        blueRotation,
-        this.runtimeTuning.baseUnitHealth,
-        DEFAULT_UNIT_TYPE,
-      );
-
-      this.state.units.set(redUnit.unitId, redUnit);
-      this.state.units.set(blueUnit.unitId, blueUnit);
-      this.movementStateByUnitId.set(redUnit.unitId, this.createMovementState());
-      this.movementStateByUnitId.set(blueUnit.unitId, this.createMovementState());
+      this.state.units.set(unit.unitId, unit);
+      this.movementStateByUnitId.set(unit.unitId, this.createMovementState());
     }
   }
 

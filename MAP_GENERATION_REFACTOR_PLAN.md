@@ -155,9 +155,9 @@ Replace hardcoded initial deployment with strategy interface:
 - [ ] Done when invalid profile input is rejected safely with clear errors/logs.
 
 ### Phase 5: Spawn/Layout Strategy System
-- [ ] Replace `spawnTestUnits` with `StartingForcePlanner`.
-- [ ] Introduce `computeInitialSpawns(strategy, context): SpawnPlan`.
-- [ ] Implement `battle-line` strategy.
+- [x] Replace `spawnTestUnits` with `StartingForcePlanner`.
+- [x] Introduce `computeInitialSpawns(strategy, context): SpawnPlan`.
+- [x] Implement `battle-line` strategy.
 - [ ] Implement `city-front` strategy.
 - [ ] Implement `mirrored-grid` strategy.
 - [ ] Implement `wedge` strategy.
