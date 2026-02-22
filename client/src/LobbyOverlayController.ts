@@ -86,24 +86,42 @@ export class LobbyOverlayController {
     this.panel.setDepth(config.depth);
     this.panel.setScrollFactor(0);
 
-    const panelBackground = scene.add.rectangle(0, 0, 680, 700, 0x121212, 0.9);
+    const panelWidth = 680;
+    const panelHeight = 700;
+    const topY = -panelHeight * 0.5 + 42;
+    const titleY = topY;
+    const teamY = titleY + 50;
+    const statusY = teamY + 78;
+    const mapY = statusY + 82;
+    const generationMethodY = mapY + 28;
+    const waterModeY = generationMethodY + 28;
+    const riverCountY = waterModeY + 28;
+    const mountainDensityY = riverCountY + 28;
+    const forestDensityY = mountainDensityY + 28;
+    const layoutStrategyY = forestDensityY + 28;
+    const unitCountY = layoutStrategyY + 28;
+    const neutralCityCountY = unitCountY + 28;
+    const actionY = neutralCityCountY + 34;
+    const buttonsY = actionY + 58;
+
+    const panelBackground = scene.add.rectangle(0, 0, panelWidth, panelHeight, 0x121212, 0.9);
     panelBackground.setStrokeStyle(2, 0xffffff, 0.35);
 
-    const titleText = scene.add.text(0, -145, 'Battle Lobby', {
+    const titleText = scene.add.text(0, titleY, 'Battle Lobby', {
       fontFamily: 'monospace',
       fontSize: '34px',
       color: '#f1f1f1',
     });
     titleText.setOrigin(0.5, 0.5);
 
-    this.teamText = scene.add.text(0, -95, 'Team: BLUE', {
+    this.teamText = scene.add.text(0, teamY, 'Team: BLUE', {
       fontFamily: 'monospace',
       fontSize: '22px',
       color: '#d7d7d7',
     });
     this.teamText.setOrigin(0.5, 0.5);
 
-    this.statusText = scene.add.text(0, -15, '', {
+    this.statusText = scene.add.text(0, statusY, '', {
       fontFamily: 'monospace',
       fontSize: '18px',
       color: '#e0e0e0',
@@ -112,7 +130,7 @@ export class LobbyOverlayController {
     });
     this.statusText.setOrigin(0.5, 0.5);
 
-    this.mapText = scene.add.text(0, 45, '', {
+    this.mapText = scene.add.text(0, mapY, '', {
       fontFamily: 'monospace',
       fontSize: '18px',
       color: '#b9d9ff',
@@ -128,7 +146,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleMap(step);
     });
 
-    this.generationMethodText = scene.add.text(0, 73, '', {
+    this.generationMethodText = scene.add.text(0, generationMethodY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#d0f0c0',
@@ -144,7 +162,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleGenerationMethod(step);
     });
 
-    this.waterModeText = scene.add.text(0, 101, '', {
+    this.waterModeText = scene.add.text(0, waterModeY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#9fd9ff',
@@ -160,7 +178,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleWaterMode(step);
     });
 
-    this.riverCountText = scene.add.text(0, 129, '', {
+    this.riverCountText = scene.add.text(0, riverCountY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#9ac2dd',
@@ -176,7 +194,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleRiverCount(step);
     });
 
-    this.mountainDensityText = scene.add.text(0, 157, '', {
+    this.mountainDensityText = scene.add.text(0, mountainDensityY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ded0b2',
@@ -192,7 +210,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleMountainDensity(step);
     });
 
-    this.forestDensityText = scene.add.text(0, 185, '', {
+    this.forestDensityText = scene.add.text(0, forestDensityY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#b8dfb7',
@@ -208,7 +226,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleForestDensity(step);
     });
 
-    this.layoutStrategyText = scene.add.text(0, 213, '', {
+    this.layoutStrategyText = scene.add.text(0, layoutStrategyY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffd8b0',
@@ -224,7 +242,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleLayoutStrategy(step);
     });
 
-    this.unitCountText = scene.add.text(0, 241, '', {
+    this.unitCountText = scene.add.text(0, unitCountY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#f0d7c9',
@@ -240,7 +258,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleUnitCountPerTeam(step);
     });
 
-    this.neutralCityCountText = scene.add.text(0, 269, '', {
+    this.neutralCityCountText = scene.add.text(0, neutralCityCountY, '', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#e8e0a5',
@@ -256,7 +274,7 @@ export class LobbyOverlayController {
       this.callbacks.onCycleNeutralCityCount(step);
     });
 
-    this.actionText = scene.add.text(0, 297, '', {
+    this.actionText = scene.add.text(0, actionY, '', {
       fontFamily: 'monospace',
       fontSize: '17px',
       color: '#f4e7b2',
@@ -265,14 +283,14 @@ export class LobbyOverlayController {
     });
     this.actionText.setOrigin(0.5, 0.5);
 
-    this.randomMapButtonBg = scene.add.rectangle(-220, 304, 180, 46, 0x47627a, 1);
+    this.randomMapButtonBg = scene.add.rectangle(-220, buttonsY, 180, 46, 0x47627a, 1);
     this.randomMapButtonBg.setStrokeStyle(2, 0xeaf6ff, 0.45);
     this.randomMapButtonBg.setInteractive({ useHandCursor: true });
     this.randomMapButtonBg.on('pointerdown', () => {
       this.callbacks.onRandomMap();
     });
 
-    this.randomMapButtonText = scene.add.text(-220, 304, 'RANDOM MAP', {
+    this.randomMapButtonText = scene.add.text(-220, buttonsY, 'RANDOM MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -283,14 +301,14 @@ export class LobbyOverlayController {
       this.callbacks.onRandomMap();
     });
 
-    this.generateMapButtonBg = scene.add.rectangle(0, 304, 180, 46, 0x66573a, 1);
+    this.generateMapButtonBg = scene.add.rectangle(0, buttonsY, 180, 46, 0x66573a, 1);
     this.generateMapButtonBg.setStrokeStyle(2, 0xffe7bd, 0.45);
     this.generateMapButtonBg.setInteractive({ useHandCursor: true });
     this.generateMapButtonBg.on('pointerdown', () => {
       this.callbacks.onGenerateMap();
     });
 
-    this.generateMapButtonText = scene.add.text(0, 304, 'GENERATE MAP', {
+    this.generateMapButtonText = scene.add.text(0, buttonsY, 'GENERATE MAP', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff',
@@ -301,14 +319,14 @@ export class LobbyOverlayController {
       this.callbacks.onGenerateMap();
     });
 
-    this.readyButtonBg = scene.add.rectangle(220, 304, 180, 46, 0x2f8f46, 1);
+    this.readyButtonBg = scene.add.rectangle(220, buttonsY, 180, 46, 0x2f8f46, 1);
     this.readyButtonBg.setStrokeStyle(2, 0xefffef, 0.55);
     this.readyButtonBg.setInteractive({ useHandCursor: true });
     this.readyButtonBg.on('pointerdown', () => {
       this.callbacks.onToggleReady();
     });
 
-    this.readyButtonText = scene.add.text(220, 304, 'READY', {
+    this.readyButtonText = scene.add.text(220, buttonsY, 'READY', {
       fontFamily: 'monospace',
       fontSize: '21px',
       color: '#ffffff',
