@@ -26,7 +26,7 @@ const cycleProfiles = [
     profile: {
       terrain: { waterMode: "none", riverCount: 0, mountainDensity: 0.01, forestDensity: 0.04 },
       cities: { neutralCityCount: 2 },
-      startingForces: { layoutStrategy: "wedge", unitCountPerTeam: 16 },
+      startingForces: { layoutStrategy: "block", unitCountPerTeam: 16 },
     },
   },
 ];

@@ -6,7 +6,7 @@ The current map-generation path works, but it is difficult to evolve safely beca
 - River count/style and water mode
 - Mountain and forest density
 - Starting unit count
-- Starting unit layout strategy (line/wedge/city-front/etc.)
+- Starting unit layout strategy (line/block/city-front/etc.)
 - Generation mode (`noise`, `wfc`, `auto`, and future modes)
 
 while keeping runtime map switching stable (no server restart required).
@@ -86,7 +86,7 @@ Extract from `BattleRoom`:
 ### 5. Spawn Strategy Abstraction
 Replace hardcoded initial deployment with strategy interface:
 - `computeInitialSpawns(strategy, context): SpawnPlan`
-- Implement strategies incrementally: `battle-line`, `city-front`, `mirrored-grid`, `wedge`.
+- Implement strategies incrementally: `battle-line`, `city-front`, `mirrored-grid`, `block`.
 
 ## Implementation Checklist
 
@@ -160,7 +160,7 @@ Replace hardcoded initial deployment with strategy interface:
 - [x] Implement `battle-line` strategy.
 - [x] Implement `city-front` strategy.
 - [x] Implement `mirrored-grid` strategy.
-- [x] Implement `wedge` strategy.
+- [x] Implement `block` strategy.
 - [x] Add invariant checks: no blocked spawn, symmetry expectations, commander placement rules.
 - [ ] Done when layout is switchable per profile and spawn invariants hold across generated maps.
 

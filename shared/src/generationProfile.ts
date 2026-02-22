@@ -7,7 +7,7 @@ export const STARTING_FORCE_LAYOUT_STRATEGIES = [
   "battle-line",
   "city-front",
   "mirrored-grid",
-  "wedge",
+  "block",
 ] as const;
 export type StartingForceLayoutStrategy =
   (typeof STARTING_FORCE_LAYOUT_STRATEGIES)[number];
@@ -292,7 +292,7 @@ export function resolveGenerationProfile(
           )
         ) {
           errors.push(
-            "profile.startingForces.layoutStrategy must be one of: battle-line, city-front, mirrored-grid, wedge.",
+            "profile.startingForces.layoutStrategy must be one of: battle-line, city-front, mirrored-grid, block.",
           );
         } else {
           profile.startingForces.layoutStrategy =

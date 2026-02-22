@@ -52,8 +52,8 @@ export class StartingForcePlanner {
     if (args.strategy === "mirrored-grid") {
       return this.computeMirroredGridSpawns(args);
     }
-    if (args.strategy === "wedge") {
-      return this.computeWedgeSpawns(args);
+    if (args.strategy === "block") {
+      return this.computeBlockSpawns(args);
     }
     return this.computeBattleLineSpawns(args);
   }
@@ -415,7 +415,7 @@ export class StartingForcePlanner {
     });
   }
 
-  private computeWedgeSpawns(args: ComputeInitialSpawnsArgs): StartingForcePlan {
+  private computeBlockSpawns(args: ComputeInitialSpawnsArgs): StartingForcePlan {
     const cellWidth = args.mapWidth / args.gridWidth;
     const cellHeight = args.mapHeight / args.gridHeight;
     const redSpawn = this.gridToWorldCenter(args.cityAnchors.RED, cellWidth, cellHeight);
@@ -436,69 +436,35 @@ export class StartingForcePlanner {
     const redRotation = Math.atan2(redForwardY, redForwardX) - args.unitForwardOffset;
     const blueRotation =
       Math.atan2(blueForwardY, blueForwardX) - args.unitForwardOffset;
-    const blockSize = Math.min(cellWidth, cellHeight);
-    const spacingAcross = Math.max(1, blockSize);
-    const rowSpacing = blockSize * 1.4;
-    const frontOffset = blockSize * 3;
-    const rowCount = 4;
-    const redTipX = redSpawn.x + redForwardX * frontOffset;
-    const redTipY = redSpawn.y + redForwardY * frontOffset;
-    const blueTipX = blueSpawn.x + blueForwardX * frontOffset;
-    const blueTipY = blueSpawn.y + blueForwardY * frontOffset;
-    const redSpawnCandidates: Vector2[] = [];
-    const blueSpawnCandidates: Vector2[] = [];
-    const redSpawnCellKeys = new Set<string>();
-    const blueSpawnCellKeys = new Set<string>();
-
-    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
-      const unitsInRow = 1 + rowIndex * 2;
-      const rowDepth = rowIndex * rowSpacing;
-      const redRowX = redTipX - redForwardX * rowDepth;
-      const redRowY = redTipY - redForwardY * rowDepth;
-      const blueRowX = blueTipX - blueForwardX * rowDepth;
-      const blueRowY = blueTipY - blueForwardY * rowDepth;
-      const totalAcrossSpan = (unitsInRow - 1) * spacingAcross;
-      const acrossStart = -totalAcrossSpan * 0.5;
-
-      for (let unitIndex = 0; unitIndex < unitsInRow; unitIndex += 1) {
-        const acrossOffset = acrossStart + unitIndex * spacingAcross;
-        const redCell = this.worldToGridCoordinate(
-          redRowX + lateralX * acrossOffset,
-          redRowY + lateralY * acrossOffset,
-          args.gridWidth,
-          args.gridHeight,
-          cellWidth,
-          cellHeight,
-        );
-        this.addSpawnCandidateIfOpen({
-          candidateCell: redCell,
-          candidates: redSpawnCandidates,
-          seenCellKeys: redSpawnCellKeys,
-          gridWidth: args.gridWidth,
-          blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
-          cellWidth,
-          cellHeight,
-        });
-
-        const blueCell = this.worldToGridCoordinate(
-          blueRowX + lateralX * acrossOffset,
-          blueRowY + lateralY * acrossOffset,
-          args.gridWidth,
-          args.gridHeight,
-          cellWidth,
-          cellHeight,
-        );
-        this.addSpawnCandidateIfOpen({
-          candidateCell: blueCell,
-          candidates: blueSpawnCandidates,
-          seenCellKeys: blueSpawnCellKeys,
-          gridWidth: args.gridWidth,
-          blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
-          cellWidth,
-          cellHeight,
-        });
-      }
-    }
+    const requestedUnitsPerSide =
+      typeof args.lineUnitCountPerTeam === "number" &&
+      Number.isInteger(args.lineUnitCountPerTeam) &&
+      args.lineUnitCountPerTeam > 0
+        ? args.lineUnitCountPerTeam
+        : args.gridWidth * args.gridHeight;
+    const targetUnitsPerSide = this.clamp(
+      requestedUnitsPerSide,
+      1,
+      args.gridWidth * args.gridHeight,
+    );
+    const redSpawnCandidates = this.collectCityBlockCandidates({
+      cityAnchor: args.cityAnchors.RED,
+      targetUnitsPerSide,
+      gridWidth: args.gridWidth,
+      gridHeight: args.gridHeight,
+      blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
+      cellWidth,
+      cellHeight,
+    });
+    const blueSpawnCandidates = this.collectCityBlockCandidates({
+      cityAnchor: args.cityAnchors.BLUE,
+      targetUnitsPerSide,
+      gridWidth: args.gridWidth,
+      gridHeight: args.gridHeight,
+      blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
+      cellWidth,
+      cellHeight,
+    });
 
     return this.buildPlannedUnitsFromCandidates({
       computeArgs: args,
@@ -509,6 +475,64 @@ export class StartingForcePlanner {
       cellWidth,
       cellHeight,
     });
+  }
+
+  private collectCityBlockCandidates(args: {
+    cityAnchor: GridCoordinate;
+    targetUnitsPerSide: number;
+    gridWidth: number;
+    gridHeight: number;
+    blockedSpawnCellIndexSet: ReadonlySet<number>;
+    cellWidth: number;
+    cellHeight: number;
+  }): Vector2[] {
+    const candidates: Vector2[] = [];
+    const seenCellKeys = new Set<string>();
+    const maxRadius = Math.max(args.gridWidth, args.gridHeight);
+
+    for (let radius = 1; radius <= maxRadius; radius += 1) {
+      for (
+        let row = args.cityAnchor.row - radius;
+        row <= args.cityAnchor.row + radius;
+        row += 1
+      ) {
+        if (row < 0 || row >= args.gridHeight) {
+          continue;
+        }
+        for (
+          let col = args.cityAnchor.col - radius;
+          col <= args.cityAnchor.col + radius;
+          col += 1
+        ) {
+          if (col < 0 || col >= args.gridWidth) {
+            continue;
+          }
+          if (
+            Math.max(
+              Math.abs(col - args.cityAnchor.col),
+              Math.abs(row - args.cityAnchor.row),
+            ) !== radius
+          ) {
+            continue;
+          }
+
+          this.addSpawnCandidateIfOpen({
+            candidateCell: { col, row },
+            candidates,
+            seenCellKeys,
+            gridWidth: args.gridWidth,
+            blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
+            cellWidth: args.cellWidth,
+            cellHeight: args.cellHeight,
+          });
+          if (candidates.length >= args.targetUnitsPerSide) {
+            return candidates;
+          }
+        }
+      }
+    }
+
+    return candidates;
   }
 
   private buildPlannedUnitsFromCandidates(input: {
