@@ -34,6 +34,7 @@ const cycleProfiles = [
 function waitForCondition(room, predicate, timeoutMs, label) {
   return new Promise((resolve, reject) => {
     let timeout = null;
+    let removeListener = null;
     const handler = (message) => {
       try {
         if (!predicate(message)) {
@@ -47,7 +48,10 @@ function waitForCondition(room, predicate, timeoutMs, label) {
       }
     };
     const cleanup = () => {
-      room.offMessage("lobbyState", handler);
+      if (typeof removeListener === "function") {
+        removeListener();
+        removeListener = null;
+      }
       if (timeout) {
         clearTimeout(timeout);
         timeout = null;
@@ -57,13 +61,15 @@ function waitForCondition(room, predicate, timeoutMs, label) {
       cleanup();
       reject(new Error(`Timed out waiting for ${label}.`));
     }, timeoutMs);
-    room.onMessage("lobbyState", handler);
+    removeListener = room.onMessage("lobbyState", handler);
   });
 }
 
 async function main() {
   const client = new Client(SERVER_URL);
   const room = await client.joinOrCreate("battle");
+  room.onMessage("teamAssigned", () => {});
+  room.onMessage("runtimeTuningSnapshot", () => {});
   let lastLobbyState = null;
   room.onMessage("lobbyState", (message) => {
     lastLobbyState = message;
