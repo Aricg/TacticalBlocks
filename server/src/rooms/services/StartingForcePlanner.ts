@@ -2,6 +2,7 @@ import {
   findOpenSpawnCellNearCity as findOpenSpawnCellNearCitySystem,
 } from "../../systems/cities/CitySpawnSystem.js";
 import type { MapBundle } from "../../../../shared/src/mapBundle.js";
+import type { StartingForceLayoutStrategy } from "../../../../shared/src/generationProfile.js";
 import {
   DEFAULT_UNIT_TYPE,
   getUnitHealthMax,
@@ -12,12 +13,6 @@ import type {
   PlayerTeam,
   Vector2,
 } from "../BattleRoomTypes.js";
-
-export type StartingForceLayoutStrategy =
-  | "battle-line"
-  | "city-front"
-  | "mirrored-grid"
-  | "wedge";
 
 export type PlannedStartingUnit = {
   unitId: string;

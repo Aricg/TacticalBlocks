@@ -647,12 +647,17 @@ export class NetworkManager {
     this.room.send(NETWORK_MESSAGE_TYPES.lobbyRandomMap, message);
   }
 
-  public sendLobbyGenerateMap(method: MapGenerationMethod = 'wfc'): void {
+  public sendLobbyGenerateMap(
+    method: MapGenerationMethod = 'wfc',
+    profile?: LobbyGenerateMapMessage['profile'],
+  ): void {
     if (!this.room) {
       return;
     }
 
-    const message: LobbyGenerateMapMessage = { method };
+    const message: LobbyGenerateMapMessage = profile
+      ? { method, profile }
+      : { method };
     this.room.send(NETWORK_MESSAGE_TYPES.lobbyGenerateMap, message);
   }
 

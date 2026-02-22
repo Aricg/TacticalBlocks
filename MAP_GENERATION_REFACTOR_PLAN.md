@@ -146,13 +146,13 @@ Replace hardcoded initial deployment with strategy interface:
 - [ ] Done when `generate-random-map` entry behavior remains stable.
 
 ### Phase 4: `GenerationProfile` End-to-End
-- [ ] Define `GenerationProfile` schema (method, seed, terrain, city, starting-force settings).
-- [ ] Extend shared network contract to include profile payload on generate-map requests.
+- [x] Define `GenerationProfile` schema (method, seed, terrain, city, starting-force settings).
+- [x] Extend shared network contract to include profile payload on generate-map requests.
 - [ ] Add client lobby controls and profile serialization.
-- [ ] Add server-side profile validation/defaulting with strict bounds.
-- [ ] Pipe validated profile into generation pipeline.
+- [x] Add server-side profile validation/defaulting with strict bounds.
+- [x] Pipe validated profile into generation pipeline.
 - [ ] Done when users can control city/river/mountain/forest/unit/layout settings from lobby.
-- [ ] Done when invalid profile input is rejected safely with clear errors/logs.
+- [x] Done when invalid profile input is rejected safely with clear errors/logs.
 
 ### Phase 5: Spawn/Layout Strategy System
 - [x] Replace `spawnTestUnits` with `StartingForcePlanner`.

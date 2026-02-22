@@ -1,4 +1,5 @@
 import type { RuntimeTuning } from './runtimeTuning.js';
+import type { GenerationProfileDraft } from './generationProfile.js';
 
 export const NETWORK_MESSAGE_TYPES = {
   unitPath: 'unitPath',
@@ -69,6 +70,7 @@ export type MapGenerationMethod = 'noise' | 'wfc' | 'auto';
 
 export type LobbyGenerateMapMessage = {
   method?: MapGenerationMethod;
+  profile?: GenerationProfileDraft;
 };
 export type LobbyRandomMapMessage = Record<string, never>;
 

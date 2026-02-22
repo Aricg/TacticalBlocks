@@ -2,12 +2,16 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { MapGenerationMethod } from "../../../../shared/src/networkContracts.js";
+import type { GenerationWaterMode } from "../../../../shared/src/generationProfile.js";
 import { resolveSharedDirectory } from "./resolveSharedDirectory.js";
 
 type GenerateRuntimeMapArgs = {
   mapId: string;
   method: MapGenerationMethod;
   seed: string;
+  waterMode?: GenerationWaterMode;
+  mountainBias?: number;
+  forestBias?: number;
   contextLabel: string;
   roomModuleUrl: string;
 };
@@ -69,20 +73,31 @@ export class MapGenerationService {
       };
     }
 
+    const generatorArgs = [
+      generatorScriptPath,
+      "--map-id",
+      args.mapId,
+      "--seed",
+      args.seed,
+      "--method",
+      args.method,
+      "--output-dir",
+      sharedDir,
+      "--no-sync",
+    ];
+    if (typeof args.waterMode === "string") {
+      generatorArgs.push("--water-mode", args.waterMode);
+    }
+    if (typeof args.mountainBias === "number" && Number.isFinite(args.mountainBias)) {
+      generatorArgs.push("--mountain-bias", `${args.mountainBias}`);
+    }
+    if (typeof args.forestBias === "number" && Number.isFinite(args.forestBias)) {
+      generatorArgs.push("--forest-bias", `${args.forestBias}`);
+    }
+
     const commandResult = spawnSync(
       process.execPath,
-      [
-        generatorScriptPath,
-        "--map-id",
-        args.mapId,
-        "--seed",
-        args.seed,
-        "--method",
-        args.method,
-        "--output-dir",
-        sharedDir,
-        "--no-sync",
-      ],
+      generatorArgs,
       {
         cwd: sharedDir,
         encoding: "utf8",

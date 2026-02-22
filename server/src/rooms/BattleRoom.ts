@@ -48,6 +48,12 @@ import {
 } from "./services/MapRuntimeService.js";
 import { StartingForcePlanner } from "./services/StartingForcePlanner.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
+import {
+  DEFAULT_GENERATION_PROFILE,
+  resolveGenerationProfile,
+  type GenerationProfile,
+  type StartingForceLayoutStrategy,
+} from "../../../shared/src/generationProfile.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import type { MapBundle } from "../../../shared/src/mapBundle.js";
 import {
@@ -106,6 +112,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly moraleStepElapsedSecondsByUnitId = new Map<string, number>();
   private readonly engagedUnitIds = new Set<string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
+  private readonly generationProfileByMapId = new Map<string, GenerationProfile>();
   private neutralCityCells: GridCoordinate[] = [];
   private matchPhase: MatchPhase = "LOBBY";
   private mapRevision = 0;
@@ -120,6 +127,8 @@ export class BattleRoom extends Room<BattleState> {
     RED: 1,
   };
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
+  private startingForceLayoutStrategy: StartingForceLayoutStrategy =
+    DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy;
   private activeMapBundle: MapBundle | null = null;
 
   private static readonly UNIT_TURN_SPEED =
@@ -195,6 +204,9 @@ export class BattleRoom extends Room<BattleState> {
     this.resetCityUnitGenerationState();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
+    this.startingForceLayoutStrategy = this.resolveStartingForceLayoutStrategyForMap(
+      this.state.mapId,
+    );
     this.spawnStartingForces();
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
@@ -1078,14 +1090,28 @@ export class BattleRoom extends Room<BattleState> {
     );
     const mapId = this.lobbyService.getGeneratedMapId();
     const seed = `lobby-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    const profileResult = resolveGenerationProfile(message?.profile, {
+      fallbackMethod: generationMethod,
+      fallbackSeed: seed,
+    });
+    if (!profileResult.ok) {
+      console.warn(
+        `[map-generation][invalid-profile] mapId=${mapId} ${profileResult.errors.join("; ")}`,
+      );
+      return;
+    }
+    const profile = profileResult.profile;
     this.isGeneratingMap = true;
     this.broadcastLobbyState();
 
     try {
       const generated = this.mapGenerationService.generateRuntimeMap({
         mapId,
-        method: generationMethod,
-        seed,
+        method: profile.method,
+        seed: profile.seed,
+        waterMode: profile.terrain.waterMode,
+        mountainBias: profile.terrain.mountainDensity,
+        forestBias: profile.terrain.forestDensity,
         contextLabel: "lobby",
         roomModuleUrl: import.meta.url,
       });
@@ -1094,10 +1120,11 @@ export class BattleRoom extends Room<BattleState> {
         return;
       }
 
+      this.generationProfileByMapId.set(mapId, profile);
       this.lobbyService.addAvailableMapId(mapId);
       this.applyLobbyMapSelection(mapId);
       console.log(
-        `Generated new lobby map: ${mapId} (seed ${seed}, method ${generationMethod})`,
+        `Generated new lobby map: ${mapId} (seed ${profile.seed}, method ${profile.method}, layout ${profile.startingForces.layoutStrategy})`,
       );
     } finally {
       this.isGeneratingMap = false;
@@ -1227,6 +1254,9 @@ export class BattleRoom extends Room<BattleState> {
     if (resetReadyStates) {
       this.lobbyService.resetLobbyReadyStates();
     }
+    this.startingForceLayoutStrategy = this.resolveStartingForceLayoutStrategyForMap(
+      mapId,
+    );
     this.clearUnits();
     this.syncCityInfluenceSources();
     this.spawnStartingForces();
@@ -1243,7 +1273,7 @@ export class BattleRoom extends Room<BattleState> {
       BLUE: getTeamCityGridCoordinate("BLUE"),
     };
     const plannedUnits = this.startingForcePlanner.computeInitialSpawns({
-      strategy: "battle-line",
+      strategy: this.startingForceLayoutStrategy,
       cityAnchors,
       blockedSpawnCellIndexSet:
         this.activeMapBundle?.blockedSpawnCellIndexSet ?? new Set<number>(),
@@ -1269,6 +1299,15 @@ export class BattleRoom extends Room<BattleState> {
       this.state.units.set(unit.unitId, unit);
       this.movementStateByUnitId.set(unit.unitId, this.createMovementState());
     }
+  }
+
+  private resolveStartingForceLayoutStrategyForMap(
+    mapId: string,
+  ): StartingForceLayoutStrategy {
+    return (
+      this.generationProfileByMapId.get(mapId)?.startingForces.layoutStrategy ??
+      DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy
+    );
   }
 
   private handleUnitPathMessage(client: Client, message: UnitPathMessage): void {
