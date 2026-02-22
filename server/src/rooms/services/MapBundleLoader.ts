@@ -5,6 +5,11 @@ import type {
   MapBundleCoordinate,
 } from "../../../../shared/src/mapBundle.js";
 import type { MapGenerationMethod } from "../../../../shared/src/networkContracts.js";
+import {
+  getGridCellPaletteElevationByte,
+  getGridCellTerrainType,
+  type TerrainType,
+} from "../../../../shared/src/terrainGrid.js";
 
 type LoadMapBundleArgs = {
   mapId: string;
@@ -243,7 +248,72 @@ function cloneNeutralCityAnchors(
   return neutralCityAnchors.map((anchor) => ({ ...anchor }));
 }
 
+function terrainTypeToCode(terrainType: TerrainType): string {
+  if (terrainType === "water") {
+    return "w";
+  }
+  if (terrainType === "grass") {
+    return "g";
+  }
+  if (terrainType === "forest") {
+    return "f";
+  }
+  if (terrainType === "hills") {
+    return "h";
+  }
+  if (terrainType === "mountains") {
+    return "m";
+  }
+  return "g";
+}
+
+function buildStaticMapGridArtifacts(args: LoadMapBundleArgs): {
+  terrainCodeGrid: string;
+  elevationBytes: Uint8Array;
+  blockedSpawnCellIndexSet: Set<number>;
+  impassableCellIndexSet: Set<number>;
+} {
+  const expectedLength = args.gridWidth * args.gridHeight;
+  const terrainCodes = new Array<string>(expectedLength);
+  const elevationBytes = new Uint8Array(expectedLength);
+  const blockedSpawnCellIndexSet = new Set<number>();
+  const impassableCellIndexSet = new Set<number>();
+
+  for (let row = 0; row < args.gridHeight; row += 1) {
+    for (let col = 0; col < args.gridWidth; col += 1) {
+      const index = getGridCellIndex(col, row, args.gridWidth);
+      const terrainType = getGridCellTerrainType(col, row);
+      const terrainCode = terrainTypeToCode(terrainType);
+      terrainCodes[index] = terrainCode;
+      elevationBytes[index] = clamp(
+        getGridCellPaletteElevationByte(col, row),
+        0,
+        255,
+      );
+      if (terrainCode === "m") {
+        blockedSpawnCellIndexSet.add(index);
+        impassableCellIndexSet.add(index);
+      } else if (terrainCode === "w") {
+        blockedSpawnCellIndexSet.add(index);
+      }
+    }
+  }
+
+  return {
+    terrainCodeGrid: terrainCodes.join(""),
+    elevationBytes,
+    blockedSpawnCellIndexSet,
+    impassableCellIndexSet,
+  };
+}
+
 function createFallbackMapBundle(args: LoadMapBundleArgs): MapBundle {
+  const {
+    terrainCodeGrid,
+    elevationBytes,
+    blockedSpawnCellIndexSet,
+    impassableCellIndexSet,
+  } = buildStaticMapGridArtifacts(args);
   return {
     mapId: args.mapId,
     revision: args.revision,
@@ -251,12 +321,12 @@ function createFallbackMapBundle(args: LoadMapBundleArgs): MapBundle {
     seed: null,
     gridWidth: args.gridWidth,
     gridHeight: args.gridHeight,
-    terrainCodeGrid: null,
-    elevationBytes: null,
+    terrainCodeGrid,
+    elevationBytes,
     cityAnchors: cloneCityAnchors(args.defaultCityAnchors),
     neutralCityAnchors: cloneNeutralCityAnchors(args.defaultNeutralCityAnchors),
-    blockedSpawnCellIndexSet: new Set<number>(),
-    impassableCellIndexSet: new Set<number>(),
+    blockedSpawnCellIndexSet,
+    impassableCellIndexSet,
     source: "static-fallback",
   };
 }

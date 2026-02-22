@@ -107,14 +107,12 @@ Replace hardcoded initial deployment with strategy interface:
 
 ### Stability Gap Closures (Short Term)
 - [x] Add `server` dev script for parity testing without file-watch restarts (`tsx src/index.ts`).
-- [ ] Optionally add `tsx watch --exclude` patterns for runtime artifact paths if watch mode remains default.
 - [x] Add atomic write + validate-before-apply for runtime map artifacts (image + sidecar).
 - [x] Add a documented manual smoke flow: generate/apply/switch map multiple times in one process and verify map/layer consistency.
 
 ### Phase 0: Safety Nets (No Behavior Change)
 - [x] Add telemetry/log markers for map revision, active map ID, and map-bundle source.
 - [x] Add a repeatable manual validation checklist for lobby generation + map switching behavior.
-- [ ] Done when current behavior is baselined with logs and manual validation steps before structural changes.
 
 ### Phase 1: `MapBundle` + Runtime Loader
 - [x] Add `MapBundle` types in shared/server.
@@ -122,13 +120,11 @@ Replace hardcoded initial deployment with strategy interface:
 - [x] Migrate `BattleRoom` terrain reads to active `MapBundle`.
 - [x] Migrate `BattleRoom` city anchor/neutral city reads to active `MapBundle`.
 - [x] Migrate spawn blocking/impassable mask reads to active `MapBundle`.
-- [ ] Done when map generation + map swap works without server restart.
-- [ ] Done when runtime decisions no longer depend on mixed static/runtime terrain for generated maps.
 
 ### Cross-Cutting Checklist: Elevation/Terrain Convergence
 - [x] Server runtime path: generated maps use `MapBundle.elevationBytes` + `MapBundle.terrainCodeGrid` for all gameplay decisions (movement, morale/slope, spawn blocking, impassable checks, supply/path severing).
-- [ ] Server static fallback path: when no sidecar exists, static `terrainGrid.ts` remains the only source for that map (no mixed per-system source).
-- [ ] Eliminate direct static terrain/elevation reads inside server gameplay loops for generated-map decisions (grep guard: `rg "getGridCellTerrainType|getGridCellElevation|getGridCellPaletteElevationByte" server/src`).
+- [x] Server static fallback path: when no sidecar exists, static `terrainGrid.ts` remains the only source for that map (no mixed per-system source).
+- [x] Eliminate direct static terrain/elevation reads inside server gameplay loops for generated-map decisions (grep guard: `rg "getGridCellTerrainType|getGridCellElevation|getGridCellPaletteElevationByte" server/src`).
 - [x] Keep sidecar schema validation strict (dimensions/lengths/types) and reject invalid artifacts before apply.
 - [ ] Verify no-restart runtime map cycle at least 3 times using the smoke flow; confirm map visuals, city anchors, and gameplay blocking remain aligned each cycle.
 - [x] Client city-anchor parity: lobby-state payload now carries runtime `cityAnchors` + `neutralCityAnchors`, and client city star placement reads this runtime data (fixes missing/misaligned city stars on runtime-generated maps).

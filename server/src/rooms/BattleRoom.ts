@@ -49,9 +49,7 @@ import {
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import { GAMEPLAY_CONFIG } from "../../../shared/src/gameplayConfig.js";
 import type { MapBundle } from "../../../shared/src/mapBundle.js";
-import { getGridCellPaletteElevationByte } from "../../../shared/src/terrainPaletteElevation.js";
 import {
-  getGridCellTerrainType,
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
   type TerrainType,
@@ -547,14 +545,8 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getElevationByteAtCell(cell: GridCoordinate): number {
-    const runtimeElevationByte = this.getMapBundleElevationByteAtCell(cell);
-    if (runtimeElevationByte !== null) {
-      return runtimeElevationByte;
-    }
-    if (this.activeMapBundle?.source === "runtime-sidecar") {
-      return 0;
-    }
-    return getGridCellPaletteElevationByte(cell.col, cell.row);
+    const elevationByte = this.getMapBundleElevationByteAtCell(cell);
+    return elevationByte ?? 0;
   }
 
   private loadActiveMapBundle(mapId: string, revision: number): void {
@@ -606,13 +598,11 @@ export class BattleRoom extends Room<BattleState> {
       return true;
     }
 
-    if (this.activeMapBundle?.source === "runtime-sidecar") {
-      return this.activeMapBundle.impassableCellIndexSet.has(
+    return (
+      this.activeMapBundle?.impassableCellIndexSet.has(
         this.getGridCellIndex(cell.col, cell.row),
-      );
-    }
-
-    return this.getTerrainTypeAtCell(cell) === "mountains";
+      ) ?? false
+    );
   }
 
   private isBlockedSpawnCell(cell: GridCoordinate): boolean {
@@ -625,14 +615,11 @@ export class BattleRoom extends Room<BattleState> {
       return true;
     }
 
-    if (this.activeMapBundle?.source === "runtime-sidecar") {
-      return this.activeMapBundle.blockedSpawnCellIndexSet.has(
+    return (
+      this.activeMapBundle?.blockedSpawnCellIndexSet.has(
         this.getGridCellIndex(cell.col, cell.row),
-      );
-    }
-
-    const terrainType = this.getTerrainTypeAtCell(cell);
-    return terrainType === "mountains" || terrainType === "water";
+      ) ?? false
+    );
   }
 
   private worldToGridCoordinate(x: number, y: number): GridCoordinate {
@@ -705,10 +692,7 @@ export class BattleRoom extends Room<BattleState> {
     if (bundleTerrainType) {
       return bundleTerrainType;
     }
-    if (this.activeMapBundle?.source === "runtime-sidecar") {
-      return "unknown";
-    }
-    return getGridCellTerrainType(cell.col, cell.row);
+    return "unknown";
   }
 
   private getTerrainSpeedMultiplierAtCell(cell: GridCoordinate): number {
