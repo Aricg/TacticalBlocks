@@ -397,7 +397,7 @@ class BattleScene extends Phaser.Scene {
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 9;
   private static readonly MORALE_INFLUENCE_MIN = 1;
-  private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
+  private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 4;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
   private static readonly SHOW_IMPASSABLE_OVERLAY = true;

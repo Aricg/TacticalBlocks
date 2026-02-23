@@ -148,7 +148,7 @@ export const GAMEPLAY_CONFIG = {
       // Slider: Base Contact DPS
       baseContactDps: 10,
       // Slider: DPS Influence Bonus
-      dpsInfluenceMultiplier: 0.5,
+      dpsInfluenceMultiplier: 2.0,
       // Slider: Update Interval (frames)
       influenceUpdateIntervalFrames: 6,
       // Slider: Decay Rate
@@ -195,7 +195,7 @@ export const GAMEPLAY_CONFIG = {
       healthInfluenceMultiplier: { min: 0, max: 1, step: 0.01 },
       unitMoveSpeed: { min: 20, max: 300, step: 1 },
       baseContactDps: { min: 1, max: 24, step: 0.1 },
-      dpsInfluenceMultiplier: { min: 0, max: 1, step: 0.01 },
+      dpsInfluenceMultiplier: { min: 1, max: 3, step: 0.01 },
       influenceUpdateIntervalFrames: { min: 1, max: 20, step: 1 },
       influenceDecayRate: { min: 0.7, max: 0.999, step: 0.001 },
       influenceDecayZeroEpsilon: { min: 0, max: 2, step: 0.01 },

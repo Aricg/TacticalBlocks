@@ -179,8 +179,8 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.influence.maxAbsTacticalScore,
   );
   private static readonly MORALE_STEP_INTERVAL_SECONDS = 3;
-  // Radius 2 in each axis yields a 5x5 commander aura area.
-  private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
+  // Radius 4 in each axis yields a 9x9 commander aura area.
+  private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 4;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
   private static readonly SUPPLY_HEAL_PER_SECOND_WHEN_CONNECTED = 1;
