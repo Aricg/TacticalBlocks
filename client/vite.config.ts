@@ -5,7 +5,7 @@ import { defineConfig, type Plugin } from 'vite';
 
 const allowedHosts = ['fnhl.ca', 'www.fnhl.ca', 'localhost', '127.0.0.1'];
 const MAP_ROUTE_PREFIXES = ['/maps/', '/tacticalblocks/maps/'];
-const MAP_FILE_NAME_PATTERN = /^[^/\\]+-16c\.png$/i;
+const MAP_FILE_NAME_PATTERN = /^(?:[^/\\]+-16c\.png|[^/\\]+\.elevation-grid\.json)$/i;
 const SHARED_MAP_DIRECTORY = path.resolve(__dirname, '../shared');
 
 function createSharedMapRuntimePlugin(): Plugin {
@@ -68,8 +68,12 @@ function createSharedMapRuntimePlugin(): Plugin {
       return;
     }
 
+    const contentType = mapFileName.endsWith('.json')
+      ? 'application/json; charset=utf-8'
+      : 'image/png';
+
     response.statusCode = 200;
-    response.setHeader('Content-Type', 'image/png');
+    response.setHeader('Content-Type', contentType);
     response.setHeader('Cache-Control', 'no-store, max-age=0');
     const stream = createReadStream(resolvedMapPath);
     stream.on('error', () => {
