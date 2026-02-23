@@ -1,13 +1,13 @@
 export type MoraleBreakdownOverlayData = {
   serverMoraleScore: number | null;
   estimatedMoraleScore: number;
+  contactDps: number | null;
   runtimeSidecarAvailable: boolean;
   influenceBaseScore: number;
   terrainType: string;
   terrainBonus: number;
   commanderAuraBonus: number;
   slopeDelta: number;
-  curveExponent: number;
 };
 
 function formatSigned(value: number, decimals = 2): string {
@@ -80,6 +80,9 @@ export class MoraleBreakdownOverlay {
         `Morale (server): ${
           data.serverMoraleScore === null ? "--" : formatValue(data.serverMoraleScore, 2)
         }\n` +
+        `Contact DPS (morale): ${
+          data.contactDps === null ? "--" : formatValue(data.contactDps, 2)
+        }\n` +
         `\n` +
         `Runtime sidecar not loaded.\n` +
         `Client morale estimate is disabled to avoid false debug output.`;
@@ -91,12 +94,14 @@ export class MoraleBreakdownOverlay {
         data.serverMoraleScore === null ? "--" : formatValue(data.serverMoraleScore, 2)
       }\n` +
       `Morale (estimate): ${formatValue(data.estimatedMoraleScore, 2)}\n` +
+      `Contact DPS (morale): ${
+        data.contactDps === null ? "--" : formatValue(data.contactDps, 2)
+      }\n` +
       `\n` +
       `Influence base: ${formatValue(data.influenceBaseScore, 2)}\n` +
       `Terrain (${data.terrainType}): ${formatSigned(data.terrainBonus, 2)}\n` +
       `Commander aura: ${formatSigned(data.commanderAuraBonus, 2)}\n` +
-      `Slope delta: ${formatSigned(data.slopeDelta, 2)}\n` +
-      `Influence curve exponent: ${formatValue(data.curveExponent, 2)}`;
+      `Slope delta: ${formatSigned(data.slopeDelta, 2)}`;
   }
 
   public destroy(): void {

@@ -6,7 +6,6 @@ export type RuntimeTuning = {
   unitMoveSpeed: number;
   baseContactDps: number;
   dpsInfluenceMultiplier: number;
-  moraleInfluenceCurveExponent: number;
   influenceUpdateIntervalFrames: number;
   influenceDecayRate: number;
   influenceDecayZeroEpsilon: number;
@@ -45,8 +44,6 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
   baseContactDps: GAMEPLAY_CONFIG.runtimeTuning.defaults.baseContactDps,
   dpsInfluenceMultiplier:
     GAMEPLAY_CONFIG.runtimeTuning.defaults.dpsInfluenceMultiplier,
-  moraleInfluenceCurveExponent:
-    GAMEPLAY_CONFIG.runtimeTuning.defaults.moraleInfluenceCurveExponent,
   influenceUpdateIntervalFrames:
     GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceUpdateIntervalFrames,
   influenceDecayRate: GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceDecayRate,
@@ -88,9 +85,6 @@ export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound>
   baseContactDps: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.baseContactDps },
   dpsInfluenceMultiplier: {
     ...GAMEPLAY_CONFIG.runtimeTuning.bounds.dpsInfluenceMultiplier,
-  },
-  moraleInfluenceCurveExponent: {
-    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.moraleInfluenceCurveExponent,
   },
   influenceUpdateIntervalFrames: {
     ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceUpdateIntervalFrames,

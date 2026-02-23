@@ -115,6 +115,7 @@ export class BattleRoom extends Room<BattleState> {
     SupplySourceRetryState
   >();
   private readonly moraleStepElapsedSecondsByUnitId = new Map<string, number>();
+  private readonly moraleStepPendingUnitIds = new Set<string>();
   private readonly engagedUnitIds = new Set<string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
   private readonly generationProfileByMapId = new Map<string, GenerationProfile>();
@@ -170,7 +171,7 @@ export class BattleRoom extends Room<BattleState> {
   private static readonly CELL_HEIGHT =
     GAMEPLAY_CONFIG.map.height / BattleRoom.GRID_HEIGHT;
   private static readonly GRID_CONTACT_DISTANCE =
-    Math.hypot(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
+    Math.max(BattleRoom.CELL_WIDTH, BattleRoom.CELL_HEIGHT) * 1.05;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 9;
   private static readonly MAX_ABS_INFLUENCE_SCORE = Math.max(
@@ -1251,6 +1252,7 @@ export class BattleRoom extends Room<BattleState> {
     }
     this.clearSupplyLineState();
     this.moraleStepElapsedSecondsByUnitId.clear();
+    this.moraleStepPendingUnitIds.clear();
     this.movementStateByUnitId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
     this.engagedUnitIds.clear();
@@ -1677,7 +1679,6 @@ export class BattleRoom extends Room<BattleState> {
         moraleSampleRadius: BattleRoom.MORALE_SAMPLE_RADIUS,
         moraleMaxScore: BattleRoom.MORALE_MAX_SCORE,
         maxAbsInfluenceScore: BattleRoom.MAX_ABS_INFLUENCE_SCORE,
-        moraleInfluenceCurveExponent: this.runtimeTuning.moraleInfluenceCurveExponent,
         gridWidth: this.state.influenceGrid.width,
         gridHeight: this.state.influenceGrid.height,
         worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
@@ -1698,14 +1699,28 @@ export class BattleRoom extends Room<BattleState> {
       );
     };
 
+    this.applyCornerAttractionTowardDiagonalEnemies();
+
     const engagements = updateUnitInteractionsSystem({
       deltaSeconds,
       unitsById: this.state.units,
       movementStateByUnitId: this.movementStateByUnitId,
       gridContactDistance: BattleRoom.GRID_CONTACT_DISTANCE,
       ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
-      updateUnitMoraleScores: (units) =>
-        this.updateUnitMoraleScoresStepped(units, getUnitMoraleScore, deltaSeconds),
+      updateUnitMoraleScores: (units) => {
+        this.moraleStepPendingUnitIds.clear();
+        const pendingUnitIds = this.updateUnitMoraleScoresStepped(
+          units,
+          getUnitMoraleScore,
+          deltaSeconds,
+        );
+        for (const unitId of pendingUnitIds) {
+          this.moraleStepPendingUnitIds.add(unitId);
+        }
+      },
+      wasUnitEngagedLastTick: (unit) => this.engagedUnitIds.has(unit.unitId),
+      shouldPauseCombatForUnit: (unit) =>
+        this.moraleStepPendingUnitIds.has(unit.unitId),
       getMoraleAdvantageNormalized: (unit) =>
         getUnitMoraleAdvantageNormalized(
           unit,
@@ -1735,11 +1750,96 @@ export class BattleRoom extends Room<BattleState> {
     return engagements;
   }
 
+  private applyCornerAttractionTowardDiagonalEnemies(): void {
+    const liveUnits = Array.from(this.state.units.values()).filter((unit) => unit.health > 0);
+    if (liveUnits.length <= 1) {
+      return;
+    }
+
+    const unitCellByUnitId = new Map<string, GridCoordinate>();
+    const occupiedCellIndexes = new Set<number>();
+    for (const unit of liveUnits) {
+      const cell = this.worldToGridCoordinate(unit.x, unit.y);
+      unitCellByUnitId.set(unit.unitId, cell);
+      occupiedCellIndexes.add(this.getGridCellIndex(cell.col, cell.row));
+    }
+
+    const assignAdvanceCellTowardDiagonalEnemy = (unit: Unit, enemy: Unit): void => {
+      if (unit.team === enemy.team || this.engagedUnitIds.has(unit.unitId)) {
+        return;
+      }
+
+      const movementState = this.getOrCreateMovementState(unit.unitId);
+      if (
+        movementState.isPaused ||
+        movementState.destinationCell !== null ||
+        movementState.queuedCells.length > 0
+      ) {
+        return;
+      }
+
+      const unitCell = unitCellByUnitId.get(unit.unitId);
+      const enemyCell = unitCellByUnitId.get(enemy.unitId);
+      if (!unitCell || !enemyCell) {
+        return;
+      }
+
+      const colDelta = enemyCell.col - unitCell.col;
+      const rowDelta = enemyCell.row - unitCell.row;
+      if (Math.abs(colDelta) !== 1 || Math.abs(rowDelta) !== 1) {
+        return;
+      }
+
+      const colStep = Math.sign(colDelta);
+      const rowStep = Math.sign(rowDelta);
+      const candidateAdvanceCells: GridCoordinate[] = [
+        { col: unitCell.col + colStep, row: unitCell.row },
+        { col: unitCell.col, row: unitCell.row + rowStep },
+      ];
+
+      for (const candidateCell of candidateAdvanceCells) {
+        if (this.isCellImpassable(candidateCell)) {
+          continue;
+        }
+        const candidateIndex = this.getGridCellIndex(
+          candidateCell.col,
+          candidateCell.row,
+        );
+        if (occupiedCellIndexes.has(candidateIndex)) {
+          continue;
+        }
+
+        movementState.destinationCell = candidateCell;
+        movementState.queuedCells = [];
+        movementState.targetRotation = null;
+        movementState.movementCommandMode = {
+          ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE,
+        };
+        movementState.movementBudget = 0;
+        occupiedCellIndexes.add(candidateIndex);
+        return;
+      }
+    };
+
+    for (let i = 0; i < liveUnits.length; i += 1) {
+      const a = liveUnits[i];
+      for (let j = i + 1; j < liveUnits.length; j += 1) {
+        const b = liveUnits[j];
+        if (a.team === b.team) {
+          continue;
+        }
+        assignAdvanceCellTowardDiagonalEnemy(a, b);
+        assignAdvanceCellTowardDiagonalEnemy(b, a);
+      }
+    }
+  }
+
   private updateUnitMoraleScoresStepped(
     units: Unit[],
     getUnitMoraleScore: (unit: Unit) => number,
     deltaSeconds: number,
-  ): void {
+  ): Set<string> {
+    const pendingUnitIds = new Set<string>();
     const activeUnitIds = new Set<string>();
     for (const unit of units) {
       activeUnitIds.add(unit.unitId);
@@ -1772,6 +1872,7 @@ export class BattleRoom extends Room<BattleState> {
         deltaSeconds;
       if (elapsedSeconds < BattleRoom.MORALE_STEP_INTERVAL_SECONDS) {
         this.moraleStepElapsedSecondsByUnitId.set(unit.unitId, elapsedSeconds);
+        pendingUnitIds.add(unit.unitId);
         continue;
       }
 
@@ -1781,6 +1882,7 @@ export class BattleRoom extends Room<BattleState> {
         elapsedSeconds - BattleRoom.MORALE_STEP_INTERVAL_SECONDS,
       );
     }
+    return pendingUnitIds;
   }
 
   private applySupplyHealthEffects(deltaSeconds: number): void {

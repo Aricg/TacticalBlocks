@@ -43,6 +43,7 @@ import {
   type RuntimeTuning,
 } from '../../shared/src/runtimeTuning.js';
 import {
+  getUnitDamageMultiplier,
   getUnitHealthMax,
 } from '../../shared/src/unitTypes.js';
 import { City, type CityOwner } from './City';
@@ -2554,10 +2555,6 @@ class BattleScene extends Phaser.Scene {
       1,
       GAMEPLAY_CONFIG.influence.maxAbsTacticalScore,
     );
-    const influenceCurveExponent = Math.max(
-      0.001,
-      this.runtimeTuning.moraleInfluenceCurveExponent,
-    );
     const sampleRadius = BattleScene.MORALE_SAMPLE_RADIUS;
     const authoritativePosition = this.getAuthoritativeUnitPosition(unit);
     const centerCell = worldToGridCoordinate(
@@ -2588,10 +2585,7 @@ class BattleScene extends Phaser.Scene {
           -1,
           1,
         );
-        const curvedAlignedScore =
-          Math.sign(normalizedAlignedScore) *
-          Math.pow(Math.abs(normalizedAlignedScore), influenceCurveExponent);
-        accumulatedFriendlyWeight += (curvedAlignedScore + 1) * 0.5;
+        accumulatedFriendlyWeight += (normalizedAlignedScore + 1) * 0.5;
         sampledCells += 1;
       }
     }
@@ -2606,13 +2600,13 @@ class BattleScene extends Phaser.Scene {
       return {
         serverMoraleScore,
         estimatedMoraleScore: Number.NaN,
+        contactDps: this.getContactDpsForMorale(unit, serverMoraleScore),
         runtimeSidecarAvailable: false,
         influenceBaseScore: Number.NaN,
         terrainType: 'unknown',
         terrainBonus: Number.NaN,
         commanderAuraBonus: Number.NaN,
         slopeDelta: Number.NaN,
-        curveExponent: influenceCurveExponent,
       };
     }
 
@@ -2639,17 +2633,21 @@ class BattleScene extends Phaser.Scene {
           0,
           BattleScene.MORALE_MAX_SCORE,
         );
+    const contactDps = this.getContactDpsForMorale(
+      unit,
+      serverMoraleScore ?? estimatedMoraleScore,
+    );
 
     return {
       serverMoraleScore,
       estimatedMoraleScore,
+      contactDps,
       runtimeSidecarAvailable: true,
       influenceBaseScore,
       terrainType,
       terrainBonus,
       commanderAuraBonus,
       slopeDelta,
-      curveExponent: influenceCurveExponent,
     };
   }
 
@@ -2779,6 +2777,21 @@ class BattleScene extends Phaser.Scene {
       moralePerInfluenceDot,
       slopeMoraleDotEquivalent: BattleScene.SLOPE_MORALE_DOT_EQUIVALENT,
     });
+  }
+
+  private getContactDpsForMorale(unit: Unit, moraleScore: number | null): number | null {
+    if (moraleScore === null || !Number.isFinite(moraleScore)) {
+      return null;
+    }
+    const moraleAdvantage = Phaser.Math.Clamp(
+      moraleScore / BattleScene.MORALE_MAX_SCORE,
+      0,
+      1,
+    );
+    const safeBaseDps = Math.max(0, this.runtimeTuning.baseContactDps);
+    const moraleBuffMultiplier =
+      1 + moraleAdvantage * this.runtimeTuning.dpsInfluenceMultiplier;
+    return safeBaseDps * moraleBuffMultiplier * getUnitDamageMultiplier(unit.unitType);
   }
 
   private getAuthoritativeUnitRotation(unitId: string): number {

@@ -25,11 +25,6 @@ const SLIDERS: SliderDescriptor[] = [
     group: 'Combat',
   },
   {
-    key: 'moraleInfluenceCurveExponent',
-    label: 'Morale Influence Curve',
-    group: 'Combat',
-  },
-  {
     key: 'influenceUpdateIntervalFrames',
     label: 'Update Interval (frames)',
     group: 'Influence',

@@ -70,6 +70,8 @@ export interface UpdateUnitInteractionsParams {
   gridContactDistance: number;
   ensureFiniteUnitState: (unit: Unit) => void;
   updateUnitMoraleScores: (units: Unit[]) => void;
+  wasUnitEngagedLastTick: (unit: Unit) => boolean;
+  shouldPauseCombatForUnit: (unit: Unit) => boolean;
   getMoraleAdvantageNormalized: (unit: Unit) => number;
   getUnitContactDps: (influenceAdvantage: number) => number;
   getUnitHealthMitigationMultiplier: (influenceAdvantage: number) => number;
@@ -82,6 +84,8 @@ export function updateUnitInteractions({
   gridContactDistance,
   ensureFiniteUnitState,
   updateUnitMoraleScores,
+  wasUnitEngagedLastTick,
+  shouldPauseCombatForUnit,
   getMoraleAdvantageNormalized,
   getUnitContactDps,
   getUnitHealthMitigationMultiplier,
@@ -112,6 +116,16 @@ export function updateUnitInteractions({
         continue;
       }
 
+      addEngagement(engagements, a.unitId, b.unitId);
+      const isEngagementStartingNow =
+        !wasUnitEngagedLastTick(a) || !wasUnitEngagedLastTick(b);
+      if (
+        isEngagementStartingNow &&
+        (shouldPauseCombatForUnit(a) || shouldPauseCombatForUnit(b))
+      ) {
+        continue;
+      }
+
       const aMoraleAdvantage = getMoraleAdvantageNormalized(a);
       const bMoraleAdvantage = getMoraleAdvantageNormalized(b);
       const aContactDps =
@@ -137,7 +151,6 @@ export function updateUnitInteractions({
         b.unitId,
         (pendingDamageByUnitId.get(b.unitId) ?? 0) + incomingDamageToB,
       );
-      addEngagement(engagements, a.unitId, b.unitId);
     }
   }
 
