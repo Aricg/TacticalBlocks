@@ -396,8 +396,6 @@ class BattleScene extends Phaser.Scene {
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 9;
   private static readonly MORALE_INFLUENCE_MIN = 1;
-  // Keep in sync with server BattleRoom.MORALE_STEP_INTERVAL_SECONDS.
-  private static readonly MORALE_STEP_INTERVAL_SECONDS = 3;
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
@@ -2606,26 +2604,15 @@ class BattleScene extends Phaser.Scene {
     const serverMoraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
     if (!usingRuntimeMapGrid) {
       return {
-        unitId,
-        team: unit.team === Team.RED ? 'RED' : 'BLUE',
         serverMoraleScore,
         estimatedMoraleScore: Number.NaN,
+        runtimeSidecarAvailable: false,
         influenceBaseScore: Number.NaN,
         terrainType: 'unknown',
         terrainBonus: Number.NaN,
-        influenceWithTerrainScore: Number.NaN,
         commanderAuraBonus: Number.NaN,
         slopeDelta: Number.NaN,
-        slopeCurrentTerrainType: 'unknown',
-        slopeForwardTerrainType: 'unknown',
-        slopeCurrentHillGrade: null,
-        slopeForwardHillGrade: null,
-        supplyBlocked: false,
         curveExponent: influenceCurveExponent,
-        serverEstimateDelta: null,
-        hasPendingServerStep: false,
-        moraleStepIntervalSeconds: BattleScene.MORALE_STEP_INTERVAL_SECONDS,
-        mapGridSource: 'unavailable',
       };
     }
 
@@ -2642,8 +2629,7 @@ class BattleScene extends Phaser.Scene {
       unitId,
       centerCell,
     );
-    const slopeSample = this.getSlopeMoraleSampleForUnit(unitId, centerCell);
-    const slopeDelta = slopeSample.delta;
+    const slopeDelta = this.getSlopeMoraleDeltaForUnit(unitId, centerCell);
     const supplyLine = this.supplyLinesByUnitId.get(unitId);
     const supplyBlocked = Boolean(supplyLine && !supplyLine.connected);
     const estimatedMoraleScore = supplyBlocked
@@ -2653,33 +2639,17 @@ class BattleScene extends Phaser.Scene {
           0,
           BattleScene.MORALE_MAX_SCORE,
         );
-    const serverEstimateDelta =
-      serverMoraleScore === null ? null : serverMoraleScore - estimatedMoraleScore;
 
     return {
-      unitId,
-      team: unit.team === Team.RED ? 'RED' : 'BLUE',
       serverMoraleScore,
       estimatedMoraleScore,
+      runtimeSidecarAvailable: true,
       influenceBaseScore,
       terrainType,
       terrainBonus,
-      influenceWithTerrainScore,
       commanderAuraBonus,
       slopeDelta,
-      slopeCurrentTerrainType: slopeSample.currentTerrainType,
-      slopeForwardTerrainType: slopeSample.forwardTerrainType,
-      slopeCurrentHillGrade:
-        slopeSample.currentTerrainType === 'hills' ? slopeSample.currentHillGrade : null,
-      slopeForwardHillGrade:
-        slopeSample.forwardTerrainType === 'hills' ? slopeSample.forwardHillGrade : null,
-      supplyBlocked,
       curveExponent: influenceCurveExponent,
-      serverEstimateDelta,
-      hasPendingServerStep:
-        serverEstimateDelta !== null && Math.abs(serverEstimateDelta) > 0.001,
-      moraleStepIntervalSeconds: BattleScene.MORALE_STEP_INTERVAL_SECONDS,
-      mapGridSource: 'runtime-sidecar',
     };
   }
 
@@ -2769,16 +2739,10 @@ class BattleScene extends Phaser.Scene {
     return commandersInRange * BattleScene.COMMANDER_MORALE_AURA_BONUS;
   }
 
-  private getSlopeMoraleSampleForUnit(
+  private getSlopeMoraleDeltaForUnit(
     unitId: string,
     currentCell: GridCoordinate,
-  ): {
-    currentTerrainType: TerrainType;
-    forwardTerrainType: TerrainType;
-    currentHillGrade: number;
-    forwardHillGrade: number;
-    delta: number;
-  } {
+  ): number {
     const currentRotation = this.getAuthoritativeUnitRotation(unitId);
     const facingAngle =
       currentRotation + GAMEPLAY_CONFIG.movement.unitForwardOffsetRadians;
@@ -2807,7 +2771,7 @@ class BattleScene extends Phaser.Scene {
         (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1) *
           (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1),
       );
-    const delta = getSlopeMoraleDeltaFromHillGrades({
+    return getSlopeMoraleDeltaFromHillGrades({
       currentTerrainType,
       forwardTerrainType,
       currentHillGrade: this.getMoraleDebugHillGradeAtCell(currentCell),
@@ -2815,14 +2779,6 @@ class BattleScene extends Phaser.Scene {
       moralePerInfluenceDot,
       slopeMoraleDotEquivalent: BattleScene.SLOPE_MORALE_DOT_EQUIVALENT,
     });
-
-    return {
-      currentTerrainType,
-      forwardTerrainType,
-      currentHillGrade: this.getMoraleDebugHillGradeAtCell(currentCell),
-      forwardHillGrade: this.getMoraleDebugHillGradeAtCell(forwardCell),
-      delta,
-    };
   }
 
   private getAuthoritativeUnitRotation(unitId: string): number {

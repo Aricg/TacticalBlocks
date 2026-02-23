@@ -1,23 +1,12 @@
 export type MoraleBreakdownOverlayData = {
-  unitId: string;
-  team: "RED" | "BLUE";
   serverMoraleScore: number | null;
   estimatedMoraleScore: number;
-  serverEstimateDelta: number | null;
-  mapGridSource: "runtime-sidecar" | "unavailable";
-  hasPendingServerStep: boolean;
-  moraleStepIntervalSeconds: number;
+  runtimeSidecarAvailable: boolean;
   influenceBaseScore: number;
   terrainType: string;
   terrainBonus: number;
-  influenceWithTerrainScore: number;
   commanderAuraBonus: number;
   slopeDelta: number;
-  slopeCurrentTerrainType: string;
-  slopeForwardTerrainType: string;
-  slopeCurrentHillGrade: number | null;
-  slopeForwardHillGrade: number | null;
-  supplyBlocked: boolean;
   curveExponent: number;
 };
 
@@ -86,9 +75,8 @@ export class MoraleBreakdownOverlay {
       return;
     }
 
-    if (data.mapGridSource === "unavailable") {
+    if (!data.runtimeSidecarAvailable) {
       this.content.textContent =
-        `Unit: ${data.unitId} (${data.team})\n` +
         `Morale (server): ${
           data.serverMoraleScore === null ? "--" : formatValue(data.serverMoraleScore, 2)
         }\n` +
@@ -98,40 +86,16 @@ export class MoraleBreakdownOverlay {
       return;
     }
 
-    const supplyLabel = data.supplyBlocked ? "blocked (forced to 0)" : "connected";
-    const mapGridSourceLabel = "runtime sidecar (server parity)";
-    const pendingStepLabel = data.hasPendingServerStep ? "yes" : "no";
     this.content.textContent =
-      `Unit: ${data.unitId} (${data.team})\n` +
       `Morale (server): ${
         data.serverMoraleScore === null ? "--" : formatValue(data.serverMoraleScore, 2)
       }\n` +
       `Morale (estimate): ${formatValue(data.estimatedMoraleScore, 2)}\n` +
-      `Server - estimate: ${
-        data.serverEstimateDelta === null ? "--" : formatSigned(data.serverEstimateDelta, 2)
-      }\n` +
       `\n` +
       `Influence base: ${formatValue(data.influenceBaseScore, 2)}\n` +
       `Terrain (${data.terrainType}): ${formatSigned(data.terrainBonus, 2)}\n` +
-      `After terrain clamp: ${formatValue(data.influenceWithTerrainScore, 2)}\n` +
       `Commander aura: ${formatSigned(data.commanderAuraBonus, 2)}\n` +
       `Slope delta: ${formatSigned(data.slopeDelta, 2)}\n` +
-      `Slope sample: ${data.slopeCurrentTerrainType}` +
-      `${
-        data.slopeCurrentHillGrade === null
-          ? ''
-          : `(${data.slopeCurrentHillGrade})`
-      } -> ${data.slopeForwardTerrainType}` +
-      `${
-        data.slopeForwardHillGrade === null
-          ? ''
-          : `(${data.slopeForwardHillGrade})`
-      }\n` +
-      `Slope rule: forward higher = -, forward lower = + (mountains ignored)\n` +
-      `Supply line: ${supplyLabel}\n` +
-      `Map grid source: ${mapGridSourceLabel}\n` +
-      `Pending server step: ${pendingStepLabel}\n` +
-      `Server step cadence: ${formatValue(data.moraleStepIntervalSeconds, 1)}s\n` +
       `Influence curve exponent: ${formatValue(data.curveExponent, 2)}`;
   }
 
