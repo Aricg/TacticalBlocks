@@ -11,6 +11,17 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  HILL_GRADE_NONE,
+  TERRAIN_CODE_BY_TYPE,
+  TERRAIN_COLORS_BY_TYPE,
+  TERRAIN_SWATCHES,
+  TERRAIN_TYPE_BY_CODE,
+  getHillGradeForColor,
+  getHillGradeFromElevationByte,
+  getTerrainPaletteElevationByte,
+  getTerrainTypeForColor,
+} from './terrain-semantics.mjs';
 
 const DEFAULT_INPUT_DIR = process.cwd();
 const DEFAULT_OUTPUT = path.resolve(process.cwd(), 'src/terrainGrid.ts');
@@ -20,173 +31,33 @@ const QUANTIZED_MAP_SUFFIX = '-16c.png';
 const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
 const SOURCE_IMAGE_EXTENSIONS = ['.jpeg', '.jpg', '.png'];
 
-const MOUNTAIN_SWATCHES = new Set([
-  '708188',
-  '6d7e85',
-  '5a6960',
-  '404b3c',
-  '6a7c8c',
-  '4e5f5d',
-  '3a4a54',
-  '96a2a0',
-  '556364',
-  '6d7d83',
-  '546264',
-  '6e7d82',
-  '778486',
-  '424f46',
-  '333d3c',
-  '5a6965',
-  'a0aeab',
-  '556362',
-]);
+const MOUNTAIN_SWATCHES = new Set(
+  TERRAIN_COLORS_BY_TYPE.mountains.map((color) =>
+    color.toString(16).padStart(6, '0'),
+  ),
+);
 
-const NON_MOUNTAIN_TERRAIN_SWATCHES = [
-  { color: 0x0f2232, type: 'water' },
-  { color: 0x102236, type: 'water' },
-  { color: 0x71844b, type: 'grass' },
-  { color: 0x364d31, type: 'forest' },
-  { color: 0x122115, type: 'forest' },
-  { color: 0xc4a771, type: 'hills' },
-  { color: 0x9e8c5d, type: 'hills' },
-  { color: 0xa79168, type: 'hills' },
-  { color: 0xefb72f, type: 'hills' },
-  { color: 0xddb650, type: 'hills' },
-];
+const NON_MOUNTAIN_TERRAIN_SWATCHES = TERRAIN_SWATCHES.filter(
+  (swatch) => swatch.type !== 'mountains' && swatch.type !== 'unknown',
+);
 
 const NON_MOUNTAIN_TERRAIN_BY_COLOR = new Map(
   NON_MOUNTAIN_TERRAIN_SWATCHES.map((swatch) => [swatch.color, swatch.type]),
 );
-
-const TERRAIN_CODE_BY_TYPE = {
-  water: 'w',
-  grass: 'g',
-  forest: 'f',
-  hills: 'h',
-  mountains: 'm',
-  unknown: 'u',
-};
-
-const DEFAULT_ELEVATION_BYTE_BY_TERRAIN_CODE = {
-  w: 16,
-  g: 112,
-  f: 124,
-  h: 176,
-  m: 230,
-  u: 112,
-};
-
-const ELEVATION_BYTE_RANGE_BY_TERRAIN_TYPE = {
-  water: { min: 8, max: 28 },
-  grass: { min: 104, max: 120 },
-  forest: { min: 116, max: 138 },
-  hills: { min: 152, max: 208 },
-  mountains: { min: 218, max: 248 },
-  unknown: { min: 112, max: 112 },
-};
 
 const CITY_HUE_MIN = 38;
 const CITY_HUE_MAX = 55;
 const CITY_SATURATION_MIN = 0.58;
 const CITY_VALUE_MIN = 0.68;
 
-function getColorLuminance(color) {
-  const red = (color >> 16) & 0xff;
-  const green = (color >> 8) & 0xff;
-  const blue = color & 0xff;
-  return red * 0.2126 + green * 0.7152 + blue * 0.0722;
-}
-
-function mapSwatchesToElevationBytes(swatches, elevationRange) {
-  if (swatches.length === 0) {
-    return [];
-  }
-
-  const sortedByDarkness = [...swatches].sort(
-    (a, b) => getColorLuminance(a.color) - getColorLuminance(b.color),
-  );
-  const output = [];
-  for (let index = 0; index < sortedByDarkness.length; index += 1) {
-    const swatch = sortedByDarkness[index];
-    const ratio =
-      sortedByDarkness.length <= 1
-        ? 1
-        : 1 - index / (sortedByDarkness.length - 1);
-    const elevationByte = Math.round(
-      elevationRange.min + (elevationRange.max - elevationRange.min) * ratio,
-    );
-    output.push([swatch.color, Math.max(0, Math.min(255, elevationByte))]);
-  }
-
-  return output;
-}
-
-function createSwatchElevationByteByColor() {
-  const entries = [];
-  const swatchesByType = {
-    water: NON_MOUNTAIN_TERRAIN_SWATCHES.filter((swatch) => swatch.type === 'water'),
-    grass: NON_MOUNTAIN_TERRAIN_SWATCHES.filter((swatch) => swatch.type === 'grass'),
-    forest: NON_MOUNTAIN_TERRAIN_SWATCHES.filter((swatch) => swatch.type === 'forest'),
-    hills: NON_MOUNTAIN_TERRAIN_SWATCHES.filter((swatch) => swatch.type === 'hills'),
-    mountains: Array.from(MOUNTAIN_SWATCHES, (hex) => ({
-      color: Number.parseInt(hex, 16),
-      type: 'mountains',
-    })),
-    unknown: [],
-  };
-
-  for (const [terrainType, swatches] of Object.entries(swatchesByType)) {
-    const elevationRange =
-      ELEVATION_BYTE_RANGE_BY_TERRAIN_TYPE[terrainType] ??
-      ELEVATION_BYTE_RANGE_BY_TERRAIN_TYPE.unknown;
-    entries.push(...mapSwatchesToElevationBytes(swatches, elevationRange));
-  }
-
-  return new Map(entries);
-}
-
-const SWATCH_ELEVATION_BYTE_BY_COLOR = createSwatchElevationByteByColor();
-const HILL_ELEVATION_LEVEL_BYTES = Array.from(
-  new Set(
-    mapSwatchesToElevationBytes(
-      NON_MOUNTAIN_TERRAIN_SWATCHES.filter((swatch) => swatch.type === 'hills'),
-      ELEVATION_BYTE_RANGE_BY_TERRAIN_TYPE.hills,
-    ).map((entry) => entry[1]),
-  ),
-).sort((a, b) => a - b);
-
-function quantizeToNearestLevel(value, levels) {
-  if (levels.length === 0) {
-    return value;
-  }
-
-  let best = levels[0];
-  let bestDistance = Math.abs(value - best);
-  for (let index = 1; index < levels.length; index += 1) {
-    const level = levels[index];
-    const distance = Math.abs(value - level);
-    if (distance < bestDistance) {
-      best = level;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 function coupleHillElevationBytesToTerrain(terrainCodeGrid, elevationBytes) {
-  if (HILL_ELEVATION_LEVEL_BYTES.length === 0) {
-    return elevationBytes;
-  }
-
   const coupled = new Uint8Array(elevationBytes);
   for (let index = 0; index < coupled.length; index += 1) {
     if (terrainCodeGrid.charAt(index) !== TERRAIN_CODE_BY_TYPE.hills) {
       continue;
     }
-    coupled[index] = quantizeToNearestLevel(
-      coupled[index],
-      HILL_ELEVATION_LEVEL_BYTES,
-    );
+    const hillGrade = getHillGradeFromElevationByte(coupled[index] ?? 0);
+    coupled[index] = getTerrainPaletteElevationByte('hills', hillGrade);
   }
   return coupled;
 }
@@ -497,23 +368,28 @@ function getFallbackElevationBytes(quantizedPixels, terrainCodeGrid, gridWidth, 
   const bytes = new Uint8Array(cellCount);
   for (let index = 0; index < cellCount; index += 1) {
     const terrainCode = terrainCodeGrid.charAt(index);
-    bytes[index] =
-      DEFAULT_ELEVATION_BYTE_BY_TERRAIN_CODE[terrainCode] ??
-      DEFAULT_ELEVATION_BYTE_BY_TERRAIN_CODE.u;
+    const terrainType = TERRAIN_TYPE_BY_CODE[terrainCode] ?? 'unknown';
+    bytes[index] = getTerrainPaletteElevationByte(terrainType, HILL_GRADE_NONE);
   }
 
   for (const pixel of quantizedPixels) {
     const index = pixel.row * gridWidth + pixel.col;
     const color = (pixel.red << 16) | (pixel.green << 8) | pixel.blue;
-    const swatchElevation = SWATCH_ELEVATION_BYTE_BY_COLOR.get(color);
-    if (typeof swatchElevation === 'number') {
-      bytes[index] = swatchElevation;
-    }
+    const terrainType = getTerrainTypeForColor(color);
+    const hillGrade =
+      terrainType === 'hills' ? getHillGradeForColor(color) : HILL_GRADE_NONE;
+    bytes[index] = getTerrainPaletteElevationByte(terrainType, hillGrade);
   }
   return bytes;
 }
 
-function readElevationBytesFromSidecar(inputDir, mapId, gridWidth, gridHeight) {
+function readElevationBytesFromSidecar(
+  inputDir,
+  mapId,
+  gridWidth,
+  gridHeight,
+  terrainCodeGrid,
+) {
   const sidecarPath = path.join(inputDir, `${mapId}${ELEVATION_GRID_SUFFIX}`);
   if (!existsSync(sidecarPath)) {
     return null;
@@ -542,6 +418,38 @@ function readElevationBytesFromSidecar(inputDir, mapId, gridWidth, gridHeight) {
         if (decoded) {
           return decoded;
         }
+      }
+
+      if (
+        Array.isArray(parsed.hillGradeGrid) &&
+        parsed.hillGradeGrid.length === expectedCellCount
+      ) {
+        const sidecarTerrainCodeGrid =
+          typeof parsed.terrainCodeGrid === 'string' &&
+          parsed.terrainCodeGrid.length === expectedCellCount
+            ? parsed.terrainCodeGrid
+            : terrainCodeGrid;
+        const bytes = new Uint8Array(expectedCellCount);
+        for (let index = 0; index < expectedCellCount; index += 1) {
+          const terrainCode = sidecarTerrainCodeGrid.charAt(index);
+          const terrainType = TERRAIN_TYPE_BY_CODE[terrainCode] ?? 'unknown';
+          if (terrainType !== 'hills') {
+            bytes[index] = getTerrainPaletteElevationByte(
+              terrainType,
+              HILL_GRADE_NONE,
+            );
+            continue;
+          }
+          const rawGrade = parsed.hillGradeGrid[index];
+          if (typeof rawGrade !== 'number' || !Number.isFinite(rawGrade)) {
+            console.warn(
+              `Skipping elevation sidecar for ${mapId}: non-numeric hill grade at index ${index}.`,
+            );
+            return null;
+          }
+          bytes[index] = getTerrainPaletteElevationByte('hills', rawGrade);
+        }
+        return bytes;
       }
 
       if (Array.isArray(parsed.elevation)) {
@@ -776,7 +684,13 @@ for (const mapFile of mapFiles) {
   const terrainCodeGrid = getTerrainCodeGrid(quantizedPixels, gridWidth, gridHeight);
   terrainCodeGridByMapId.set(mapId, terrainCodeGrid);
   const elevationBytes =
-    readElevationBytesFromSidecar(inputDir, mapId, gridWidth, gridHeight) ??
+    readElevationBytesFromSidecar(
+      inputDir,
+      mapId,
+      gridWidth,
+      gridHeight,
+      terrainCodeGrid,
+    ) ??
     getFallbackElevationBytes(
       quantizedPixels,
       terrainCodeGrid,
@@ -864,6 +778,11 @@ for (const [mapId, indexes] of mountainIndexesByMapId) {
 }
 
 const fileContent = `import { GAMEPLAY_CONFIG } from './gameplayConfig.js';
+import {
+  HILL_GRADE_NONE,
+  getHillGradeFromElevationByte,
+  getTerrainPaletteElevationByte,
+} from './terrainSemantics.js';
 
 export const TERRAIN_GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
 export const TERRAIN_GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
@@ -894,87 +813,6 @@ const TERRAIN_TYPE_BY_CODE: Record<string, TerrainType> = {
   m: 'mountains',
   u: 'unknown',
 };
-
-type TerrainElevationQuantizationConfig = {
-  min: number;
-  max: number;
-  swatchCount: number;
-};
-
-const ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE: Record<
-  TerrainType,
-  TerrainElevationQuantizationConfig
-> = {
-  water: { min: 8, max: 28, swatchCount: 2 },
-  grass: { min: 104, max: 120, swatchCount: 1 },
-  forest: { min: 116, max: 138, swatchCount: 2 },
-  hills: { min: 152, max: 208, swatchCount: 5 },
-  mountains: { min: 218, max: 248, swatchCount: 18 },
-  unknown: { min: 112, max: 112, swatchCount: 1 },
-};
-
-function buildTerrainElevationLevels({
-  min,
-  max,
-  swatchCount,
-}: TerrainElevationQuantizationConfig): number[] {
-  if (!Number.isFinite(min) || !Number.isFinite(max) || swatchCount <= 0) {
-    return [112];
-  }
-
-  const levels: number[] = [];
-  for (let index = 0; index < swatchCount; index += 1) {
-    const ratio = swatchCount <= 1 ? 1 : 1 - index / (swatchCount - 1);
-    const byteValue = Math.round(min + (max - min) * ratio);
-    levels.push(Math.max(0, Math.min(255, byteValue)));
-  }
-
-  return Array.from(new Set(levels)).sort((a, b) => a - b);
-}
-
-const ELEVATION_LEVELS_BY_TERRAIN_TYPE: Record<TerrainType, number[]> = {
-  water: buildTerrainElevationLevels(
-    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.water,
-  ),
-  grass: buildTerrainElevationLevels(
-    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.grass,
-  ),
-  forest: buildTerrainElevationLevels(
-    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.forest,
-  ),
-  hills: buildTerrainElevationLevels(
-    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.hills,
-  ),
-  mountains: buildTerrainElevationLevels(
-    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.mountains,
-  ),
-  unknown: buildTerrainElevationLevels(
-    ELEVATION_QUANTIZATION_BY_TERRAIN_TYPE.unknown,
-  ),
-};
-
-function quantizeElevationByteToPaletteLevel(
-  elevationByte: number,
-  levels: readonly number[],
-): number {
-  if (levels.length === 0) {
-    return 0;
-  }
-
-  const clampedElevationByte = Math.max(0, Math.min(255, Math.round(elevationByte)));
-  let closestLevel = levels[0];
-  let closestDistance = Math.abs(clampedElevationByte - closestLevel);
-  for (let index = 1; index < levels.length; index += 1) {
-    const level = levels[index];
-    const distance = Math.abs(clampedElevationByte - level);
-    if (distance < closestDistance) {
-      closestLevel = level;
-      closestDistance = distance;
-    }
-  }
-
-  return closestLevel;
-}
 
 function decodeElevationHexGrid(elevationHexGrid: string): Uint8Array {
   const expectedLength = TERRAIN_GRID_WIDTH * TERRAIN_GRID_HEIGHT;
@@ -1165,6 +1003,24 @@ export function getGridCellElevation(col: number, row: number): number {
   return elevationByte / 255;
 }
 
+export function getGridCellHillGrade(col: number, row: number): number {
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= TERRAIN_GRID_WIDTH ||
+    row >= TERRAIN_GRID_HEIGHT
+  ) {
+    return HILL_GRADE_NONE;
+  }
+
+  if (getGridCellTerrainType(col, row) !== 'hills') {
+    return HILL_GRADE_NONE;
+  }
+
+  const elevationByte = getActiveElevationGrid()[getGridCellIndex(col, row)] ?? 0;
+  return getHillGradeFromElevationByte(elevationByte);
+}
+
 export function getGridCellPaletteElevationByte(col: number, row: number): number {
   if (
     col < 0 ||
@@ -1176,11 +1032,8 @@ export function getGridCellPaletteElevationByte(col: number, row: number): numbe
   }
 
   const terrainType = getGridCellTerrainType(col, row);
-  const elevationByte = getActiveElevationGrid()[getGridCellIndex(col, row)] ?? 0;
-  const elevationLevels =
-    ELEVATION_LEVELS_BY_TERRAIN_TYPE[terrainType] ??
-    ELEVATION_LEVELS_BY_TERRAIN_TYPE.unknown;
-  return quantizeElevationByteToPaletteLevel(elevationByte, elevationLevels);
+  const hillGrade = getGridCellHillGrade(col, row);
+  return getTerrainPaletteElevationByte(terrainType, hillGrade);
 }
 
 export function getWorldTerrainType(x: number, y: number): TerrainType {

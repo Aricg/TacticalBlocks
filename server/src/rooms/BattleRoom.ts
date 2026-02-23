@@ -62,6 +62,11 @@ import {
   type TerrainType,
 } from "../../../shared/src/terrainGrid.js";
 import {
+  HILL_GRADE_NONE,
+  getSlopeMoraleDeltaFromHillGrades,
+  getTerrainTypeFromCode,
+} from "../../../shared/src/terrainSemantics.js";
+import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
   type RuntimeTuning,
@@ -184,8 +189,6 @@ export class BattleRoom extends Room<BattleState> {
       ? GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds * 1000
       : 3000;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
-  private static readonly RUNTIME_WATER_ELEVATION_MAX = 28;
-  private static readonly RUNTIME_MOUNTAIN_ELEVATION_MIN = 218;
   private static readonly MOUNTAIN_DENSITY_AT_MAX_BIAS = 0.12;
   private static readonly MOUNTAIN_BIAS_MIN = -0.25;
   private static readonly MOUNTAIN_BIAS_MAX = 0.25;
@@ -571,42 +574,27 @@ export class BattleRoom extends Room<BattleState> {
     const terrainCode = terrainCodeGrid.charAt(
       this.getGridCellIndex(cell.col, cell.row),
     );
-    if (terrainCode === "w") {
-      return "water";
-    }
-    if (terrainCode === "g") {
-      return "grass";
-    }
-    if (terrainCode === "f") {
-      return "forest";
-    }
-    if (terrainCode === "h") {
-      return "hills";
-    }
-    if (terrainCode === "m") {
-      return "mountains";
-    }
-    return null;
+    return getTerrainTypeFromCode(terrainCode);
   }
 
-  private getMapBundleElevationByteAtCell(
+  private getMapBundleHillGradeAtCell(
     cell: GridCoordinate,
   ): number | null {
-    const elevationBytes = this.activeMapBundle?.elevationBytes;
-    if (!elevationBytes) {
+    const hillGradeGrid = this.activeMapBundle?.hillGradeGrid;
+    if (!hillGradeGrid) {
       return null;
     }
     const index = this.getGridCellIndex(cell.col, cell.row);
-    if (index < 0 || index >= elevationBytes.length) {
+    if (index < 0 || index >= hillGradeGrid.length) {
       return null;
     }
-    const byte = elevationBytes[index];
-    return Number.isFinite(byte) ? byte : null;
+    const grade = hillGradeGrid[index];
+    return Number.isFinite(grade) ? grade : null;
   }
 
-  private getElevationByteAtCell(cell: GridCoordinate): number {
-    const elevationByte = this.getMapBundleElevationByteAtCell(cell);
-    return elevationByte ?? 0;
+  private getHillGradeAtCell(cell: GridCoordinate): number {
+    const hillGrade = this.getMapBundleHillGradeAtCell(cell);
+    return hillGrade ?? HILL_GRADE_NONE;
   }
 
   private loadActiveMapBundle(mapId: string, revision: number): void {
@@ -621,8 +609,6 @@ export class BattleRoom extends Room<BattleState> {
         BLUE: getTeamCityGridCoordinate("BLUE"),
       },
       defaultNeutralCityAnchors: getNeutralCityGridCoordinates(),
-      waterElevationMax: BattleRoom.RUNTIME_WATER_ELEVATION_MAX,
-      mountainElevationMin: BattleRoom.RUNTIME_MOUNTAIN_ELEVATION_MIN,
     });
     this.applyLoadedMapBundle(mapId, bundleLoadResult);
   }
@@ -781,9 +767,8 @@ export class BattleRoom extends Room<BattleState> {
         BattleRoom.GRID_HEIGHT - 1,
       ),
     };
-    const currentElevationByte = this.getElevationByteAtCell(currentCell);
-    const forwardElevationByte = this.getElevationByteAtCell(forwardCell);
-    const elevationDeltaBytes = forwardElevationByte - currentElevationByte;
+    const currentTerrainType = this.getTerrainTypeAtCell(currentCell);
+    const forwardTerrainType = this.getTerrainTypeAtCell(forwardCell);
     const moralePerInfluenceDot =
       BattleRoom.MORALE_MAX_SCORE /
       Math.max(
@@ -791,13 +776,14 @@ export class BattleRoom extends Room<BattleState> {
         (BattleRoom.MORALE_SAMPLE_RADIUS * 2 + 1) *
           (BattleRoom.MORALE_SAMPLE_RADIUS * 2 + 1),
       );
-    if (elevationDeltaBytes > 0) {
-      return -moralePerInfluenceDot * BattleRoom.SLOPE_MORALE_DOT_EQUIVALENT;
-    }
-    if (elevationDeltaBytes < 0) {
-      return moralePerInfluenceDot * BattleRoom.SLOPE_MORALE_DOT_EQUIVALENT;
-    }
-    return 0;
+    return getSlopeMoraleDeltaFromHillGrades({
+      currentTerrainType,
+      forwardTerrainType,
+      currentHillGrade: this.getHillGradeAtCell(currentCell),
+      forwardHillGrade: this.getHillGradeAtCell(forwardCell),
+      moralePerInfluenceDot,
+      slopeMoraleDotEquivalent: BattleRoom.SLOPE_MORALE_DOT_EQUIVALENT,
+    });
   }
 
   private updateInfluenceGrid(force = false): void {
@@ -1291,8 +1277,6 @@ export class BattleRoom extends Room<BattleState> {
         BLUE: getTeamCityGridCoordinate("BLUE"),
       },
       defaultNeutralCityAnchors: getNeutralCityGridCoordinates(),
-      waterElevationMax: BattleRoom.RUNTIME_WATER_ELEVATION_MAX,
-      mountainElevationMin: BattleRoom.RUNTIME_MOUNTAIN_ELEVATION_MIN,
     });
     this.state.mapId = mapId;
     this.applyLoadedMapBundle(mapId, switchResult);

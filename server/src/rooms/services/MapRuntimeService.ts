@@ -14,8 +14,6 @@ type LoadActiveMapBundleArgs = {
   gridHeight: number;
   defaultCityAnchors: MapBundle["cityAnchors"];
   defaultNeutralCityAnchors: MapBundle["neutralCityAnchors"];
-  waterElevationMax: number;
-  mountainElevationMin: number;
 };
 
 export type LoadActiveMapBundleResult = {
@@ -52,8 +50,6 @@ export class MapRuntimeService {
       gridHeight: args.gridHeight,
       defaultCityAnchors: args.defaultCityAnchors,
       defaultNeutralCityAnchors: args.defaultNeutralCityAnchors,
-      waterElevationMax: args.waterElevationMax,
-      mountainElevationMin: args.mountainElevationMin,
       logWarning: (warning) => {
         warnings.push(warning);
       },
@@ -77,8 +73,6 @@ export class MapRuntimeService {
       gridHeight: args.gridHeight,
       defaultCityAnchors: args.defaultCityAnchors,
       defaultNeutralCityAnchors: args.defaultNeutralCityAnchors,
-      waterElevationMax: args.waterElevationMax,
-      mountainElevationMin: args.mountainElevationMin,
       revision: nextMapRevision,
     });
 

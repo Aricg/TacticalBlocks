@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
-    "verify": "npm --prefix client run typecheck && npm --prefix server run typecheck"
+    "verify": "npm --prefix client run typecheck && npm --prefix server run typecheck && npm --prefix server exec tsx ./shared/src/terrainSemantics.parity.test.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -25,10 +25,19 @@ import {
 } from '../../shared/src/generationProfile.js';
 import type { MapGenerationMethod } from '../../shared/src/networkContracts.js';
 import {
+  getGridCellHillGrade,
+  getGridCellTerrainType,
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
 } from '../../shared/src/terrainGrid.js';
-import { getGridCellPaletteElevationByte } from '../../shared/src/terrainPaletteElevation.js';
+import {
+  HILL_GRADE_NONE,
+  TERRAIN_SWATCHES,
+  getHillGradeFromElevationByte,
+  normalizeHillGrade,
+  getSlopeMoraleDeltaFromHillGrades,
+  getTerrainTypeFromCode,
+} from '../../shared/src/terrainSemantics.js';
 import {
   applyRuntimeTuningUpdate,
   DEFAULT_RUNTIME_TUNING,
@@ -88,11 +97,6 @@ import {
   runVisualUpdatePipeline,
 } from './VisualUpdatePipeline';
 
-type TerrainSwatch = {
-  color: number;
-  type: TerrainType;
-};
-
 type RemoteUnitTransform = {
   x: number;
   y: number;
@@ -107,6 +111,11 @@ type RemoteUnitRenderState = {
   startedAtMs: number;
   durationMs: number;
   pendingRotation: number | null;
+};
+
+type RuntimeMapGridSidecar = {
+  terrainCodeGrid: string;
+  hillGradeGrid: Int8Array;
 };
 
 const getNonEmptyString = (value: unknown): string | null => {
@@ -212,6 +221,21 @@ function resolveRuntimeMapImageCandidatesById(mapId: string): string[] {
   return Array.from(uniqueCandidates);
 }
 
+function resolveRuntimeMapGridSidecarCandidatesById(mapId: string): string[] {
+  const normalizedMapId = mapId.trim();
+  if (normalizedMapId.length === 0) {
+    return [];
+  }
+
+  const mapFileName = `${encodeURIComponent(normalizedMapId)}.elevation-grid.json`;
+  const candidateBaseUrls = [MAP_IMAGE_BASE_URL, ...BACKEND_MAP_IMAGE_BASE_URLS];
+  const uniqueCandidates = new Set<string>();
+  for (const baseUrl of candidateBaseUrls) {
+    uniqueCandidates.add(`${baseUrl}/${mapFileName}`);
+  }
+  return Array.from(uniqueCandidates);
+}
+
 function resolveMapImageById(mapId: string): string | undefined {
   const candidates = resolveRuntimeMapImageCandidatesById(mapId);
   return candidates[0];
@@ -234,28 +258,8 @@ function resolveInitialMapId(): string {
 }
 
 class BattleScene extends Phaser.Scene {
-  private static readonly TERRAIN_SWATCHES: TerrainSwatch[] = [
-    { color: 0x0f2232, type: 'water' },
-    { color: 0x102236, type: 'water' },
-    { color: 0x71844b, type: 'grass' },
-    { color: 0x364d31, type: 'forest' },
-    { color: 0x122115, type: 'forest' },
-    { color: 0xc4a771, type: 'hills' },
-    { color: 0x9e8c5d, type: 'hills' },
-    { color: 0xa79168, type: 'hills' },
-    { color: 0xefb72f, type: 'hills' },
-    { color: 0xddb650, type: 'hills' },
-    { color: 0x708188, type: 'mountains' },
-    { color: 0x6d7e85, type: 'mountains' },
-    { color: 0x5a6960, type: 'mountains' },
-    { color: 0x404b3c, type: 'mountains' },
-    { color: 0x6a7c8c, type: 'mountains' },
-    { color: 0x4e5f5d, type: 'mountains' },
-    { color: 0x3a4a54, type: 'mountains' },
-    { color: 0x96a2a0, type: 'mountains' },
-  ];
   private static readonly TERRAIN_BY_COLOR = new Map<number, TerrainType>(
-    BattleScene.TERRAIN_SWATCHES.map((swatch) => [swatch.color, swatch.type]),
+    TERRAIN_SWATCHES.map((swatch) => [swatch.color, swatch.type as TerrainType]),
   );
   private readonly units: Unit[] = [];
   private readonly unitsById: Map<string, Unit> = new Map<string, Unit>();
@@ -336,6 +340,9 @@ class BattleScene extends Phaser.Scene {
   private latestInfluenceGrid: NetworkInfluenceGridUpdate | null = null;
   private mapSamplingWidth = 0;
   private mapSamplingHeight = 0;
+  private moraleDebugTerrainCodeGrid: string | null = null;
+  private moraleDebugHillGradeGrid: Int8Array | null = null;
+  private moraleDebugMapGridLoadToken = 0;
   private readonly impassableCellIndexSet: Set<number> = new Set<number>();
   private mapTextureRetryTimer: Phaser.Time.TimerEvent | null = null;
 
@@ -390,6 +397,8 @@ class BattleScene extends Phaser.Scene {
   private static readonly MORALE_SAMPLE_RADIUS = 1;
   private static readonly MORALE_MAX_SCORE = 9;
   private static readonly MORALE_INFLUENCE_MIN = 1;
+  // Keep in sync with server BattleRoom.MORALE_STEP_INTERVAL_SECONDS.
+  private static readonly MORALE_STEP_INTERVAL_SECONDS = 3;
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 2;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
@@ -711,6 +720,116 @@ class BattleScene extends Phaser.Scene {
         activeMapId: string;
       }
     ).activeMapId = mapId;
+    this.refreshMoraleDebugMapGridData(mapId, this.lobbyMapRevision);
+  }
+
+  private refreshMoraleDebugMapGridData(mapId: string, revision: number): void {
+    const normalizedMapId = mapId.trim();
+    this.moraleDebugTerrainCodeGrid = null;
+    this.moraleDebugHillGradeGrid = null;
+    const loadToken = this.moraleDebugMapGridLoadToken + 1;
+    this.moraleDebugMapGridLoadToken = loadToken;
+    this.updateMoraleBreakdownOverlay();
+
+    if (normalizedMapId.length === 0) {
+      return;
+    }
+
+    const candidateUrls = resolveRuntimeMapGridSidecarCandidatesById(normalizedMapId);
+    if (candidateUrls.length === 0) {
+      return;
+    }
+
+    const cacheBustSuffix = `rev=${encodeURIComponent(String(revision))}&t=${Date.now()}`;
+    void (async () => {
+      for (const candidateUrl of candidateUrls) {
+        const requestUrl = `${candidateUrl}${candidateUrl.includes('?') ? '&' : '?'}${cacheBustSuffix}`;
+        try {
+          const response = await fetch(requestUrl, { cache: 'no-store' });
+          if (!response.ok) {
+            continue;
+          }
+
+          const payload = (await response.json()) as unknown;
+          const sidecar = this.parseRuntimeMapGridSidecarPayload(payload);
+          if (!sidecar) {
+            continue;
+          }
+
+          if (loadToken !== this.moraleDebugMapGridLoadToken) {
+            return;
+          }
+
+          this.moraleDebugTerrainCodeGrid = sidecar.terrainCodeGrid;
+          this.moraleDebugHillGradeGrid = sidecar.hillGradeGrid;
+          this.updateMoraleBreakdownOverlay();
+          return;
+        } catch {
+          continue;
+        }
+      }
+    })();
+  }
+
+  private parseRuntimeMapGridSidecarPayload(payload: unknown): RuntimeMapGridSidecar | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const candidate = payload as {
+      terrainCodeGrid?: unknown;
+      hillGradeGrid?: unknown;
+      elevation?: unknown;
+    };
+    const expectedLength = BattleScene.GRID_WIDTH * BattleScene.GRID_HEIGHT;
+    if (
+      typeof candidate.terrainCodeGrid !== 'string'
+      || candidate.terrainCodeGrid.length !== expectedLength
+    ) {
+      return null;
+    }
+
+    const hillGradeGrid = new Int8Array(expectedLength);
+    hillGradeGrid.fill(HILL_GRADE_NONE);
+    const sourceGrid =
+      Array.isArray(candidate.hillGradeGrid) && candidate.hillGradeGrid.length === expectedLength
+        ? candidate.hillGradeGrid
+        : Array.isArray(candidate.elevation) && candidate.elevation.length === expectedLength
+          ? candidate.elevation
+          : null;
+    if (!sourceGrid) {
+      return null;
+    }
+
+    for (let index = 0; index < expectedLength; index += 1) {
+      const rawValue = sourceGrid[index];
+      if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
+        return null;
+      }
+      const terrainCode = candidate.terrainCodeGrid.charAt(index);
+      if (terrainCode !== 'h') {
+        hillGradeGrid[index] = HILL_GRADE_NONE;
+        continue;
+      }
+
+      // Legacy fallback: convert elevation bytes from older sidecars to hill grades.
+      if (sourceGrid === candidate.elevation) {
+        const normalizedElevation = Phaser.Math.Clamp(
+          Math.round(rawValue <= 1 ? rawValue * 255 : rawValue),
+          0,
+          255,
+        );
+        hillGradeGrid[index] = getHillGradeFromElevationByte(normalizedElevation);
+        continue;
+      }
+      const normalizedGrade = normalizeHillGrade(rawValue);
+      hillGradeGrid[index] = normalizedGrade === HILL_GRADE_NONE ? 0 : normalizedGrade;
+    }
+
+    return {
+      terrainCodeGrid: candidate.terrainCodeGrid,
+      hillGradeGrid,
+    };
   }
 
   private reloadMapTexture(mapId: string, revision: number): void {
@@ -2323,7 +2442,7 @@ class BattleScene extends Phaser.Scene {
     const colorG = (color >> 8) & 0xff;
     const colorB = color & 0xff;
 
-    for (const swatch of BattleScene.TERRAIN_SWATCHES) {
+    for (const swatch of TERRAIN_SWATCHES) {
       const swatchR = (swatch.color >> 16) & 0xff;
       const swatchG = (swatch.color >> 8) & 0xff;
       const swatchB = swatch.color & 0xff;
@@ -2484,7 +2603,8 @@ class BattleScene extends Phaser.Scene {
       sampledCells <= 0
         ? BattleScene.MORALE_INFLUENCE_MIN
         : (accumulatedFriendlyWeight / sampledCells) * BattleScene.MORALE_MAX_SCORE;
-    const terrainType = unit.getTerrainType();
+    const usingRuntimeMapGrid = this.hasMoraleDebugRuntimeMapGrid();
+    const terrainType = this.getMoraleDebugTerrainTypeAtCell(centerCell) ?? unit.getTerrainType();
     const terrainBonus = GAMEPLAY_CONFIG.terrain.moraleBonusByType[terrainType] ?? 0;
     const influenceWithTerrainScore = Phaser.Math.Clamp(
       influenceBaseScore + terrainBonus,
@@ -2497,7 +2617,8 @@ class BattleScene extends Phaser.Scene {
       unitId,
       centerCell,
     );
-    const slopeDelta = this.getSlopeMoraleDeltaForUnit(unitId, centerCell);
+    const slopeSample = this.getSlopeMoraleSampleForUnit(unitId, centerCell);
+    const slopeDelta = slopeSample.delta;
     const supplyLine = this.supplyLinesByUnitId.get(unitId);
     const supplyBlocked = Boolean(supplyLine && !supplyLine.connected);
     const estimatedMoraleScore = supplyBlocked
@@ -2507,11 +2628,14 @@ class BattleScene extends Phaser.Scene {
           0,
           BattleScene.MORALE_MAX_SCORE,
         );
+    const serverMoraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
+    const serverEstimateDelta =
+      serverMoraleScore === null ? null : serverMoraleScore - estimatedMoraleScore;
 
     return {
       unitId,
       team: unit.team === Team.RED ? 'RED' : 'BLUE',
-      serverMoraleScore: this.moraleScoreByUnitId.get(unitId) ?? null,
+      serverMoraleScore,
       estimatedMoraleScore,
       influenceBaseScore,
       terrainType,
@@ -2519,8 +2643,21 @@ class BattleScene extends Phaser.Scene {
       influenceWithTerrainScore,
       commanderAuraBonus,
       slopeDelta,
+      slopeCurrentTerrainType: slopeSample.currentTerrainType,
+      slopeForwardTerrainType: slopeSample.forwardTerrainType,
+      slopeCurrentHillGrade:
+        slopeSample.currentTerrainType === 'hills' ? slopeSample.currentHillGrade : null,
+      slopeForwardHillGrade:
+        slopeSample.forwardTerrainType === 'hills' ? slopeSample.forwardHillGrade : null,
       supplyBlocked,
       curveExponent: influenceCurveExponent,
+      serverEstimateDelta,
+      hasPendingServerStep:
+        usingRuntimeMapGrid
+        && serverEstimateDelta !== null
+        && Math.abs(serverEstimateDelta) > 0.001,
+      moraleStepIntervalSeconds: BattleScene.MORALE_STEP_INTERVAL_SECONDS,
+      mapGridSource: usingRuntimeMapGrid ? 'runtime-sidecar' : 'fallback',
     };
   }
 
@@ -2535,6 +2672,38 @@ class BattleScene extends Phaser.Scene {
     const index = clampedRow * grid.width + clampedCol;
     const value = grid.cells[index];
     return Number.isFinite(value) ? value : 0;
+  }
+
+  private hasMoraleDebugRuntimeMapGrid(): boolean {
+    return Boolean(this.moraleDebugTerrainCodeGrid && this.moraleDebugHillGradeGrid);
+  }
+
+  private getMoraleDebugTerrainTypeAtCell(cell: GridCoordinate): TerrainType | null {
+    const terrainCodeGrid = this.moraleDebugTerrainCodeGrid;
+    if (!terrainCodeGrid) {
+      return null;
+    }
+
+    const clampedCol = Phaser.Math.Clamp(cell.col, 0, BattleScene.GRID_WIDTH - 1);
+    const clampedRow = Phaser.Math.Clamp(cell.row, 0, BattleScene.GRID_HEIGHT - 1);
+    const terrainCode = terrainCodeGrid.charAt(
+      clampedRow * BattleScene.GRID_WIDTH + clampedCol,
+    );
+    const terrainType = getTerrainTypeFromCode(terrainCode);
+    return terrainType === 'unknown' ? null : terrainType;
+  }
+
+  private getMoraleDebugHillGradeAtCell(cell: GridCoordinate): number {
+    const hillGradeGrid = this.moraleDebugHillGradeGrid;
+    if (!hillGradeGrid) {
+      return getGridCellHillGrade(cell.col, cell.row);
+    }
+
+    const clampedCol = Phaser.Math.Clamp(cell.col, 0, BattleScene.GRID_WIDTH - 1);
+    const clampedRow = Phaser.Math.Clamp(cell.row, 0, BattleScene.GRID_HEIGHT - 1);
+    const index = clampedRow * BattleScene.GRID_WIDTH + clampedCol;
+    const value = hillGradeGrid[index];
+    return Number.isFinite(value) ? value : HILL_GRADE_NONE;
   }
 
   private getCommanderAuraBonusForUnit(
@@ -2578,10 +2747,16 @@ class BattleScene extends Phaser.Scene {
     return commandersInRange * BattleScene.COMMANDER_MORALE_AURA_BONUS;
   }
 
-  private getSlopeMoraleDeltaForUnit(
+  private getSlopeMoraleSampleForUnit(
     unitId: string,
     currentCell: GridCoordinate,
-  ): number {
+  ): {
+    currentTerrainType: TerrainType;
+    forwardTerrainType: TerrainType;
+    currentHillGrade: number;
+    forwardHillGrade: number;
+    delta: number;
+  } {
     const currentRotation = this.getAuthoritativeUnitRotation(unitId);
     const facingAngle =
       currentRotation + GAMEPLAY_CONFIG.movement.unitForwardOffsetRadians;
@@ -2597,15 +2772,12 @@ class BattleScene extends Phaser.Scene {
         BattleScene.GRID_HEIGHT - 1,
       ),
     };
-    const currentElevationByte = getGridCellPaletteElevationByte(
-      currentCell.col,
-      currentCell.row,
-    );
-    const forwardElevationByte = getGridCellPaletteElevationByte(
-      forwardCell.col,
-      forwardCell.row,
-    );
-    const elevationDeltaBytes = forwardElevationByte - currentElevationByte;
+    const currentTerrainType =
+      this.getMoraleDebugTerrainTypeAtCell(currentCell)
+      ?? getGridCellTerrainType(currentCell.col, currentCell.row);
+    const forwardTerrainType =
+      this.getMoraleDebugTerrainTypeAtCell(forwardCell)
+      ?? getGridCellTerrainType(forwardCell.col, forwardCell.row);
     const moralePerInfluenceDot =
       BattleScene.MORALE_MAX_SCORE /
       Math.max(
@@ -2613,13 +2785,22 @@ class BattleScene extends Phaser.Scene {
         (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1) *
           (BattleScene.MORALE_SAMPLE_RADIUS * 2 + 1),
       );
-    if (elevationDeltaBytes > 0) {
-      return -moralePerInfluenceDot * BattleScene.SLOPE_MORALE_DOT_EQUIVALENT;
-    }
-    if (elevationDeltaBytes < 0) {
-      return moralePerInfluenceDot * BattleScene.SLOPE_MORALE_DOT_EQUIVALENT;
-    }
-    return 0;
+    const delta = getSlopeMoraleDeltaFromHillGrades({
+      currentTerrainType,
+      forwardTerrainType,
+      currentHillGrade: this.getMoraleDebugHillGradeAtCell(currentCell),
+      forwardHillGrade: this.getMoraleDebugHillGradeAtCell(forwardCell),
+      moralePerInfluenceDot,
+      slopeMoraleDotEquivalent: BattleScene.SLOPE_MORALE_DOT_EQUIVALENT,
+    });
+
+    return {
+      currentTerrainType,
+      forwardTerrainType,
+      currentHillGrade: this.getMoraleDebugHillGradeAtCell(currentCell),
+      forwardHillGrade: this.getMoraleDebugHillGradeAtCell(forwardCell),
+      delta,
+    };
   }
 
   private getAuthoritativeUnitRotation(unitId: string): number {

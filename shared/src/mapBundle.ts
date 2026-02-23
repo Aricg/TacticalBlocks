@@ -15,7 +15,7 @@ export type MapBundle = {
   gridWidth: number;
   gridHeight: number;
   terrainCodeGrid: string | null;
-  elevationBytes: Uint8Array | null;
+  hillGradeGrid: Int8Array | null;
   cityAnchors: Record<PlayerTeam, MapBundleCoordinate>;
   neutralCityAnchors: MapBundleCoordinate[];
   blockedSpawnCellIndexSet: ReadonlySet<number>;

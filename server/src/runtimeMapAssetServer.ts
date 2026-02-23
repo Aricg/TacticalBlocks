@@ -8,7 +8,7 @@ const MAP_ROUTE_PREFIXES = [
   "/tacticalblocks/maps/",
   "/tacticalblocks/ws/maps/",
 ] as const;
-const MAP_FILE_NAME_PATTERN = /^[^/\\]+\.(?:png)$/i;
+const MAP_FILE_NAME_PATTERN = /^[^/\\]+\.(?:png|elevation-grid\.json)$/i;
 
 function getRequestPath(requestUrl: string): string | null {
   try {
@@ -93,8 +93,11 @@ export function attachRuntimeMapAssetHandler(
       return;
     }
 
+    const contentType = resolvedMapPath.toLowerCase().endsWith(".png")
+      ? "image/png"
+      : "application/json; charset=utf-8";
     response.statusCode = 200;
-    response.setHeader("Content-Type", "image/png");
+    response.setHeader("Content-Type", contentType);
     response.setHeader("Cache-Control", "no-store, max-age=0");
     const stream = createReadStream(resolvedMapPath);
     stream.on("error", () => {

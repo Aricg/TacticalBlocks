@@ -6,10 +6,16 @@ import type {
 } from "../../../../shared/src/mapBundle.js";
 import type { MapGenerationMethod } from "../../../../shared/src/networkContracts.js";
 import {
-  getGridCellPaletteElevationByte,
+  getGridCellHillGrade,
   getGridCellTerrainType,
   type TerrainType,
 } from "../../../../shared/src/terrainGrid.js";
+import {
+  HILL_GRADE_NONE,
+  getHillGradeFromElevationByte,
+  getTerrainCodeFromType,
+  normalizeHillGrade,
+} from "../../../../shared/src/terrainSemantics.js";
 
 type LoadMapBundleArgs = {
   mapId: string;
@@ -19,8 +25,6 @@ type LoadMapBundleArgs = {
   gridHeight: number;
   defaultCityAnchors: MapBundle["cityAnchors"];
   defaultNeutralCityAnchors: MapBundleCoordinate[];
-  waterElevationMax: number;
-  mountainElevationMin: number;
   logWarning?: (warning: MapBundleLoadWarning) => void;
 };
 
@@ -42,6 +46,7 @@ type RuntimeMapSidecar = {
   gridWidth?: unknown;
   gridHeight?: unknown;
   elevation?: unknown;
+  hillGradeGrid?: unknown;
   terrainCodeGrid?: unknown;
   cityAnchors?: unknown;
   neutralCityAnchors?: unknown;
@@ -215,22 +220,83 @@ function parseMethod(value: unknown): MapGenerationMethod | "unknown" {
   return "unknown";
 }
 
-function parseElevationBytes(
+function parseHillGradeGrid(
+  value: unknown,
+  expectedLength: number,
+): Int8Array | null {
+  if (!Array.isArray(value) || value.length !== expectedLength) {
+    return null;
+  }
+  const grades = new Int8Array(expectedLength);
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = value[index];
+    if (typeof entry !== "number" || !Number.isFinite(entry)) {
+      return null;
+    }
+    const normalizedValue = Math.round(entry);
+    grades[index] =
+      normalizedValue < HILL_GRADE_NONE
+        ? HILL_GRADE_NONE
+        : clamp(normalizedValue, HILL_GRADE_NONE, 127);
+  }
+  return grades;
+}
+
+function parseLegacyElevationBytes(
   value: unknown,
   expectedLength: number,
 ): Uint8Array | null {
   if (!Array.isArray(value) || value.length !== expectedLength) {
     return null;
   }
+  const normalizedRange = value.every(
+    (entry) =>
+      typeof entry === "number" &&
+      Number.isFinite(entry) &&
+      entry >= 0 &&
+      entry <= 1,
+  );
   const bytes = new Uint8Array(expectedLength);
   for (let index = 0; index < value.length; index += 1) {
     const entry = value[index];
     if (typeof entry !== "number" || !Number.isFinite(entry)) {
       return null;
     }
-    bytes[index] = clamp(Math.round(entry), 0, 255);
+    const normalizedValue = normalizedRange ? entry * 255 : entry;
+    bytes[index] = clamp(Math.round(normalizedValue), 0, 255);
   }
   return bytes;
+}
+
+function deriveHillGradeGridFromTerrainAndElevation(
+  terrainCodeGrid: string,
+  elevationBytes: Uint8Array,
+): Int8Array {
+  const hillGradeGrid = new Int8Array(terrainCodeGrid.length);
+  hillGradeGrid.fill(HILL_GRADE_NONE);
+  for (let index = 0; index < terrainCodeGrid.length; index += 1) {
+    if (terrainCodeGrid.charAt(index) !== "h") {
+      continue;
+    }
+    hillGradeGrid[index] = getHillGradeFromElevationByte(elevationBytes[index] ?? 0);
+  }
+  return hillGradeGrid;
+}
+
+function coupleHillGradeGridToTerrain(
+  terrainCodeGrid: string,
+  hillGradeGrid: Int8Array,
+): Int8Array {
+  const coupled = new Int8Array(hillGradeGrid.length);
+  coupled.fill(HILL_GRADE_NONE);
+  for (let index = 0; index < hillGradeGrid.length; index += 1) {
+    if (terrainCodeGrid.charAt(index) !== "h") {
+      continue;
+    }
+    const normalized = normalizeHillGrade(hillGradeGrid[index] ?? HILL_GRADE_NONE);
+    coupled[index] = normalized === HILL_GRADE_NONE ? 0 : normalized;
+  }
+  return coupled;
 }
 
 function cloneCityAnchors(
@@ -249,33 +315,19 @@ function cloneNeutralCityAnchors(
 }
 
 function terrainTypeToCode(terrainType: TerrainType): string {
-  if (terrainType === "water") {
-    return "w";
-  }
-  if (terrainType === "grass") {
-    return "g";
-  }
-  if (terrainType === "forest") {
-    return "f";
-  }
-  if (terrainType === "hills") {
-    return "h";
-  }
-  if (terrainType === "mountains") {
-    return "m";
-  }
-  return "g";
+  return getTerrainCodeFromType(terrainType);
 }
 
 function buildStaticMapGridArtifacts(args: LoadMapBundleArgs): {
   terrainCodeGrid: string;
-  elevationBytes: Uint8Array;
+  hillGradeGrid: Int8Array;
   blockedSpawnCellIndexSet: Set<number>;
   impassableCellIndexSet: Set<number>;
 } {
   const expectedLength = args.gridWidth * args.gridHeight;
   const terrainCodes = new Array<string>(expectedLength);
-  const elevationBytes = new Uint8Array(expectedLength);
+  const hillGradeGrid = new Int8Array(expectedLength);
+  hillGradeGrid.fill(HILL_GRADE_NONE);
   const blockedSpawnCellIndexSet = new Set<number>();
   const impassableCellIndexSet = new Set<number>();
 
@@ -285,11 +337,9 @@ function buildStaticMapGridArtifacts(args: LoadMapBundleArgs): {
       const terrainType = getGridCellTerrainType(col, row);
       const terrainCode = terrainTypeToCode(terrainType);
       terrainCodes[index] = terrainCode;
-      elevationBytes[index] = clamp(
-        getGridCellPaletteElevationByte(col, row),
-        0,
-        255,
-      );
+      if (terrainCode === "h") {
+        hillGradeGrid[index] = getGridCellHillGrade(col, row);
+      }
       if (terrainCode === "m") {
         blockedSpawnCellIndexSet.add(index);
         impassableCellIndexSet.add(index);
@@ -301,7 +351,7 @@ function buildStaticMapGridArtifacts(args: LoadMapBundleArgs): {
 
   return {
     terrainCodeGrid: terrainCodes.join(""),
-    elevationBytes,
+    hillGradeGrid,
     blockedSpawnCellIndexSet,
     impassableCellIndexSet,
   };
@@ -310,7 +360,7 @@ function buildStaticMapGridArtifacts(args: LoadMapBundleArgs): {
 function createFallbackMapBundle(args: LoadMapBundleArgs): MapBundle {
   const {
     terrainCodeGrid,
-    elevationBytes,
+    hillGradeGrid,
     blockedSpawnCellIndexSet,
     impassableCellIndexSet,
   } = buildStaticMapGridArtifacts(args);
@@ -322,7 +372,7 @@ function createFallbackMapBundle(args: LoadMapBundleArgs): MapBundle {
     gridWidth: args.gridWidth,
     gridHeight: args.gridHeight,
     terrainCodeGrid,
-    elevationBytes,
+    hillGradeGrid,
     cityAnchors: cloneCityAnchors(args.defaultCityAnchors),
     neutralCityAnchors: cloneNeutralCityAnchors(args.defaultNeutralCityAnchors),
     blockedSpawnCellIndexSet,
@@ -385,21 +435,40 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
     parsed.terrainCodeGrid.length === expectedLength
       ? parsed.terrainCodeGrid
       : null;
-  const elevationBytes = parseElevationBytes(parsed.elevation, expectedLength);
-  if (!terrainCodeGrid || !elevationBytes) {
+  const parsedHillGradeGrid = parseHillGradeGrid(
+    parsed.hillGradeGrid,
+    expectedLength,
+  );
+  const legacyElevationBytes = parseLegacyElevationBytes(
+    parsed.elevation,
+    expectedLength,
+  );
+  const hillGradeGrid =
+    parsedHillGradeGrid ??
+    (terrainCodeGrid && legacyElevationBytes
+      ? deriveHillGradeGridFromTerrainAndElevation(
+          terrainCodeGrid,
+          legacyElevationBytes,
+        )
+      : null);
+  if (!terrainCodeGrid || !hillGradeGrid) {
     const missingFields: string[] = [];
     if (!terrainCodeGrid) {
       missingFields.push("terrainCodeGrid");
     }
-    if (!elevationBytes) {
-      missingFields.push("elevation");
+    if (!hillGradeGrid) {
+      missingFields.push("hillGradeGrid");
     }
     args.logWarning?.({
       code: "sidecar-data-invalid",
-      message: `Ignoring runtime map sidecar without complete terrain/elevation data (${missingFields.join(", ")}): ${sidecarPath}`,
+      message: `Ignoring runtime map sidecar without complete terrain/hill-grade data (${missingFields.join(", ")}): ${sidecarPath}`,
     });
     return fallbackBundle;
   }
+  const coupledHillGradeGrid = coupleHillGradeGridToTerrain(
+    terrainCodeGrid,
+    hillGradeGrid,
+  );
 
   const blockedSpawnCellIndexSet = new Set<number>();
   const impassableCellIndexSet = new Set<number>();
@@ -410,18 +479,6 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
       blockedSpawnCellIndexSet.add(index);
     } else if (terrainCode === "w") {
       blockedSpawnCellIndexSet.add(index);
-    } else if (
-      terrainCode !== "g" &&
-      terrainCode !== "f" &&
-      terrainCode !== "h"
-    ) {
-      const byte = elevationBytes[index];
-      if (byte >= args.mountainElevationMin) {
-        impassableCellIndexSet.add(index);
-        blockedSpawnCellIndexSet.add(index);
-      } else if (byte <= args.waterElevationMax) {
-        blockedSpawnCellIndexSet.add(index);
-      }
     }
   }
 
@@ -460,7 +517,7 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
     gridWidth: args.gridWidth,
     gridHeight: args.gridHeight,
     terrainCodeGrid,
-    elevationBytes,
+    hillGradeGrid: coupledHillGradeGrid,
     cityAnchors,
     neutralCityAnchors,
     blockedSpawnCellIndexSet,
