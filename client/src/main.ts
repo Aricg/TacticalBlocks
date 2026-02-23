@@ -25,7 +25,6 @@ import {
 } from '../../shared/src/generationProfile.js';
 import type { MapGenerationMethod } from '../../shared/src/networkContracts.js';
 import {
-  getGridCellHillGrade,
   getGridCellTerrainType,
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
@@ -2604,6 +2603,32 @@ class BattleScene extends Phaser.Scene {
         ? BattleScene.MORALE_INFLUENCE_MIN
         : (accumulatedFriendlyWeight / sampledCells) * BattleScene.MORALE_MAX_SCORE;
     const usingRuntimeMapGrid = this.hasMoraleDebugRuntimeMapGrid();
+    const serverMoraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
+    if (!usingRuntimeMapGrid) {
+      return {
+        unitId,
+        team: unit.team === Team.RED ? 'RED' : 'BLUE',
+        serverMoraleScore,
+        estimatedMoraleScore: Number.NaN,
+        influenceBaseScore: Number.NaN,
+        terrainType: 'unknown',
+        terrainBonus: Number.NaN,
+        influenceWithTerrainScore: Number.NaN,
+        commanderAuraBonus: Number.NaN,
+        slopeDelta: Number.NaN,
+        slopeCurrentTerrainType: 'unknown',
+        slopeForwardTerrainType: 'unknown',
+        slopeCurrentHillGrade: null,
+        slopeForwardHillGrade: null,
+        supplyBlocked: false,
+        curveExponent: influenceCurveExponent,
+        serverEstimateDelta: null,
+        hasPendingServerStep: false,
+        moraleStepIntervalSeconds: BattleScene.MORALE_STEP_INTERVAL_SECONDS,
+        mapGridSource: 'unavailable',
+      };
+    }
+
     const terrainType = this.getMoraleDebugTerrainTypeAtCell(centerCell) ?? unit.getTerrainType();
     const terrainBonus = GAMEPLAY_CONFIG.terrain.moraleBonusByType[terrainType] ?? 0;
     const influenceWithTerrainScore = Phaser.Math.Clamp(
@@ -2628,7 +2653,6 @@ class BattleScene extends Phaser.Scene {
           0,
           BattleScene.MORALE_MAX_SCORE,
         );
-    const serverMoraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
     const serverEstimateDelta =
       serverMoraleScore === null ? null : serverMoraleScore - estimatedMoraleScore;
 
@@ -2653,11 +2677,9 @@ class BattleScene extends Phaser.Scene {
       curveExponent: influenceCurveExponent,
       serverEstimateDelta,
       hasPendingServerStep:
-        usingRuntimeMapGrid
-        && serverEstimateDelta !== null
-        && Math.abs(serverEstimateDelta) > 0.001,
+        serverEstimateDelta !== null && Math.abs(serverEstimateDelta) > 0.001,
       moraleStepIntervalSeconds: BattleScene.MORALE_STEP_INTERVAL_SECONDS,
-      mapGridSource: usingRuntimeMapGrid ? 'runtime-sidecar' : 'fallback',
+      mapGridSource: 'runtime-sidecar',
     };
   }
 
@@ -2696,7 +2718,7 @@ class BattleScene extends Phaser.Scene {
   private getMoraleDebugHillGradeAtCell(cell: GridCoordinate): number {
     const hillGradeGrid = this.moraleDebugHillGradeGrid;
     if (!hillGradeGrid) {
-      return getGridCellHillGrade(cell.col, cell.row);
+      return HILL_GRADE_NONE;
     }
 
     const clampedCol = Phaser.Math.Clamp(cell.col, 0, BattleScene.GRID_WIDTH - 1);

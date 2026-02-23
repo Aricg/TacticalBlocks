@@ -4,7 +4,7 @@ export type MoraleBreakdownOverlayData = {
   serverMoraleScore: number | null;
   estimatedMoraleScore: number;
   serverEstimateDelta: number | null;
-  mapGridSource: "runtime-sidecar" | "fallback";
+  mapGridSource: "runtime-sidecar" | "unavailable";
   hasPendingServerStep: boolean;
   moraleStepIntervalSeconds: number;
   influenceBaseScore: number;
@@ -86,15 +86,21 @@ export class MoraleBreakdownOverlay {
       return;
     }
 
+    if (data.mapGridSource === "unavailable") {
+      this.content.textContent =
+        `Unit: ${data.unitId} (${data.team})\n` +
+        `Morale (server): ${
+          data.serverMoraleScore === null ? "--" : formatValue(data.serverMoraleScore, 2)
+        }\n` +
+        `\n` +
+        `Runtime sidecar not loaded.\n` +
+        `Client morale estimate is disabled to avoid false debug output.`;
+      return;
+    }
+
     const supplyLabel = data.supplyBlocked ? "blocked (forced to 0)" : "connected";
-    const mapGridSourceLabel =
-      data.mapGridSource === "runtime-sidecar"
-        ? "runtime sidecar (server parity)"
-        : "fallback (may differ from server)";
-    const pendingStepLabel =
-      data.mapGridSource === "runtime-sidecar"
-        ? (data.hasPendingServerStep ? "yes" : "no")
-        : "unknown";
+    const mapGridSourceLabel = "runtime sidecar (server parity)";
+    const pendingStepLabel = data.hasPendingServerStep ? "yes" : "no";
     this.content.textContent =
       `Unit: ${data.unitId} (${data.team})\n` +
       `Morale (server): ${
