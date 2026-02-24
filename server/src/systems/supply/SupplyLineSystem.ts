@@ -246,6 +246,68 @@ function compareCellsByRowThenCol(
   return leftCell.col - rightCell.col;
 }
 
+function buildCombinedRelayPath(
+  candidateSupplyLine: ComputedSupplyLineState,
+  relayLeg: { path: GridCoordinate[]; severIndex: number },
+): { path: GridCoordinate[]; severIndex: number } {
+  if (candidateSupplyLine.path.length === 0) {
+    return {
+      path: relayLeg.path,
+      severIndex: relayLeg.severIndex,
+    };
+  }
+
+  const combinedPath = [...candidateSupplyLine.path, ...relayLeg.path.slice(1)];
+  if (relayLeg.severIndex === -1) {
+    return {
+      path: combinedPath,
+      severIndex: -1,
+    };
+  }
+
+  return {
+    path: combinedPath,
+    severIndex: candidateSupplyLine.path.length - 1 + relayLeg.severIndex,
+  };
+}
+
+function shouldReplaceDisconnectedSupplyLine(
+  currentLine: ComputedSupplyLineState,
+  candidateLine: ComputedSupplyLineState,
+): boolean {
+  if (currentLine.connected) {
+    return false;
+  }
+  if (candidateLine.connected) {
+    return true;
+  }
+  if (candidateLine.path.length === 0) {
+    return false;
+  }
+  if (currentLine.path.length === 0) {
+    return true;
+  }
+
+  const currentRemainingCells =
+    currentLine.severIndex === -1 ? 0 : currentLine.path.length - currentLine.severIndex;
+  const candidateRemainingCells =
+    candidateLine.severIndex === -1
+      ? 0
+      : candidateLine.path.length - candidateLine.severIndex;
+  if (candidateRemainingCells !== currentRemainingCells) {
+    return candidateRemainingCells < currentRemainingCells;
+  }
+
+  if (candidateLine.path.length !== currentLine.path.length) {
+    return candidateLine.path.length < currentLine.path.length;
+  }
+
+  if (candidateLine.sourceRow !== currentLine.sourceRow) {
+    return candidateLine.sourceRow < currentLine.sourceRow;
+  }
+  return candidateLine.sourceCol < currentLine.sourceCol;
+}
+
 function buildRelayConnectedSupplyLine({
   teamUnits,
   targetUnitId,
@@ -302,6 +364,7 @@ function buildRelayConnectedSupplyLine({
     return leftUnitId.localeCompare(rightUnitId);
   });
 
+  let bestBlockedRelayLine: ComputedSupplyLineState | null = null;
   for (const candidateUnitId of candidateUnitIds) {
     const candidateUnitCell = unitCellByUnitId.get(candidateUnitId);
     const candidateSupplyLine = supplyLinesByUnitId.get(candidateUnitId);
@@ -317,27 +380,37 @@ function buildRelayConnectedSupplyLine({
       isCellImpassable,
       enemyInfluenceSeverThreshold,
     });
-    if (relayLeg.severIndex !== -1) {
-      continue;
+    const combinedRelay = buildCombinedRelayPath(candidateSupplyLine, relayLeg);
+    if (combinedRelay.severIndex === -1) {
+      return {
+        unitId: targetUnitId,
+        team,
+        connected: true,
+        sourceCol: candidateSupplyLine.sourceCol,
+        sourceRow: candidateSupplyLine.sourceRow,
+        severIndex: -1,
+        path: combinedRelay.path,
+      };
     }
 
-    const combinedPath =
-      candidateSupplyLine.path.length === 0
-        ? relayLeg.path
-        : [...candidateSupplyLine.path, ...relayLeg.path.slice(1)];
-
-    return {
+    const blockedRelayLine: ComputedSupplyLineState = {
       unitId: targetUnitId,
       team,
-      connected: true,
+      connected: false,
       sourceCol: candidateSupplyLine.sourceCol,
       sourceRow: candidateSupplyLine.sourceRow,
-      severIndex: -1,
-      path: combinedPath,
+      severIndex: combinedRelay.severIndex,
+      path: combinedRelay.path,
     };
+    if (
+      !bestBlockedRelayLine ||
+      shouldReplaceDisconnectedSupplyLine(bestBlockedRelayLine, blockedRelayLine)
+    ) {
+      bestBlockedRelayLine = blockedRelayLine;
+    }
   }
 
-  return null;
+  return bestBlockedRelayLine;
 }
 
 export function findSupplySeverIndex({
@@ -546,8 +619,14 @@ export function computeSupplyLinesForUnits({
           continue;
         }
 
-        supplyLinesByUnitId.set(unitId, relaySupplyLine);
-        relayProgressMade = true;
+        if (relaySupplyLine.connected) {
+          supplyLinesByUnitId.set(unitId, relaySupplyLine);
+          relayProgressMade = true;
+          continue;
+        }
+        if (shouldReplaceDisconnectedSupplyLine(currentSupplyLine, relaySupplyLine)) {
+          supplyLinesByUnitId.set(unitId, relaySupplyLine);
+        }
       }
     }
   }

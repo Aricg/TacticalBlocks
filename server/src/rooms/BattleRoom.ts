@@ -1,9 +1,16 @@
 import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
 import { GridCellState } from "../schema/GridCellState.js";
+import { InfluenceGridState } from "../schema/InfluenceGridState.js";
 import { SupplyLineState } from "../schema/SupplyLineState.js";
 import { Unit } from "../schema/Unit.js";
 import { InfluenceGridSystem } from "../systems/InfluenceGridSystem.js";
+import {
+  BlockedSupplyEndpointInfluenceTracker,
+  DEFAULT_BLOCKED_SUPPLY_ENDPOINT_INFLUENCE_OPTIONS,
+  resolveBlockedSupplyEndpointCellFromPath,
+  type BlockedSupplyEndpointSample,
+} from "../systems/influenceGrid/blockedSupplyEndpointInfluence.js";
 import {
   updateCombatRotation as updateCombatRotationSystem,
   updateUnitInteractions as updateUnitInteractionsSystem,
@@ -100,6 +107,13 @@ import type {
   Vector2,
 } from "./BattleRoomTypes.js";
 
+type StaticInfluenceSourceInput = {
+  x: number;
+  y: number;
+  power: number;
+  team: PlayerTeam;
+};
+
 export class BattleRoom extends Room<BattleState> {
   private readonly lobbyService = new LobbyService(
     GAMEPLAY_CONFIG.map.availableMapIds,
@@ -119,6 +133,12 @@ export class BattleRoom extends Room<BattleState> {
   private readonly moraleStepPendingUnitIds = new Set<string>();
   private readonly engagedUnitIds = new Set<string>();
   private readonly influenceGridSystem = new InfluenceGridSystem();
+  private readonly supplyInfluenceGridSystem = new InfluenceGridSystem();
+  private readonly supplyEvaluationInfluenceGrid = new InfluenceGridState();
+  private readonly blockedSupplyEndpointInfluenceTracker =
+    new BlockedSupplyEndpointInfluenceTracker(
+      DEFAULT_BLOCKED_SUPPLY_ENDPOINT_INFLUENCE_OPTIONS,
+    );
   private readonly generationProfileByMapId = new Map<string, GenerationProfile>();
   private neutralCityCells: GridCoordinate[] = [];
   private matchPhase: MatchPhase = "LOBBY";
@@ -134,6 +154,7 @@ export class BattleRoom extends Room<BattleState> {
     RED: 1,
   };
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
+  private cityInfluenceSources: StaticInfluenceSourceInput[] = [];
   private startingForceLayoutStrategy: StartingForceLayoutStrategy =
     DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy;
   private startingForceLineUnitCountPerTeam: number | null = null;
@@ -215,6 +236,7 @@ export class BattleRoom extends Room<BattleState> {
     );
     this.resetCityUnitGenerationState();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
+    this.supplyInfluenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
     this.startingForceLayoutStrategy = this.resolveStartingForceLayoutStrategyForMap(
       this.state.mapId,
@@ -748,9 +770,23 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private getInfluenceScoreAtCell(col: number, row: number): number {
-    const grid = this.state.influenceGrid;
-    const index = row * grid.width + col;
-    const value = grid.cells[index];
+    return this.getGridScoreAtCell(this.state.influenceGrid, col, row);
+  }
+
+  private getSupplyEvaluationInfluenceScoreAtCell(col: number, row: number): number {
+    return this.getGridScoreAtCell(this.supplyEvaluationInfluenceGrid, col, row);
+  }
+
+  private getGridScoreAtCell(
+    targetGrid: {
+      width: number;
+      cells: ArrayLike<number>;
+    },
+    col: number,
+    row: number,
+  ): number {
+    const index = row * targetGrid.width + col;
+    const value = targetGrid.cells[index];
     if (typeof value !== "number" || !Number.isFinite(value)) {
       return 0;
     }
@@ -834,10 +870,56 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
+    this.syncStaticInfluenceSources();
     this.influenceGridSystem.writeInfluenceScores(
       this.state.influenceGrid,
       this.state.units.values(),
     );
+  }
+
+  private syncStaticInfluenceSources(): void {
+    this.supplyInfluenceGridSystem.setStaticInfluenceSources(
+      this.cityInfluenceSources,
+    );
+    const blockedSupplySources = this.buildBlockedSupplyEndpointInfluenceSources();
+    this.influenceGridSystem.setStaticInfluenceSources([
+      ...this.cityInfluenceSources,
+      ...blockedSupplySources,
+    ]);
+  }
+
+  private updateSupplyEvaluationInfluenceGrid(): void {
+    this.syncStaticInfluenceSources();
+    this.supplyInfluenceGridSystem.writeInfluenceScores(
+      this.supplyEvaluationInfluenceGrid,
+      this.state.units.values(),
+    );
+  }
+
+  private buildBlockedSupplyEndpointInfluenceSources(): StaticInfluenceSourceInput[] {
+    const unitPower =
+      this.runtimeTuning.baseUnitHealth * this.runtimeTuning.unitInfluenceMultiplier;
+    const samples: BlockedSupplyEndpointSample[] = [];
+    for (const [unitId, supplyLine] of this.state.supplyLines) {
+      const endpointCell =
+        supplyLine.connected || supplyLine.severIndex < 0
+          ? null
+          : resolveBlockedSupplyEndpointCellFromPath(
+              supplyLine.path,
+              supplyLine.severIndex,
+            );
+      samples.push({
+        unitId,
+        team: endpointCell ? this.normalizeTeam(supplyLine.team) : null,
+        endpointCell,
+      });
+    }
+    return this.blockedSupplyEndpointInfluenceTracker.buildSources({
+      samples,
+      nowMs: Date.now(),
+      unitPower,
+      gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
+    });
   }
 
   private getCityWorldPosition(team: PlayerTeam): Vector2 {
@@ -1047,7 +1129,7 @@ export class BattleRoom extends Room<BattleState> {
       this.runtimeTuning.unitInfluenceMultiplier *
       this.runtimeTuning.cityInfluenceUnitsEquivalent;
 
-    const staticSources = buildCityInfluenceSources({
+    this.cityInfluenceSources = buildCityInfluenceSources({
       redCityPosition,
       blueCityPosition,
       redCityOwner,
@@ -1058,8 +1140,7 @@ export class BattleRoom extends Room<BattleState> {
       gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
       cityPower,
     });
-
-    this.influenceGridSystem.setStaticInfluenceSources(staticSources);
+    this.syncStaticInfluenceSources();
   }
 
   private handleRuntimeTuningUpdate(
@@ -1084,6 +1165,7 @@ export class BattleRoom extends Room<BattleState> {
       );
     }
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
+    this.supplyInfluenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.syncCityInfluenceSources();
     this.broadcast(NETWORK_MESSAGE_TYPES.runtimeTuningSnapshot, this.runtimeTuning);
     this.updateInfluenceGrid(true);
@@ -1282,6 +1364,7 @@ export class BattleRoom extends Room<BattleState> {
     }
     this.supplySignatureByUnitId.clear();
     this.supplySourceRetryStateByUnitId.clear();
+    this.blockedSupplyEndpointInfluenceTracker.clear();
   }
 
   private clearUnits(): void {
@@ -1340,6 +1423,7 @@ export class BattleRoom extends Room<BattleState> {
     this.syncCityInfluenceSources();
     this.spawnStartingForces();
     this.mapRuntimeService.clearInfluenceGrid(this.state.influenceGrid);
+    this.mapRuntimeService.clearInfluenceGrid(this.supplyEvaluationInfluenceGrid);
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
     this.simulationFrame = 0;
@@ -1605,6 +1689,7 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private updateSupplyLines(): void {
+    this.updateSupplyEvaluationInfluenceGrid();
     const { supplyLinesByUnitId: computedSupplyLines, retryStateByUnitId } =
       computeSupplyLinesForUnits({
         units: this.state.units.values(),
@@ -1614,7 +1699,8 @@ export class BattleRoom extends Room<BattleState> {
         blueCityOwner: this.state.blueCityOwner,
         neutralCityOwners: this.state.neutralCityOwners,
         neutralCityCells: this.neutralCityCells,
-        getInfluenceScoreAtCell: (col, row) => this.getInfluenceScoreAtCell(col, row),
+        getInfluenceScoreAtCell: (col, row) =>
+          this.getSupplyEvaluationInfluenceScoreAtCell(col, row),
         isCellImpassable: (cell) => this.isCellImpassable(cell),
         enemyInfluenceSeverThreshold:
           GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
@@ -1663,6 +1749,7 @@ export class BattleRoom extends Room<BattleState> {
       }
       this.state.supplyLines.delete(unitId);
       this.supplySignatureByUnitId.delete(unitId);
+      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
     }
 
     for (const unitId of Array.from(this.supplySignatureByUnitId.keys())) {
@@ -1670,6 +1757,7 @@ export class BattleRoom extends Room<BattleState> {
         continue;
       }
       this.supplySignatureByUnitId.delete(unitId);
+      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
     }
 
     for (const unitId of Array.from(this.supplySourceRetryStateByUnitId.keys())) {
@@ -1677,6 +1765,7 @@ export class BattleRoom extends Room<BattleState> {
         continue;
       }
       this.supplySourceRetryStateByUnitId.delete(unitId);
+      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
     }
   }
 
@@ -1688,6 +1777,7 @@ export class BattleRoom extends Room<BattleState> {
       }
       this.state.supplyLines.delete(unitId);
       this.supplySignatureByUnitId.delete(unitId);
+      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
     }
 
     for (const unitId of Array.from(this.supplySignatureByUnitId.keys())) {
@@ -1695,6 +1785,7 @@ export class BattleRoom extends Room<BattleState> {
         continue;
       }
       this.supplySignatureByUnitId.delete(unitId);
+      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
     }
 
     for (const unitId of Array.from(this.supplySourceRetryStateByUnitId.keys())) {
@@ -1702,6 +1793,7 @@ export class BattleRoom extends Room<BattleState> {
         continue;
       }
       this.supplySourceRetryStateByUnitId.delete(unitId);
+      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
     }
   }
 
