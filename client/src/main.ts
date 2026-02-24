@@ -335,7 +335,6 @@ class BattleScene extends Phaser.Scene {
   private lobbyOverlayController: LobbyOverlayController | null = null;
   private selectionBox!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
-  private impassableOverlay!: Phaser.GameObjects.Graphics;
   private influenceRenderer: InfluenceRenderer | null = null;
   private moraleBreakdownOverlay: MoraleBreakdownOverlay | null = null;
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
@@ -349,7 +348,6 @@ class BattleScene extends Phaser.Scene {
   private moraleDebugTerrainCodeGrid: string | null = null;
   private moraleDebugHillGradeGrid: Int8Array | null = null;
   private moraleDebugMapGridLoadToken = 0;
-  private readonly impassableCellIndexSet: Set<number> = new Set<number>();
   private mapTextureRetryTimer: Phaser.Time.TimerEvent | null = null;
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
@@ -406,12 +404,6 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMMANDER_MORALE_AURA_RADIUS_CELLS = 4;
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
-  private static readonly SHOW_IMPASSABLE_OVERLAY = true;
-  private static readonly IMPASSABLE_OVERLAY_DEPTH = 995;
-  private static readonly IMPASSABLE_OVERLAY_FILL_COLOR = 0xff1f1f;
-  private static readonly IMPASSABLE_OVERLAY_FILL_ALPHA = 0.45;
-  private static readonly IMPASSABLE_OVERLAY_STROKE_COLOR = 0xb30000;
-  private static readonly IMPASSABLE_OVERLAY_STROKE_ALPHA = 0.55;
   private static readonly LOBBY_OVERLAY_DEPTH = 2200;
 
   constructor() {
@@ -445,7 +437,6 @@ class BattleScene extends Phaser.Scene {
       .setDisplaySize(BattleScene.MAP_WIDTH, BattleScene.MAP_HEIGHT)
       .setDepth(-1000);
     this.initializeMapTerrainSampling();
-    this.rebuildImpassableCellIndexSetFromMapTexture();
     this.input.mouse?.disableContextMenu();
     this.shiftKey =
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
@@ -462,9 +453,6 @@ class BattleScene extends Phaser.Scene {
     });
     this.movementLines = this.add.graphics();
     this.movementLines.setDepth(900);
-    this.impassableOverlay = this.add.graphics();
-    this.impassableOverlay.setDepth(BattleScene.IMPASSABLE_OVERLAY_DEPTH);
-    this.drawImpassableOverlay();
     this.ensureActiveMapTextureLoaded();
     this.influenceRenderer = new InfluenceRenderer(this);
     this.influenceRenderer.setVisibleTeam(
@@ -745,8 +733,6 @@ class BattleScene extends Phaser.Scene {
     const loadToken = this.moraleDebugMapGridLoadToken + 1;
     this.moraleDebugMapGridLoadToken = loadToken;
     this.updateMoraleBreakdownOverlay();
-    this.rebuildImpassableCellIndexSetFromMapTexture();
-    this.drawImpassableOverlay();
 
     if (normalizedMapId.length === 0) {
       return;
@@ -780,8 +766,6 @@ class BattleScene extends Phaser.Scene {
           this.moraleDebugTerrainCodeGrid = sidecar.terrainCodeGrid;
           this.moraleDebugHillGradeGrid = sidecar.hillGradeGrid;
           this.updateMoraleBreakdownOverlay();
-          this.rebuildImpassableCellIndexSetFromMapTexture();
-          this.drawImpassableOverlay();
           return;
         } catch {
           continue;
@@ -911,8 +895,6 @@ class BattleScene extends Phaser.Scene {
         }
         this.mapBackground.setTexture(this.mapTextureKey);
         this.initializeMapTerrainSampling();
-        this.rebuildImpassableCellIndexSetFromMapTexture();
-        this.drawImpassableOverlay();
         this.refreshFogOfWar();
         this.stopMapTextureRetryLoop();
       });
@@ -942,8 +924,6 @@ class BattleScene extends Phaser.Scene {
       }
       this.mapTextureKey = activeTextureKey;
       this.initializeMapTerrainSampling();
-      this.rebuildImpassableCellIndexSetFromMapTexture();
-      this.drawImpassableOverlay();
       this.refreshFogOfWar();
       return;
     }
@@ -1005,9 +985,6 @@ class BattleScene extends Phaser.Scene {
         rebuildCitiesForCurrentMap: () => {
           this.rebuildCitiesForCurrentMap();
         },
-        drawImpassableOverlay: () => {
-          this.drawImpassableOverlay();
-        },
         reloadMapTexture: (mapId: string, revision: number) => {
           this.reloadMapTexture(mapId, revision);
         },
@@ -1026,13 +1003,9 @@ class BattleScene extends Phaser.Scene {
             this.mapBackground.setTexture(this.mapTextureKey);
           }
           this.initializeMapTerrainSampling();
-          this.rebuildImpassableCellIndexSetFromMapTexture();
-          this.drawImpassableOverlay();
         },
         initializeMapTerrainSampling: () => {
           this.initializeMapTerrainSampling();
-          this.rebuildImpassableCellIndexSetFromMapTexture();
-          this.drawImpassableOverlay();
         },
         refreshFogOfWar: () => {
           this.refreshFogOfWar();
@@ -1964,97 +1937,6 @@ class BattleScene extends Phaser.Scene {
 
   private clearSelectionBox(): void {
     this.selectionBox.clear();
-  }
-
-  private getGridCellIndex(col: number, row: number): number {
-    return row * BattleScene.GRID_WIDTH + col;
-  }
-
-  private isGridCellImpassable(col: number, row: number): boolean {
-    if (
-      col < 0 ||
-      row < 0 ||
-      col >= BattleScene.GRID_WIDTH ||
-      row >= BattleScene.GRID_HEIGHT
-    ) {
-      return true;
-    }
-
-    return this.impassableCellIndexSet.has(this.getGridCellIndex(col, row));
-  }
-
-  private rebuildImpassableCellIndexSetFromMapTexture(): void {
-    this.impassableCellIndexSet.clear();
-    const terrainCodeGrid = this.moraleDebugTerrainCodeGrid;
-    const expectedLength = BattleScene.GRID_WIDTH * BattleScene.GRID_HEIGHT;
-    if (terrainCodeGrid && terrainCodeGrid.length === expectedLength) {
-      for (let index = 0; index < terrainCodeGrid.length; index += 1) {
-        if (terrainCodeGrid.charAt(index) !== 'm') {
-          continue;
-        }
-        this.impassableCellIndexSet.add(index);
-      }
-      return;
-    }
-
-    for (let row = 0; row < BattleScene.GRID_HEIGHT; row += 1) {
-      for (let col = 0; col < BattleScene.GRID_WIDTH; col += 1) {
-        const worldCenter = gridToWorldCenter(
-          { col, row },
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
-        );
-        const color = this.sampleMapColorAt(worldCenter.x, worldCenter.y);
-        if (this.resolveTerrainType(color) !== 'mountains') {
-          continue;
-        }
-
-        this.impassableCellIndexSet.add(this.getGridCellIndex(col, row));
-      }
-    }
-  }
-
-  private drawImpassableOverlay(): void {
-    const impassableOverlay = this.impassableOverlay;
-    if (!impassableOverlay) {
-      return;
-    }
-    impassableOverlay.clear();
-    if (!BattleScene.SHOW_IMPASSABLE_OVERLAY) {
-      return;
-    }
-
-    impassableOverlay.fillStyle(
-      BattleScene.IMPASSABLE_OVERLAY_FILL_COLOR,
-      BattleScene.IMPASSABLE_OVERLAY_FILL_ALPHA,
-    );
-    impassableOverlay.lineStyle(
-      1,
-      BattleScene.IMPASSABLE_OVERLAY_STROKE_COLOR,
-      BattleScene.IMPASSABLE_OVERLAY_STROKE_ALPHA,
-    );
-
-    for (let row = 0; row < BattleScene.GRID_HEIGHT; row += 1) {
-      for (let col = 0; col < BattleScene.GRID_WIDTH; col += 1) {
-        if (!this.isGridCellImpassable(col, row)) {
-          continue;
-        }
-
-        const x = col * BattleScene.GRID_CELL_WIDTH;
-        const y = row * BattleScene.GRID_CELL_HEIGHT;
-        impassableOverlay.fillRect(
-          x,
-          y,
-          BattleScene.GRID_CELL_WIDTH,
-          BattleScene.GRID_CELL_HEIGHT,
-        );
-        impassableOverlay.strokeRect(
-          x,
-          y,
-          BattleScene.GRID_CELL_WIDTH,
-          BattleScene.GRID_CELL_HEIGHT,
-        );
-      }
-    }
   }
 
   private selectOnlyUnit(unit: Unit): void {

@@ -21,7 +21,6 @@ export type LobbyMapSelectionEffects = {
   applyMapIdToRuntimeTerrain: (mapId: string) => void;
   resetNeutralCities: () => void;
   rebuildCitiesForCurrentMap: () => void;
-  drawImpassableOverlay: () => void;
   reloadMapTexture: (mapId: string, revision: number) => void;
   applyLoadedMapTexture: (mapId: string) => void;
   initializeMapTerrainSampling: () => void;
@@ -122,7 +121,6 @@ export function applySelectedLobbyMapFlow({
     effects.applyMapIdToRuntimeTerrain(nextMapId);
     effects.resetNeutralCities();
     effects.rebuildCitiesForCurrentMap();
-    effects.drawImpassableOverlay();
     effects.reloadMapTexture(nextMapId, lobbyMapRevision);
     effects.refreshFogOfWar();
     return;
@@ -132,7 +130,6 @@ export function applySelectedLobbyMapFlow({
   effects.applyMapIdToRuntimeTerrain(nextMapId);
   effects.resetNeutralCities();
   effects.rebuildCitiesForCurrentMap();
-  effects.drawImpassableOverlay();
   effects.initializeMapTerrainSampling();
   effects.refreshFogOfWar();
 }

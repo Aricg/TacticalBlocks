@@ -67,11 +67,11 @@ export const DEFAULT_GENERATION_PROFILE: GenerationProfile = {
   },
   cities: {
     teamCityCount: 1,
-    neutralCityCount: 3,
-    friendlyCityCount: 0,
+    neutralCityCount: 2,
+    friendlyCityCount: 2,
   },
   startingForces: {
-    unitCountPerTeam: 250,
+    unitCountPerTeam: 48,
     commanderCount: 1,
     layoutStrategy: "battle-line",
   },
