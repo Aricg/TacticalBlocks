@@ -4,31 +4,47 @@ import { Team } from './Team';
 export type CityOwner = Team | 'NEUTRAL';
 
 export class City extends Phaser.GameObjects.Container {
-  private readonly marker: Phaser.GameObjects.Star;
+  private readonly ring: Phaser.GameObjects.Arc;
+  private readonly core: Phaser.GameObjects.Arc;
   private owner: CityOwner;
-  private static readonly TEAM_FILL_COLORS: Record<CityOwner, number> = {
-    [Team.RED]: 0xa05555,
-    [Team.BLUE]: 0x4e6f9e,
-    NEUTRAL: 0xd9bf59,
+  private static readonly TEAM_MARKER_COLORS: Record<CityOwner, number> = {
+    [Team.RED]: 0xd06b6b,
+    [Team.BLUE]: 0x7298cf,
+    NEUTRAL: 0x9f9f9f,
   };
+  private static readonly RING_BASE_COLOR = 0x1f1f1f;
 
   constructor(scene: Phaser.Scene, x: number, y: number, owner: CityOwner) {
     super(scene, x, y);
     this.owner = owner;
 
-    this.marker = new Phaser.GameObjects.Star(
+    this.ring = new Phaser.GameObjects.Arc(
+      scene,
+      0,
+      0,
+      12,
+      0,
+      360,
+      false,
+      City.RING_BASE_COLOR,
+      0.22,
+    );
+    this.ring.setStrokeStyle(2, City.TEAM_MARKER_COLORS[this.owner], 0.95);
+    this.core = new Phaser.GameObjects.Arc(
       scene,
       0,
       0,
       5,
-      5,
-      12,
-      City.TEAM_FILL_COLORS[this.owner],
-      1,
+      0,
+      360,
+      false,
+      City.TEAM_MARKER_COLORS[this.owner],
+      0.95,
     );
-    this.marker.setStrokeStyle(1, 0x3a320f, 0.95);
+    this.core.setStrokeStyle(1, 0x242424, 0.9);
 
-    this.add(this.marker);
+    this.add(this.ring);
+    this.add(this.core);
     this.setDepth(120);
     scene.add.existing(this);
   }
@@ -39,6 +55,7 @@ export class City extends Phaser.GameObjects.Container {
     }
 
     this.owner = nextOwner;
-    this.marker.setFillStyle(City.TEAM_FILL_COLORS[this.owner], 1);
+    this.ring.setStrokeStyle(2, City.TEAM_MARKER_COLORS[this.owner], 0.95);
+    this.core.setFillStyle(City.TEAM_MARKER_COLORS[this.owner], 0.95);
   }
 }

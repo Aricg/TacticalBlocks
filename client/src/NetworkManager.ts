@@ -90,9 +90,20 @@ type ServerSupplyLineState = {
   path: ArrayLike<ServerGridCellState>;
 };
 
+type ServerFarmCitySupplyLineState = {
+  linkId: string;
+  farmZoneId: string;
+  cityZoneId: string;
+  team: string;
+  connected: boolean;
+  severIndex: number;
+  path: ArrayLike<ServerGridCellState>;
+};
+
 type BattleRoomState = {
   units: unknown;
   supplyLines: unknown;
+  farmCitySupplyLines: unknown;
   influenceGrid: ServerInfluenceGridState;
   mapId: string;
   redCityOwner: string;
@@ -164,6 +175,16 @@ export type NetworkSupplyLineUpdate = {
   path: NetworkSupplyLinePathCell[];
 };
 
+export type NetworkFarmCitySupplyLineUpdate = {
+  linkId: string;
+  farmZoneId: string;
+  cityZoneId: string;
+  team: 'BLUE' | 'RED';
+  connected: boolean;
+  severIndex: number;
+  path: NetworkSupplyLinePathCell[];
+};
+
 export type NetworkMatchPhase = MatchPhase;
 
 export type NetworkLobbyPlayer = {
@@ -219,6 +240,10 @@ type SupplyLineChangedHandler = (
   supplyLineUpdate: NetworkSupplyLineUpdate,
 ) => void;
 type SupplyLineRemovedHandler = (unitId: string) => void;
+type FarmCitySupplyLineChangedHandler = (
+  supplyLineUpdate: NetworkFarmCitySupplyLineUpdate,
+) => void;
+type FarmCitySupplyLineRemovedHandler = (linkId: string) => void;
 type RuntimeTuningChangedHandler = (
   runtimeTuning: RuntimeTuningSnapshotMessage,
 ) => void;
@@ -260,6 +285,8 @@ export class NetworkManager {
     private readonly onCityOwnershipChanged: CityOwnershipChangedHandler,
     private readonly onSupplyLineChanged: SupplyLineChangedHandler,
     private readonly onSupplyLineRemoved: SupplyLineRemovedHandler,
+    private readonly onFarmCitySupplyLineChanged: FarmCitySupplyLineChangedHandler,
+    private readonly onFarmCitySupplyLineRemoved: FarmCitySupplyLineRemovedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
     endpoint = resolveServerEndpoint(),
     roomName = 'battle',
@@ -495,6 +522,98 @@ export class NetworkManager {
             detachSupplyLineListeners(unitId);
           }
           this.resyncSupplyLineVisibility = null;
+        },
+      );
+
+      const farmCitySupplyLineListenerDetachersByLinkId = new Map<
+        string,
+        Array<() => void>
+      >();
+      const detachFarmCitySupplyLineListeners = (linkId: string) => {
+        const listeners = farmCitySupplyLineListenerDetachersByLinkId.get(linkId);
+        if (!listeners) {
+          return;
+        }
+        for (const detach of listeners) {
+          detach();
+        }
+        farmCitySupplyLineListenerDetachersByLinkId.delete(linkId);
+      };
+      const attachFarmCitySupplyLineListeners = (
+        serverSupplyLine: ServerFarmCitySupplyLineState,
+        linkKey: string,
+      ) => {
+        const normalized = this.normalizeFarmCitySupplyLineUpdate(
+          serverSupplyLine,
+          linkKey,
+        );
+        if (!normalized) {
+          return;
+        }
+
+        detachFarmCitySupplyLineListeners(normalized.linkId);
+        let flushQueued = false;
+        const queueSupplyLineUpdate = () => {
+          if (flushQueued) {
+            return;
+          }
+          flushQueued = true;
+          NetworkManager.queuePositionFlush(() => {
+            flushQueued = false;
+            const latest = this.normalizeFarmCitySupplyLineUpdate(
+              serverSupplyLine,
+              linkKey,
+            );
+            if (!latest) {
+              return;
+            }
+            this.onFarmCitySupplyLineChanged(latest);
+          });
+        };
+
+        this.onFarmCitySupplyLineChanged(normalized);
+        const detachers: Array<() => void> = [
+          $(serverSupplyLine).listen('team', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('connected', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('severIndex', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('farmZoneId', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('cityZoneId', queueSupplyLineUpdate),
+          $(serverSupplyLine).path.onChange(() => {
+            queueSupplyLineUpdate();
+          }),
+        ];
+        farmCitySupplyLineListenerDetachersByLinkId.set(
+          normalized.linkId,
+          detachers,
+        );
+      };
+      const detachFarmCitySupplyLineAdd = $(state).farmCitySupplyLines.onAdd(
+        (serverSupplyLine: ServerFarmCitySupplyLineState, linkKey: string) => {
+          attachFarmCitySupplyLineListeners(serverSupplyLine, linkKey);
+        },
+        true,
+      );
+      const detachFarmCitySupplyLineRemove = $(state).farmCitySupplyLines.onRemove(
+        (serverSupplyLine: ServerFarmCitySupplyLineState, linkKey: string) => {
+          const normalized = this.normalizeFarmCitySupplyLineUpdate(
+            serverSupplyLine,
+            linkKey,
+          );
+          const linkId = normalized?.linkId ?? linkKey;
+          if (linkId.length === 0) {
+            return;
+          }
+          detachFarmCitySupplyLineListeners(linkId);
+          this.onFarmCitySupplyLineRemoved(linkId);
+        },
+      );
+      this.detachCallbacks.push(
+        detachFarmCitySupplyLineAdd,
+        detachFarmCitySupplyLineRemove,
+        () => {
+          for (const linkId of farmCitySupplyLineListenerDetachersByLinkId.keys()) {
+            detachFarmCitySupplyLineListeners(linkId);
+          }
         },
       );
 
@@ -852,6 +971,58 @@ export class NetworkManager {
       connected: serverSupplyLine?.connected === true,
       sourceCol: safeInteger(serverSupplyLine?.sourceCol),
       sourceRow: safeInteger(serverSupplyLine?.sourceRow),
+      severIndex: safeInteger(serverSupplyLine?.severIndex),
+      path: normalizedPath,
+    };
+  }
+
+  private normalizeFarmCitySupplyLineUpdate(
+    serverSupplyLine: ServerFarmCitySupplyLineState,
+    linkKey: string,
+  ): NetworkFarmCitySupplyLineUpdate | null {
+    const linkId =
+      typeof serverSupplyLine?.linkId === 'string' &&
+      serverSupplyLine.linkId.length > 0
+        ? serverSupplyLine.linkId
+        : linkKey;
+    if (linkId.length === 0) {
+      return null;
+    }
+
+    const normalizedTeam = serverSupplyLine?.team?.toUpperCase() === 'RED'
+      ? 'RED'
+      : 'BLUE';
+    const safeInteger = (
+      value: number | null | undefined,
+      fallback = -1,
+    ): number =>
+      typeof value === 'number' && Number.isFinite(value)
+        ? Math.round(value)
+        : fallback;
+
+    const normalizedPath = Array.from(serverSupplyLine?.path ?? [])
+      .map((cell) => {
+        const col = safeInteger(cell?.col, Number.NaN);
+        const row = safeInteger(cell?.row, Number.NaN);
+        if (!Number.isFinite(col) || !Number.isFinite(row)) {
+          return null;
+        }
+        return { col, row };
+      })
+      .filter((cell): cell is NetworkSupplyLinePathCell => cell !== null);
+
+    return {
+      linkId,
+      farmZoneId:
+        typeof serverSupplyLine?.farmZoneId === 'string'
+          ? serverSupplyLine.farmZoneId
+          : '',
+      cityZoneId:
+        typeof serverSupplyLine?.cityZoneId === 'string'
+          ? serverSupplyLine.cityZoneId
+          : '',
+      team: normalizedTeam,
+      connected: serverSupplyLine?.connected === true,
       severIndex: safeInteger(serverSupplyLine?.severIndex),
       path: normalizedPath,
     };

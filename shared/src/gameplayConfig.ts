@@ -74,6 +74,7 @@ export const GAMEPLAY_CONFIG = {
   cities: {
     backlineOffset: 140,
     influenceUnitsEquivalent: 3,
+    moraleBonusInsideOwnedZone: 1,
   },
   input: {
     dragThreshold: 10,
@@ -96,6 +97,7 @@ export const GAMEPLAY_CONFIG = {
     allySoftSeparationPushSpeed: 90,
   },
   terrain: {
+    roadMovementMultiplier: 2.0,
     movementMultiplierByType: {
       water: 0.3,
       forest: 0.7,

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
-    "verify": "npm --prefix client run typecheck && npm --prefix server run typecheck && npm --prefix server exec tsx ./shared/src/terrainSemantics.parity.test.ts"
+    "verify": "npm --prefix client run typecheck && npm --prefix server run typecheck && npm --prefix server exec tsx ./shared/src/terrainSemantics.parity.test.ts && npm --prefix server exec tsx ./server/src/systems/cities/CityControlSystem.test.ts && npm --prefix server exec tsx ./server/src/systems/movement/MovementSimulation.test.ts && npm --prefix server exec tsx ./server/src/systems/supply/SupplyLineSystem.test.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

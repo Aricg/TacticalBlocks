@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   type NetworkBattleEndedUpdate,
   type NetworkCityOwnershipUpdate,
+  type NetworkFarmCitySupplyLineUpdate,
   type NetworkInfluenceGridUpdate,
   type NetworkLobbyStateUpdate,
   NetworkManager,
@@ -284,6 +285,10 @@ class BattleScene extends Phaser.Scene {
     new Map<string, number>();
   private readonly supplyLinesByUnitId: Map<string, NetworkSupplyLineUpdate> =
     new Map<string, NetworkSupplyLineUpdate>();
+  private readonly farmCitySupplyLinesByLinkId: Map<
+    string,
+    NetworkFarmCitySupplyLineUpdate
+  > = new Map<string, NetworkFarmCitySupplyLineUpdate>();
   private readonly cities: City[] = [];
   private readonly cityByHomeTeam: Record<Team, City | null> = {
     [Team.RED]: null,
@@ -606,6 +611,12 @@ class BattleScene extends Phaser.Scene {
       (unitId) => {
         this.removeSupplyLine(unitId);
       },
+      (supplyLineUpdate) => {
+        this.applyFarmCitySupplyLineUpdate(supplyLineUpdate);
+      },
+      (linkId) => {
+        this.removeFarmCitySupplyLine(linkId);
+      },
       (runtimeTuning) => {
         this.applyRuntimeTuning(runtimeTuning);
       },
@@ -657,6 +668,7 @@ class BattleScene extends Phaser.Scene {
       this.combatVisualUntilByUnitId.clear();
       this.moraleScoreByUnitId.clear();
       this.supplyLinesByUnitId.clear();
+      this.farmCitySupplyLinesByLinkId.clear();
       this.syncSupplyLinesToInfluenceRenderer();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
@@ -734,6 +746,8 @@ class BattleScene extends Phaser.Scene {
     const loadToken = this.moraleDebugMapGridLoadToken + 1;
     this.moraleDebugMapGridLoadToken = loadToken;
     this.updateMoraleBreakdownOverlay();
+    this.rebuildImpassableCellIndexSetFromMapTexture();
+    this.drawImpassableOverlay();
 
     if (normalizedMapId.length === 0) {
       return;
@@ -767,6 +781,8 @@ class BattleScene extends Phaser.Scene {
           this.moraleDebugTerrainCodeGrid = sidecar.terrainCodeGrid;
           this.moraleDebugHillGradeGrid = sidecar.hillGradeGrid;
           this.updateMoraleBreakdownOverlay();
+          this.rebuildImpassableCellIndexSetFromMapTexture();
+          this.drawImpassableOverlay();
           return;
         } catch {
           continue;
@@ -1284,6 +1300,7 @@ class BattleScene extends Phaser.Scene {
         this.setAllUnitMovementHold(false);
         if (nextPhase !== 'BATTLE') {
           this.supplyLinesByUnitId.clear();
+          this.farmCitySupplyLinesByLinkId.clear();
           this.syncSupplyLinesToInfluenceRenderer();
         }
         if (nextPhase === 'BATTLE') {
@@ -1304,6 +1321,7 @@ class BattleScene extends Phaser.Scene {
     this.pendingUnitPathCommandsByUnitId.clear();
     this.setAllUnitMovementHold(false);
     this.supplyLinesByUnitId.clear();
+    this.farmCitySupplyLinesByLinkId.clear();
     this.syncSupplyLinesToInfluenceRenderer();
     this.refreshLobbyOverlay();
   }
@@ -1358,6 +1376,7 @@ class BattleScene extends Phaser.Scene {
     this.pendingUnitPathCommandsByUnitId.clear();
     this.setAllUnitMovementHold(false);
     this.supplyLinesByUnitId.clear();
+    this.farmCitySupplyLinesByLinkId.clear();
     this.syncSupplyLinesToInfluenceRenderer();
 
     for (const unitId of Array.from(this.unitsById.keys())) {
@@ -1430,8 +1449,23 @@ class BattleScene extends Phaser.Scene {
     this.syncSupplyLinesToInfluenceRenderer();
   }
 
+  private applyFarmCitySupplyLineUpdate(
+    supplyLineUpdate: NetworkFarmCitySupplyLineUpdate,
+  ): void {
+    this.farmCitySupplyLinesByLinkId.set(supplyLineUpdate.linkId, supplyLineUpdate);
+    this.syncSupplyLinesToInfluenceRenderer();
+  }
+
+  private removeFarmCitySupplyLine(linkId: string): void {
+    this.farmCitySupplyLinesByLinkId.delete(linkId);
+    this.syncSupplyLinesToInfluenceRenderer();
+  }
+
   private syncSupplyLinesToInfluenceRenderer(): void {
     this.influenceRenderer?.setSupplyLines(this.supplyLinesByUnitId.values());
+    this.influenceRenderer?.setFarmCitySupplyLines(
+      this.farmCitySupplyLinesByLinkId.values(),
+    );
   }
 
   private upsertNetworkUnit(networkUnit: NetworkUnitSnapshot): void {
@@ -1952,6 +1986,17 @@ class BattleScene extends Phaser.Scene {
 
   private rebuildImpassableCellIndexSetFromMapTexture(): void {
     this.impassableCellIndexSet.clear();
+    const terrainCodeGrid = this.moraleDebugTerrainCodeGrid;
+    const expectedLength = BattleScene.GRID_WIDTH * BattleScene.GRID_HEIGHT;
+    if (terrainCodeGrid && terrainCodeGrid.length === expectedLength) {
+      for (let index = 0; index < terrainCodeGrid.length; index += 1) {
+        if (terrainCodeGrid.charAt(index) !== 'm') {
+          continue;
+        }
+        this.impassableCellIndexSet.add(index);
+      }
+      return;
+    }
 
     for (let row = 0; row < BattleScene.GRID_HEIGHT; row += 1) {
       for (let col = 0; col < BattleScene.GRID_WIDTH; col += 1) {
@@ -1970,16 +2015,20 @@ class BattleScene extends Phaser.Scene {
   }
 
   private drawImpassableOverlay(): void {
-    this.impassableOverlay.clear();
+    const impassableOverlay = this.impassableOverlay;
+    if (!impassableOverlay) {
+      return;
+    }
+    impassableOverlay.clear();
     if (!BattleScene.SHOW_IMPASSABLE_OVERLAY) {
       return;
     }
 
-    this.impassableOverlay.fillStyle(
+    impassableOverlay.fillStyle(
       BattleScene.IMPASSABLE_OVERLAY_FILL_COLOR,
       BattleScene.IMPASSABLE_OVERLAY_FILL_ALPHA,
     );
-    this.impassableOverlay.lineStyle(
+    impassableOverlay.lineStyle(
       1,
       BattleScene.IMPASSABLE_OVERLAY_STROKE_COLOR,
       BattleScene.IMPASSABLE_OVERLAY_STROKE_ALPHA,
@@ -1993,13 +2042,13 @@ class BattleScene extends Phaser.Scene {
 
         const x = col * BattleScene.GRID_CELL_WIDTH;
         const y = row * BattleScene.GRID_CELL_HEIGHT;
-        this.impassableOverlay.fillRect(
+        impassableOverlay.fillRect(
           x,
           y,
           BattleScene.GRID_CELL_WIDTH,
           BattleScene.GRID_CELL_HEIGHT,
         );
-        this.impassableOverlay.strokeRect(
+        impassableOverlay.strokeRect(
           x,
           y,
           BattleScene.GRID_CELL_WIDTH,

@@ -4,7 +4,7 @@ import type {
   MapBundle,
   MapBundleCoordinate,
 } from "../../../../shared/src/mapBundle.js";
-import type { MapGenerationMethod } from "../../../../shared/src/networkContracts.js";
+import type { MapGenerationMethod, PlayerTeam } from "../../../../shared/src/networkContracts.js";
 import {
   getGridCellHillGrade,
   getGridCellTerrainType,
@@ -50,6 +50,10 @@ type RuntimeMapSidecar = {
   terrainCodeGrid?: unknown;
   cityAnchors?: unknown;
   neutralCityAnchors?: unknown;
+  cityZones?: unknown;
+  roadCells?: unknown;
+  farmZones?: unknown;
+  farmToCityLinks?: unknown;
 };
 
 const ELEVATION_GRID_SUFFIX = ".elevation-grid.json";
@@ -85,6 +89,47 @@ function isValidGridCoordinate(
   );
 }
 
+function isValidCityHomeTeam(value: unknown): value is PlayerTeam | "NEUTRAL" {
+  return value === "RED" || value === "BLUE" || value === "NEUTRAL";
+}
+
+function toCellKey(cell: MapBundleCoordinate): string {
+  return `${cell.col},${cell.row}`;
+}
+
+function cloneCoordinate(cell: MapBundleCoordinate): MapBundleCoordinate {
+  return {
+    col: cell.col,
+    row: cell.row,
+  };
+}
+
+function parseCoordinateArray(
+  value: unknown,
+  gridWidth: number,
+  gridHeight: number,
+): MapBundleCoordinate[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const parsed: MapBundleCoordinate[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!isValidGridCoordinate(entry, gridWidth, gridHeight)) {
+      continue;
+    }
+
+    const key = toCellKey(entry);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    parsed.push(cloneCoordinate(entry));
+  }
+  return parsed;
+}
+
 function parseCityAnchors(
   value: unknown,
   gridWidth: number,
@@ -101,8 +146,8 @@ function parseCityAnchors(
     return null;
   }
   return {
-    RED: { ...candidate.RED },
-    BLUE: { ...candidate.BLUE },
+    RED: cloneCoordinate(candidate.RED),
+    BLUE: cloneCoordinate(candidate.BLUE),
   };
 }
 
@@ -111,17 +156,212 @@ function parseNeutralCityAnchors(
   gridWidth: number,
   gridHeight: number,
 ): MapBundleCoordinate[] | null {
+  return parseCoordinateArray(value, gridWidth, gridHeight);
+}
+
+function parseCityZones(
+  value: unknown,
+  gridWidth: number,
+  gridHeight: number,
+): MapBundle["cityZones"] | null {
   if (!Array.isArray(value)) {
     return null;
   }
-  const parsed: MapBundleCoordinate[] = [];
+
+  const parsed: MapBundle["cityZones"] = [];
+  const seenZoneIds = new Set<string>();
   for (const entry of value) {
-    if (!isValidGridCoordinate(entry, gridWidth, gridHeight)) {
+    if (typeof entry !== "object" || entry === null) {
       continue;
     }
-    parsed.push({ ...entry });
+
+    const candidate = entry as {
+      cityZoneId?: unknown;
+      homeTeam?: unknown;
+      anchor?: unknown;
+      cells?: unknown;
+    };
+    if (typeof candidate.cityZoneId !== "string" || candidate.cityZoneId.length === 0) {
+      continue;
+    }
+    if (seenZoneIds.has(candidate.cityZoneId)) {
+      continue;
+    }
+    if (!isValidCityHomeTeam(candidate.homeTeam)) {
+      continue;
+    }
+    if (!isValidGridCoordinate(candidate.anchor, gridWidth, gridHeight)) {
+      continue;
+    }
+
+    const parsedCells = parseCoordinateArray(candidate.cells, gridWidth, gridHeight) ?? [];
+    if (parsedCells.length === 0) {
+      continue;
+    }
+
+    const anchor = cloneCoordinate(candidate.anchor);
+    const cellByKey = new Map<string, MapBundleCoordinate>();
+    for (const cell of parsedCells) {
+      cellByKey.set(toCellKey(cell), cloneCoordinate(cell));
+    }
+    cellByKey.set(toCellKey(anchor), anchor);
+
+    parsed.push({
+      cityZoneId: candidate.cityZoneId,
+      homeTeam: candidate.homeTeam,
+      anchor,
+      cells: Array.from(cellByKey.values()),
+    });
+    seenZoneIds.add(candidate.cityZoneId);
   }
+
   return parsed;
+}
+
+function parseRoadCells(
+  value: unknown,
+  gridWidth: number,
+  gridHeight: number,
+): MapBundleCoordinate[] | null {
+  return parseCoordinateArray(value, gridWidth, gridHeight);
+}
+
+function parseFarmZones(
+  value: unknown,
+  gridWidth: number,
+  gridHeight: number,
+): MapBundle["farmZones"] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const parsed: MapBundle["farmZones"] = [];
+  const seenZoneIds = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+
+    const candidate = entry as {
+      farmZoneId?: unknown;
+      anchor?: unknown;
+      cells?: unknown;
+    };
+    if (typeof candidate.farmZoneId !== "string" || candidate.farmZoneId.length === 0) {
+      continue;
+    }
+    if (seenZoneIds.has(candidate.farmZoneId)) {
+      continue;
+    }
+    if (!isValidGridCoordinate(candidate.anchor, gridWidth, gridHeight)) {
+      continue;
+    }
+
+    const parsedCells = parseCoordinateArray(candidate.cells, gridWidth, gridHeight) ?? [];
+    if (parsedCells.length === 0) {
+      continue;
+    }
+
+    const anchor = cloneCoordinate(candidate.anchor);
+    const cellByKey = new Map<string, MapBundleCoordinate>();
+    for (const cell of parsedCells) {
+      cellByKey.set(toCellKey(cell), cloneCoordinate(cell));
+    }
+    cellByKey.set(toCellKey(anchor), anchor);
+
+    parsed.push({
+      farmZoneId: candidate.farmZoneId,
+      anchor,
+      cells: Array.from(cellByKey.values()),
+    });
+    seenZoneIds.add(candidate.farmZoneId);
+  }
+
+  return parsed;
+}
+
+function parseFarmToCityLinks(value: unknown): MapBundle["farmToCityLinks"] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const parsed: MapBundle["farmToCityLinks"] = [];
+  const seenLinks = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+
+    const candidate = entry as {
+      farmZoneId?: unknown;
+      cityZoneId?: unknown;
+    };
+    if (
+      typeof candidate.farmZoneId !== "string" ||
+      candidate.farmZoneId.length === 0 ||
+      typeof candidate.cityZoneId !== "string" ||
+      candidate.cityZoneId.length === 0
+    ) {
+      continue;
+    }
+
+    const key = `${candidate.farmZoneId}->${candidate.cityZoneId}`;
+    if (seenLinks.has(key)) {
+      continue;
+    }
+    seenLinks.add(key);
+    parsed.push({
+      farmZoneId: candidate.farmZoneId,
+      cityZoneId: candidate.cityZoneId,
+    });
+  }
+
+  return parsed;
+}
+
+function cloneCityAnchors(
+  cityAnchors: MapBundle["cityAnchors"],
+): MapBundle["cityAnchors"] {
+  return {
+    RED: cloneCoordinate(cityAnchors.RED),
+    BLUE: cloneCoordinate(cityAnchors.BLUE),
+  };
+}
+
+function cloneNeutralCityAnchors(
+  neutralCityAnchors: MapBundleCoordinate[],
+): MapBundleCoordinate[] {
+  return neutralCityAnchors.map((anchor) => cloneCoordinate(anchor));
+}
+
+function cloneCityZones(cityZones: MapBundle["cityZones"]): MapBundle["cityZones"] {
+  return cityZones.map((zone) => ({
+    cityZoneId: zone.cityZoneId,
+    homeTeam: zone.homeTeam,
+    anchor: cloneCoordinate(zone.anchor),
+    cells: zone.cells.map((cell) => cloneCoordinate(cell)),
+  }));
+}
+
+function cloneRoadCells(cells: MapBundleCoordinate[]): MapBundleCoordinate[] {
+  return cells.map((cell) => cloneCoordinate(cell));
+}
+
+function cloneFarmZones(farmZones: MapBundle["farmZones"]): MapBundle["farmZones"] {
+  return farmZones.map((zone) => ({
+    farmZoneId: zone.farmZoneId,
+    anchor: cloneCoordinate(zone.anchor),
+    cells: zone.cells.map((cell) => cloneCoordinate(cell)),
+  }));
+}
+
+function cloneFarmToCityLinks(
+  links: MapBundle["farmToCityLinks"],
+): MapBundle["farmToCityLinks"] {
+  return links.map((link) => ({
+    farmZoneId: link.farmZoneId,
+    cityZoneId: link.cityZoneId,
+  }));
 }
 
 function getGridCellIndex(col: number, row: number, gridWidth: number): number {
@@ -213,6 +453,222 @@ function deriveCityAnchorsFromTerrainCodeGrid(
   };
 }
 
+function deriveCityAnchorsFromCityZones(
+  cityZones: MapBundle["cityZones"],
+): MapBundle["cityAnchors"] | null {
+  let redAnchor: MapBundleCoordinate | null = null;
+  let blueAnchor: MapBundleCoordinate | null = null;
+
+  for (const zone of cityZones) {
+    if (zone.homeTeam === "RED" && !redAnchor) {
+      redAnchor = cloneCoordinate(zone.anchor);
+      continue;
+    }
+    if (zone.homeTeam === "BLUE" && !blueAnchor) {
+      blueAnchor = cloneCoordinate(zone.anchor);
+    }
+  }
+
+  if (!redAnchor || !blueAnchor) {
+    return null;
+  }
+
+  return {
+    RED: redAnchor,
+    BLUE: blueAnchor,
+  };
+}
+
+function deriveNeutralAnchorsFromCityZones(
+  cityZones: MapBundle["cityZones"],
+): MapBundleCoordinate[] {
+  return cityZones
+    .filter((zone) => zone.homeTeam === "NEUTRAL")
+    .map((zone) => cloneCoordinate(zone.anchor));
+}
+
+function buildSingleCellCityZones(
+  cityAnchors: MapBundle["cityAnchors"],
+  neutralCityAnchors: MapBundleCoordinate[],
+): MapBundle["cityZones"] {
+  const cityZones: MapBundle["cityZones"] = [
+    {
+      cityZoneId: "home-red",
+      homeTeam: "RED",
+      anchor: cloneCoordinate(cityAnchors.RED),
+      cells: [cloneCoordinate(cityAnchors.RED)],
+    },
+    {
+      cityZoneId: "home-blue",
+      homeTeam: "BLUE",
+      anchor: cloneCoordinate(cityAnchors.BLUE),
+      cells: [cloneCoordinate(cityAnchors.BLUE)],
+    },
+  ];
+
+  for (let index = 0; index < neutralCityAnchors.length; index += 1) {
+    const anchor = cloneCoordinate(neutralCityAnchors[index]);
+    cityZones.push({
+      cityZoneId: `neutral-${index}`,
+      homeTeam: "NEUTRAL",
+      anchor,
+      cells: [cloneCoordinate(anchor)],
+    });
+  }
+
+  return cityZones;
+}
+
+function resolveHomeCityZone(
+  parsedCityZones: MapBundle["cityZones"],
+  homeTeam: PlayerTeam,
+  anchor: MapBundleCoordinate,
+  fallbackZoneId: string,
+): MapBundle["cityZones"][number] {
+  for (const zone of parsedCityZones) {
+    if (zone.homeTeam !== homeTeam) {
+      continue;
+    }
+
+    if (zone.anchor.col === anchor.col && zone.anchor.row === anchor.row) {
+      return {
+        cityZoneId: zone.cityZoneId,
+        homeTeam: zone.homeTeam,
+        anchor: cloneCoordinate(zone.anchor),
+        cells: zone.cells.map((cell) => cloneCoordinate(cell)),
+      };
+    }
+  }
+
+  for (const zone of parsedCityZones) {
+    if (zone.homeTeam !== homeTeam) {
+      continue;
+    }
+
+    return {
+      cityZoneId: zone.cityZoneId,
+      homeTeam: zone.homeTeam,
+      anchor: cloneCoordinate(zone.anchor),
+      cells: zone.cells.map((cell) => cloneCoordinate(cell)),
+    };
+  }
+
+  return {
+    cityZoneId: fallbackZoneId,
+    homeTeam,
+    anchor: cloneCoordinate(anchor),
+    cells: [cloneCoordinate(anchor)],
+  };
+}
+
+function resolveNeutralCityZoneForAnchor(
+  parsedCityZones: MapBundle["cityZones"],
+  usedZoneIds: Set<string>,
+  anchor: MapBundleCoordinate,
+  fallbackZoneId: string,
+): MapBundle["cityZones"][number] {
+  for (const zone of parsedCityZones) {
+    if (zone.homeTeam !== "NEUTRAL" || usedZoneIds.has(zone.cityZoneId)) {
+      continue;
+    }
+
+    if (zone.anchor.col === anchor.col && zone.anchor.row === anchor.row) {
+      usedZoneIds.add(zone.cityZoneId);
+      return {
+        cityZoneId: zone.cityZoneId,
+        homeTeam: zone.homeTeam,
+        anchor: cloneCoordinate(zone.anchor),
+        cells: zone.cells.map((cell) => cloneCoordinate(cell)),
+      };
+    }
+  }
+
+  for (const zone of parsedCityZones) {
+    if (zone.homeTeam !== "NEUTRAL" || usedZoneIds.has(zone.cityZoneId)) {
+      continue;
+    }
+
+    usedZoneIds.add(zone.cityZoneId);
+    return {
+      cityZoneId: zone.cityZoneId,
+      homeTeam: zone.homeTeam,
+      anchor: cloneCoordinate(zone.anchor),
+      cells: zone.cells.map((cell) => cloneCoordinate(cell)),
+    };
+  }
+
+  return {
+    cityZoneId: fallbackZoneId,
+    homeTeam: "NEUTRAL",
+    anchor: cloneCoordinate(anchor),
+    cells: [cloneCoordinate(anchor)],
+  };
+}
+
+function resolveCityZones(
+  parsedCityZones: MapBundle["cityZones"] | null,
+  cityAnchors: MapBundle["cityAnchors"],
+  neutralCityAnchors: MapBundleCoordinate[],
+): MapBundle["cityZones"] {
+  if (!parsedCityZones || parsedCityZones.length === 0) {
+    return buildSingleCellCityZones(cityAnchors, neutralCityAnchors);
+  }
+
+  const resolvedCityZones: MapBundle["cityZones"] = [];
+  resolvedCityZones.push(
+    resolveHomeCityZone(parsedCityZones, "RED", cityAnchors.RED, "home-red"),
+  );
+  resolvedCityZones.push(
+    resolveHomeCityZone(parsedCityZones, "BLUE", cityAnchors.BLUE, "home-blue"),
+  );
+
+  const usedNeutralZoneIds = new Set<string>();
+  for (let index = 0; index < neutralCityAnchors.length; index += 1) {
+    resolvedCityZones.push(
+      resolveNeutralCityZoneForAnchor(
+        parsedCityZones,
+        usedNeutralZoneIds,
+        neutralCityAnchors[index],
+        `neutral-${index}`,
+      ),
+    );
+  }
+
+  return resolvedCityZones;
+}
+
+function normalizeFarmToCityLinks(
+  links: MapBundle["farmToCityLinks"] | null,
+  farmZones: MapBundle["farmZones"],
+  cityZones: MapBundle["cityZones"],
+): MapBundle["farmToCityLinks"] {
+  if (!links || links.length === 0) {
+    return [];
+  }
+
+  const farmZoneIds = new Set(farmZones.map((zone) => zone.farmZoneId));
+  const cityZoneIds = new Set(cityZones.map((zone) => zone.cityZoneId));
+  const normalized: MapBundle["farmToCityLinks"] = [];
+  const seenLinks = new Set<string>();
+  for (const link of links) {
+    if (!farmZoneIds.has(link.farmZoneId) || !cityZoneIds.has(link.cityZoneId)) {
+      continue;
+    }
+
+    const key = `${link.farmZoneId}->${link.cityZoneId}`;
+    if (seenLinks.has(key)) {
+      continue;
+    }
+    seenLinks.add(key);
+    normalized.push({
+      farmZoneId: link.farmZoneId,
+      cityZoneId: link.cityZoneId,
+    });
+  }
+
+  return normalized;
+}
+
 function parseMethod(value: unknown): MapGenerationMethod | "unknown" {
   if (value === "noise" || value === "wfc" || value === "auto") {
     return value;
@@ -299,21 +755,6 @@ function coupleHillGradeGridToTerrain(
   return coupled;
 }
 
-function cloneCityAnchors(
-  cityAnchors: MapBundle["cityAnchors"],
-): MapBundle["cityAnchors"] {
-  return {
-    RED: { ...cityAnchors.RED },
-    BLUE: { ...cityAnchors.BLUE },
-  };
-}
-
-function cloneNeutralCityAnchors(
-  neutralCityAnchors: MapBundleCoordinate[],
-): MapBundleCoordinate[] {
-  return neutralCityAnchors.map((anchor) => ({ ...anchor }));
-}
-
 function terrainTypeToCode(terrainType: TerrainType): string {
   return getTerrainCodeFromType(terrainType);
 }
@@ -364,6 +805,8 @@ function createFallbackMapBundle(args: LoadMapBundleArgs): MapBundle {
     blockedSpawnCellIndexSet,
     impassableCellIndexSet,
   } = buildStaticMapGridArtifacts(args);
+  const cityAnchors = cloneCityAnchors(args.defaultCityAnchors);
+  const neutralCityAnchors = cloneNeutralCityAnchors(args.defaultNeutralCityAnchors);
   return {
     mapId: args.mapId,
     revision: args.revision,
@@ -373,8 +816,12 @@ function createFallbackMapBundle(args: LoadMapBundleArgs): MapBundle {
     gridHeight: args.gridHeight,
     terrainCodeGrid,
     hillGradeGrid,
-    cityAnchors: cloneCityAnchors(args.defaultCityAnchors),
-    neutralCityAnchors: cloneNeutralCityAnchors(args.defaultNeutralCityAnchors),
+    cityAnchors,
+    neutralCityAnchors,
+    cityZones: buildSingleCellCityZones(cityAnchors, neutralCityAnchors),
+    roadCells: [],
+    farmZones: [],
+    farmToCityLinks: [],
     blockedSpawnCellIndexSet,
     impassableCellIndexSet,
     source: "static-fallback",
@@ -482,6 +929,11 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
     }
   }
 
+  const parsedCityZones = parseCityZones(
+    parsed.cityZones,
+    args.gridWidth,
+    args.gridHeight,
+  );
   const parsedCityAnchors = parseCityAnchors(
     parsed.cityAnchors,
     args.gridWidth,
@@ -492,22 +944,38 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
     args.gridWidth,
     args.gridHeight,
   );
-  const derivedAnchors = terrainCodeGrid
-    ? deriveCityAnchorsFromTerrainCodeGrid(
-        terrainCodeGrid,
-        args.gridWidth,
-        args.gridHeight,
-      )
+  const cityAnchorsFromZones = parsedCityZones
+    ? deriveCityAnchorsFromCityZones(parsedCityZones)
     : null;
+  const neutralAnchorsFromZones = parsedCityZones
+    ? deriveNeutralAnchorsFromCityZones(parsedCityZones)
+    : [];
+  const derivedAnchors = deriveCityAnchorsFromTerrainCodeGrid(
+    terrainCodeGrid,
+    args.gridWidth,
+    args.gridHeight,
+  );
 
   const cityAnchors =
     parsedCityAnchors ??
-    derivedAnchors?.cityAnchors ??
+    cityAnchorsFromZones ??
+    derivedAnchors.cityAnchors ??
     cloneCityAnchors(args.defaultCityAnchors);
   const neutralCityAnchors =
     parsedNeutralCityAnchors ??
-    derivedAnchors?.neutralCityAnchors ??
+    (neutralAnchorsFromZones.length > 0 ? neutralAnchorsFromZones : null) ??
+    derivedAnchors.neutralCityAnchors ??
     cloneNeutralCityAnchors(args.defaultNeutralCityAnchors);
+
+  const cityZones = resolveCityZones(parsedCityZones, cityAnchors, neutralCityAnchors);
+  const roadCells = parseRoadCells(parsed.roadCells, args.gridWidth, args.gridHeight) ?? [];
+  const farmZones = parseFarmZones(parsed.farmZones, args.gridWidth, args.gridHeight) ?? [];
+  const parsedFarmToCityLinks = parseFarmToCityLinks(parsed.farmToCityLinks);
+  const farmToCityLinks = normalizeFarmToCityLinks(
+    parsedFarmToCityLinks,
+    farmZones,
+    cityZones,
+  );
 
   return {
     mapId: args.mapId,
@@ -518,8 +986,12 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
     gridHeight: args.gridHeight,
     terrainCodeGrid,
     hillGradeGrid: coupledHillGradeGrid,
-    cityAnchors,
-    neutralCityAnchors,
+    cityAnchors: cloneCityAnchors(cityAnchors),
+    neutralCityAnchors: cloneNeutralCityAnchors(neutralCityAnchors),
+    cityZones: cloneCityZones(cityZones),
+    roadCells: cloneRoadCells(roadCells),
+    farmZones: cloneFarmZones(farmZones),
+    farmToCityLinks: cloneFarmToCityLinks(farmToCityLinks),
     blockedSpawnCellIndexSet,
     impassableCellIndexSet,
     source: "runtime-sidecar",

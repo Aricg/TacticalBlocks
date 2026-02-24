@@ -32,7 +32,11 @@ import {
 } from './terrain-semantics.mjs';
 
 const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
-const CITY_MARKER_COLOR = 0xefb72f;
+const CITY_FILL_COLOR = 0x8f8f8f;
+const CITY_BORDER_COLOR = 0x3f3f3f;
+const FARM_FILL_COLOR = 0xe6d15a;
+const FARM_BORDER_COLOR = 0xc79c2d;
+const ROAD_COLOR = 0x8b6b3f;
 const TERRAIN_TYPES = ['water', 'grass', 'forest', 'hills', 'mountains'];
 
 function clamp(value, min, max) {
@@ -1667,7 +1671,263 @@ function findNearestPlayableUnusedCell(
   return fallback;
 }
 
-function placeCityMarkers(
+function buildCellKey(col, row) {
+  return `${col}:${row}`;
+}
+
+function isPlayableCell(terrain, width, cell) {
+  const index = cell.row * width + cell.col;
+  return isPlayableTerrainType(terrain[index]);
+}
+
+function getNeighborCells8(col, row, width, height) {
+  const neighbors = [];
+  for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+    for (let colOffset = -1; colOffset <= 1; colOffset += 1) {
+      if (colOffset === 0 && rowOffset === 0) {
+        continue;
+      }
+      const neighborCol = col + colOffset;
+      const neighborRow = row + rowOffset;
+      if (
+        neighborCol < 0
+        || neighborRow < 0
+        || neighborCol >= width
+        || neighborRow >= height
+      ) {
+        continue;
+      }
+      neighbors.push({ col: neighborCol, row: neighborRow });
+    }
+  }
+  return neighbors;
+}
+
+function getNeighborCells4(col, row, width, height) {
+  const neighbors = [];
+  const offsets = [
+    { col: 1, row: 0 },
+    { col: -1, row: 0 },
+    { col: 0, row: 1 },
+    { col: 0, row: -1 },
+  ];
+  for (const offset of offsets) {
+    const neighborCol = col + offset.col;
+    const neighborRow = row + offset.row;
+    if (
+      neighborCol < 0
+      || neighborRow < 0
+      || neighborCol >= width
+      || neighborRow >= height
+    ) {
+      continue;
+    }
+    neighbors.push({ col: neighborCol, row: neighborRow });
+  }
+  return neighbors;
+}
+
+function shuffleInPlace(values, rng) {
+  for (let index = values.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(rng() * (index + 1));
+    const current = values[index];
+    values[index] = values[swapIndex];
+    values[swapIndex] = current;
+  }
+}
+
+function createIrregularBlob({
+  terrain,
+  width,
+  height,
+  anchor,
+  minCellCount,
+  maxCellCount,
+  rng,
+  blockedCellKeys,
+}) {
+  const targetCellCount = clamp(
+    Math.round(minCellCount + rng() * (maxCellCount - minCellCount)),
+    1,
+    width * height,
+  );
+  const anchorKey = buildCellKey(anchor.col, anchor.row);
+  const cellsByKey = new Map([[anchorKey, { col: anchor.col, row: anchor.row }]]);
+  const frontier = [{ col: anchor.col, row: anchor.row }];
+  const maxExpansionRadius = Math.max(3, Math.round(Math.sqrt(targetCellCount) * 2.3));
+  const maxAttempts = targetCellCount * 64;
+  let attempts = 0;
+  while (
+    cellsByKey.size < targetCellCount
+    && frontier.length > 0
+    && attempts < maxAttempts
+  ) {
+    attempts += 1;
+    const frontierIndex = Math.floor(rng() * frontier.length);
+    const baseCell = frontier[frontierIndex];
+    const candidates = getNeighborCells8(baseCell.col, baseCell.row, width, height);
+    shuffleInPlace(candidates, rng);
+    let addedCell = false;
+    for (const candidate of candidates) {
+      const candidateKey = buildCellKey(candidate.col, candidate.row);
+      if (cellsByKey.has(candidateKey) || blockedCellKeys.has(candidateKey)) {
+        continue;
+      }
+      if (!isPlayableCell(terrain, width, candidate)) {
+        continue;
+      }
+      const distanceFromAnchor =
+        Math.abs(candidate.col - anchor.col) + Math.abs(candidate.row - anchor.row);
+      if (distanceFromAnchor > maxExpansionRadius) {
+        continue;
+      }
+      const baseChance = 0.86 - distanceFromAnchor * 0.08;
+      if (rng() > Math.max(0.18, baseChance)) {
+        continue;
+      }
+      cellsByKey.set(candidateKey, { col: candidate.col, row: candidate.row });
+      frontier.push({ col: candidate.col, row: candidate.row });
+      addedCell = true;
+      if (cellsByKey.size >= targetCellCount) {
+        break;
+      }
+    }
+    if (!addedCell || rng() < 0.24) {
+      frontier.splice(frontierIndex, 1);
+    }
+  }
+
+  if (cellsByKey.size < targetCellCount) {
+    const fallbackCandidates = [];
+    for (let row = 0; row < height; row += 1) {
+      for (let col = 0; col < width; col += 1) {
+        const candidate = { col, row };
+        const candidateKey = buildCellKey(col, row);
+        if (
+          cellsByKey.has(candidateKey)
+          || blockedCellKeys.has(candidateKey)
+          || !isPlayableCell(terrain, width, candidate)
+        ) {
+          continue;
+        }
+        const distance =
+          Math.abs(col - anchor.col) + Math.abs(row - anchor.row);
+        fallbackCandidates.push({ candidate, distance });
+      }
+    }
+    fallbackCandidates.sort((left, right) => left.distance - right.distance);
+    for (const entry of fallbackCandidates) {
+      if (cellsByKey.size >= targetCellCount) {
+        break;
+      }
+      const candidateKey = buildCellKey(entry.candidate.col, entry.candidate.row);
+      cellsByKey.set(candidateKey, entry.candidate);
+    }
+  }
+
+  return Array.from(cellsByKey.values());
+}
+
+function buildZoneBorderCells({
+  terrain,
+  width,
+  height,
+  fillCells,
+  blockedCellKeys,
+}) {
+  const fillCellKeys = new Set(fillCells.map((cell) => buildCellKey(cell.col, cell.row)));
+  const borderByKey = new Map();
+  for (const fillCell of fillCells) {
+    const neighbors = getNeighborCells8(fillCell.col, fillCell.row, width, height);
+    for (const neighbor of neighbors) {
+      const neighborKey = buildCellKey(neighbor.col, neighbor.row);
+      if (
+        fillCellKeys.has(neighborKey)
+        || blockedCellKeys.has(neighborKey)
+        || !isPlayableCell(terrain, width, neighbor)
+      ) {
+        continue;
+      }
+      borderByKey.set(neighborKey, { col: neighbor.col, row: neighbor.row });
+    }
+  }
+  return Array.from(borderByKey.values());
+}
+
+function buildStraightLineCells(start, end) {
+  const cells = [];
+  let col = start.col;
+  let row = start.row;
+  const colDelta = Math.abs(end.col - start.col);
+  const rowDelta = Math.abs(end.row - start.row);
+  const colStep = start.col < end.col ? 1 : -1;
+  const rowStep = start.row < end.row ? 1 : -1;
+  let error = colDelta - rowDelta;
+  while (true) {
+    cells.push({ col, row });
+    if (col === end.col && row === end.row) {
+      break;
+    }
+    const doubledError = error * 2;
+    if (doubledError > -rowDelta) {
+      error -= rowDelta;
+      col += colStep;
+    }
+    if (doubledError < colDelta) {
+      error += colDelta;
+      row += rowStep;
+    }
+  }
+  return cells;
+}
+
+function buildRoadPathCells(terrain, width, height, start, end) {
+  const startIndex = start.row * width + start.col;
+  const endIndex = end.row * width + end.col;
+  const visited = new Uint8Array(width * height);
+  const previous = new Int32Array(width * height);
+  previous.fill(-1);
+  const queue = [startIndex];
+  visited[startIndex] = 1;
+
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const index = queue[queueIndex];
+    if (index === endIndex) {
+      break;
+    }
+    const col = index % width;
+    const row = Math.floor(index / width);
+    const neighbors = getNeighborCells4(col, row, width, height);
+    for (const neighbor of neighbors) {
+      const neighborIndex = neighbor.row * width + neighbor.col;
+      if (visited[neighborIndex] === 1) {
+        continue;
+      }
+      const terrainType = terrain[neighborIndex];
+      if (!isPlayableTerrainType(terrainType)) {
+        continue;
+      }
+      visited[neighborIndex] = 1;
+      previous[neighborIndex] = index;
+      queue.push(neighborIndex);
+    }
+  }
+
+  if (visited[endIndex] !== 1) {
+    return buildStraightLineCells(start, end);
+  }
+
+  const path = [];
+  let current = endIndex;
+  while (current !== -1) {
+    path.push({ col: current % width, row: Math.floor(current / width) });
+    current = previous[current];
+  }
+  path.reverse();
+  return path;
+}
+
+function placeSettlementAnchors(
   terrain,
   width,
   height,
@@ -1688,37 +1948,20 @@ function placeCityMarkers(
     Math.round(width * 0.84),
     Math.round(height * 0.50),
   );
-  const normalizedNeutralCityCount = clamp(
-    Math.round(neutralCityCount),
-    0,
-    12,
-  );
-  const normalizedFriendlyCityCount = clamp(
-    Math.round(friendlyCityCount),
-    0,
-    6,
-  );
+  const normalizedNeutralCityCount = clamp(Math.round(neutralCityCount), 0, 12);
+  const normalizedFriendlyCityCount = clamp(Math.round(friendlyCityCount), 0, 6);
   const usedCellKeys = new Set([
-    `${redAnchor.col}:${redAnchor.row}`,
-    `${blueAnchor.col}:${blueAnchor.row}`,
+    buildCellKey(redAnchor.col, redAnchor.row),
+    buildCellKey(blueAnchor.col, blueAnchor.row),
   ]);
   const redFriendlyCityAnchors = [];
   const blueFriendlyCityAnchors = [];
   for (let index = 0; index < normalizedFriendlyCityCount; index += 1) {
     const progress = (index + 1) / (normalizedFriendlyCityCount + 1);
-    const verticalJitterRatio =
-      index % 2 === 0
-        ? -0.04
-        : 0.04;
+    const verticalJitterRatio = index % 2 === 0 ? -0.04 : 0.04;
     const rowRatio = clamp(0.14 + progress * 0.72 + verticalJitterRatio, 0.08, 0.92);
-    const redColRatio =
-      index % 2 === 0
-        ? 0.22
-        : 0.26;
-    const blueColRatio =
-      index % 2 === 0
-        ? 0.78
-        : 0.74;
+    const redColRatio = index % 2 === 0 ? 0.22 : 0.26;
+    const blueColRatio = index % 2 === 0 ? 0.78 : 0.74;
     const targetRow = Math.round(height * rowRatio);
     const redTargetCol = Math.round(width * redColRatio);
     const blueTargetCol = Math.round(width * blueColRatio);
@@ -1730,7 +1973,7 @@ function placeCityMarkers(
       targetRow,
       usedCellKeys,
     );
-    usedCellKeys.add(`${redFriendlyAnchor.col}:${redFriendlyAnchor.row}`);
+    usedCellKeys.add(buildCellKey(redFriendlyAnchor.col, redFriendlyAnchor.row));
     redFriendlyCityAnchors.push(redFriendlyAnchor);
     const blueFriendlyAnchor = findNearestPlayableUnusedCell(
       terrain,
@@ -1740,17 +1983,14 @@ function placeCityMarkers(
       targetRow,
       usedCellKeys,
     );
-    usedCellKeys.add(`${blueFriendlyAnchor.col}:${blueFriendlyAnchor.row}`);
+    usedCellKeys.add(buildCellKey(blueFriendlyAnchor.col, blueFriendlyAnchor.row));
     blueFriendlyCityAnchors.push(blueFriendlyAnchor);
   }
 
   const neutralCityAnchors = [];
   for (let index = 0; index < normalizedNeutralCityCount; index += 1) {
     const progress = (index + 1) / (normalizedNeutralCityCount + 1);
-    const horizontalOffsetRatio =
-      index % 2 === 0
-        ? -0.06
-        : 0.06;
+    const horizontalOffsetRatio = index % 2 === 0 ? -0.06 : 0.06;
     const targetCol = Math.round(width * (0.50 + horizontalOffsetRatio));
     const targetRow = Math.round(height * (0.12 + progress * 0.76));
     const neutralAnchor = findNearestPlayableUnusedCell(
@@ -1761,31 +2001,17 @@ function placeCityMarkers(
       targetRow,
       usedCellKeys,
     );
-    usedCellKeys.add(`${neutralAnchor.col}:${neutralAnchor.row}`);
+    usedCellKeys.add(buildCellKey(neutralAnchor.col, neutralAnchor.row));
     neutralCityAnchors.push(neutralAnchor);
   }
+
   const allNonHomeCityAnchors = [
     ...redFriendlyCityAnchors,
     ...neutralCityAnchors,
     ...blueFriendlyCityAnchors,
   ];
 
-  const markers = [];
-  for (const anchor of [redAnchor, blueAnchor]) {
-    // 2x2 marker for robust component detection.
-    for (let rowOffset = 0; rowOffset <= 1; rowOffset += 1) {
-      for (let colOffset = 0; colOffset <= 1; colOffset += 1) {
-        markers.push({
-          col: clamp(anchor.col + colOffset, 0, width - 1),
-          row: clamp(anchor.row + rowOffset, 0, height - 1),
-        });
-      }
-    }
-  }
-  markers.push(...allNonHomeCityAnchors);
-
   return {
-    markers,
     cityAnchors: {
       RED: redAnchor,
       BLUE: blueAnchor,
@@ -1794,9 +2020,196 @@ function placeCityMarkers(
   };
 }
 
-function buildPixelColors(terrain, elevationGrid, cityMarkers, width, height, rng) {
-  const cityMarkerSet = new Set(
-    cityMarkers.map((marker) => `${marker.col},${marker.row}`),
+function buildSettlementOverlays({
+  terrain,
+  width,
+  height,
+  neutralCityCount,
+  friendlyCityCount,
+  rng,
+}) {
+  const anchorLayout = placeSettlementAnchors(
+    terrain,
+    width,
+    height,
+    neutralCityCount,
+    friendlyCityCount,
+  );
+  const cityZones = [];
+  const farmZones = [];
+  const farmToCityLinks = [];
+  const occupiedCellKeys = new Set();
+  const cityBorderCells = [];
+  const cityFillCells = [];
+  const farmBorderCells = [];
+  const farmFillCells = [];
+
+  const cityZoneSpecs = [
+    {
+      cityZoneId: 'home-red',
+      homeTeam: 'RED',
+      anchor: anchorLayout.cityAnchors.RED,
+      minCells: 16,
+      maxCells: 30,
+    },
+    {
+      cityZoneId: 'home-blue',
+      homeTeam: 'BLUE',
+      anchor: anchorLayout.cityAnchors.BLUE,
+      minCells: 16,
+      maxCells: 30,
+    },
+    ...anchorLayout.neutralCityAnchors.map((anchor, index) => ({
+      cityZoneId: `neutral-${index}`,
+      homeTeam: 'NEUTRAL',
+      anchor,
+      minCells: 8,
+      maxCells: 18,
+    })),
+  ];
+
+  for (const zoneSpec of cityZoneSpecs) {
+    const fillCells = createIrregularBlob({
+      terrain,
+      width,
+      height,
+      anchor: zoneSpec.anchor,
+      minCellCount: zoneSpec.minCells,
+      maxCellCount: zoneSpec.maxCells,
+      rng,
+      blockedCellKeys: occupiedCellKeys,
+    });
+    const fillCellKeys = new Set(fillCells.map((cell) => buildCellKey(cell.col, cell.row)));
+    const blockedForBorder = new Set(occupiedCellKeys);
+    for (const key of fillCellKeys) {
+      blockedForBorder.add(key);
+    }
+    const borderCells = buildZoneBorderCells({
+      terrain,
+      width,
+      height,
+      fillCells,
+      blockedCellKeys: blockedForBorder,
+    });
+    const zoneCells = [...fillCells, ...borderCells];
+    for (const cell of zoneCells) {
+      occupiedCellKeys.add(buildCellKey(cell.col, cell.row));
+    }
+    cityFillCells.push(...fillCells);
+    cityBorderCells.push(...borderCells);
+    cityZones.push({
+      cityZoneId: zoneSpec.cityZoneId,
+      homeTeam: zoneSpec.homeTeam,
+      anchor: { col: zoneSpec.anchor.col, row: zoneSpec.anchor.row },
+      cells: zoneCells.map((cell) => ({ col: cell.col, row: cell.row })),
+    });
+  }
+
+  for (const cityZone of cityZones) {
+    const farmZoneId = `farm-${cityZone.cityZoneId}`;
+    const angle = rng() * Math.PI * 2;
+    const radius = 4 + Math.floor(rng() * 6);
+    const targetCol = clamp(
+      cityZone.anchor.col + Math.round(Math.cos(angle) * radius),
+      0,
+      width - 1,
+    );
+    const targetRow = clamp(
+      cityZone.anchor.row + Math.round(Math.sin(angle) * radius),
+      0,
+      height - 1,
+    );
+    const farmAnchor = findNearestPlayableUnusedCell(
+      terrain,
+      width,
+      height,
+      targetCol,
+      targetRow,
+      occupiedCellKeys,
+    );
+    const fillCells = createIrregularBlob({
+      terrain,
+      width,
+      height,
+      anchor: farmAnchor,
+      minCellCount: 5,
+      maxCellCount: 11,
+      rng,
+      blockedCellKeys: occupiedCellKeys,
+    });
+    const fillCellKeys = new Set(fillCells.map((cell) => buildCellKey(cell.col, cell.row)));
+    const blockedForBorder = new Set(occupiedCellKeys);
+    for (const key of fillCellKeys) {
+      blockedForBorder.add(key);
+    }
+    const borderCells = buildZoneBorderCells({
+      terrain,
+      width,
+      height,
+      fillCells,
+      blockedCellKeys: blockedForBorder,
+    });
+    const zoneCells = [...fillCells, ...borderCells];
+    for (const cell of zoneCells) {
+      occupiedCellKeys.add(buildCellKey(cell.col, cell.row));
+    }
+    farmFillCells.push(...fillCells);
+    farmBorderCells.push(...borderCells);
+    farmZones.push({
+      farmZoneId,
+      anchor: { col: farmAnchor.col, row: farmAnchor.row },
+      cells: zoneCells.map((cell) => ({ col: cell.col, row: cell.row })),
+    });
+    farmToCityLinks.push({
+      farmZoneId,
+      cityZoneId: cityZone.cityZoneId,
+    });
+  }
+
+  const roadCellMap = new Map();
+  const roadRouteAnchors = [
+    anchorLayout.cityAnchors.RED,
+    ...anchorLayout.neutralCityAnchors,
+    anchorLayout.cityAnchors.BLUE,
+  ];
+  for (let index = 0; index < roadRouteAnchors.length - 1; index += 1) {
+    const start = roadRouteAnchors[index];
+    const end = roadRouteAnchors[index + 1];
+    const pathCells = buildRoadPathCells(terrain, width, height, start, end);
+    for (const cell of pathCells) {
+      roadCellMap.set(buildCellKey(cell.col, cell.row), { col: cell.col, row: cell.row });
+    }
+  }
+
+  return {
+    cityAnchors: anchorLayout.cityAnchors,
+    neutralCityAnchors: anchorLayout.neutralCityAnchors,
+    cityZones,
+    cityFillCells,
+    cityBorderCells,
+    farmZones,
+    farmFillCells,
+    farmBorderCells,
+    farmToCityLinks,
+    roadCells: Array.from(roadCellMap.values()),
+  };
+}
+
+function buildPixelColors(terrain, elevationGrid, overlays, width, height, rng) {
+  const cityFillSet = new Set(
+    overlays.cityFillCells.map((cell) => buildCellKey(cell.col, cell.row)),
+  );
+  const cityBorderSet = new Set(
+    overlays.cityBorderCells.map((cell) => buildCellKey(cell.col, cell.row)),
+  );
+  const farmFillSet = new Set(
+    overlays.farmFillCells.map((cell) => buildCellKey(cell.col, cell.row)),
+  );
+  const farmBorderSet = new Set(
+    overlays.farmBorderCells.map((cell) => buildCellKey(cell.col, cell.row)),
+  );
+  const roadSet = new Set(
+    overlays.roadCells.map((cell) => buildCellKey(cell.col, cell.row)),
   );
   const pixels = new Array(width * height).fill(0);
   const hillGradeGrid = new Int8Array(width * height);
@@ -1811,20 +2224,43 @@ function buildPixelColors(terrain, elevationGrid, cityMarkers, width, height, rn
         hillGrade = quantizeHillGradeFromNoise(elevationGrid[index] ?? 0);
         hillGradeGrid[index] = hillGrade;
       }
-
-      if (cityMarkerSet.has(`${col},${row}`)) {
-        pixels[index] = CITY_MARKER_COLOR;
-        continue;
-      }
       if (terrainType === 'hills') {
-        pixels[index] = getTerrainColorForRendering(
-          'hills',
-          { hillGrade },
-        );
-        continue;
+        pixels[index] = getTerrainColorForRendering('hills', { hillGrade });
+      } else {
+        pixels[index] = chooseTerrainColor(terrainType, rng);
       }
-      pixels[index] = chooseTerrainColor(terrainType, rng);
     }
+  }
+
+  for (const key of cityFillSet) {
+    const [colText, rowText] = key.split(':');
+    const col = Number.parseInt(colText, 10);
+    const row = Number.parseInt(rowText, 10);
+    pixels[row * width + col] = CITY_FILL_COLOR;
+  }
+  for (const key of cityBorderSet) {
+    const [colText, rowText] = key.split(':');
+    const col = Number.parseInt(colText, 10);
+    const row = Number.parseInt(rowText, 10);
+    pixels[row * width + col] = CITY_BORDER_COLOR;
+  }
+  for (const key of farmFillSet) {
+    const [colText, rowText] = key.split(':');
+    const col = Number.parseInt(colText, 10);
+    const row = Number.parseInt(rowText, 10);
+    pixels[row * width + col] = FARM_FILL_COLOR;
+  }
+  for (const key of farmBorderSet) {
+    const [colText, rowText] = key.split(':');
+    const col = Number.parseInt(colText, 10);
+    const row = Number.parseInt(rowText, 10);
+    pixels[row * width + col] = FARM_BORDER_COLOR;
+  }
+  for (const key of roadSet) {
+    const [colText, rowText] = key.split(':');
+    const col = Number.parseInt(colText, 10);
+    const row = Number.parseInt(rowText, 10);
+    pixels[row * width + col] = ROAD_COLOR;
   }
 
   return { pixels, hillGradeGrid };
@@ -1931,17 +2367,18 @@ if (options.mountainBias <= MIN_MOUNTAIN_BIAS + Number.EPSILON) {
 if (options.forestBias <= MIN_FOREST_BIAS + Number.EPSILON) {
   removeAllForests(terrain);
 }
-const cityLayout = placeCityMarkers(
+const mapOverlays = buildSettlementOverlays({
   terrain,
-  options.gridWidth,
-  options.gridHeight,
-  options.neutralCityCount,
-  options.friendlyCityCount,
-);
+  width: options.gridWidth,
+  height: options.gridHeight,
+  neutralCityCount: options.neutralCityCount,
+  friendlyCityCount: options.friendlyCityCount,
+  rng,
+});
 const { pixels, hillGradeGrid } = buildPixelColors(
   terrain,
   elevationGrid,
-  cityLayout.markers,
+  mapOverlays,
   options.gridWidth,
   options.gridHeight,
   rng,
@@ -1962,8 +2399,12 @@ const elevationSidecar = {
   gridWidth: options.gridWidth,
   gridHeight: options.gridHeight,
   hillGradeGrid: Array.from(hillGradeGrid),
-  cityAnchors: cityLayout.cityAnchors,
-  neutralCityAnchors: cityLayout.neutralCityAnchors,
+  cityAnchors: mapOverlays.cityAnchors,
+  neutralCityAnchors: mapOverlays.neutralCityAnchors,
+  cityZones: mapOverlays.cityZones,
+  roadCells: mapOverlays.roadCells,
+  farmZones: mapOverlays.farmZones,
+  farmToCityLinks: mapOverlays.farmToCityLinks,
   terrainCodeGrid,
 };
 const {

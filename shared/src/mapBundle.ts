@@ -5,6 +5,27 @@ export type MapBundleCoordinate = {
   row: number;
 };
 
+export type MapBundleCityZoneId = string;
+export type MapBundleFarmZoneId = string;
+
+export type MapBundleCityZone = {
+  cityZoneId: MapBundleCityZoneId;
+  homeTeam: PlayerTeam | "NEUTRAL";
+  anchor: MapBundleCoordinate;
+  cells: MapBundleCoordinate[];
+};
+
+export type MapBundleFarmZone = {
+  farmZoneId: MapBundleFarmZoneId;
+  anchor: MapBundleCoordinate;
+  cells: MapBundleCoordinate[];
+};
+
+export type MapBundleFarmToCityLink = {
+  farmZoneId: MapBundleFarmZoneId;
+  cityZoneId: MapBundleCityZoneId;
+};
+
 export type MapBundleSource = "runtime-sidecar" | "static-fallback";
 
 export type MapBundle = {
@@ -18,6 +39,10 @@ export type MapBundle = {
   hillGradeGrid: Int8Array | null;
   cityAnchors: Record<PlayerTeam, MapBundleCoordinate>;
   neutralCityAnchors: MapBundleCoordinate[];
+  cityZones: MapBundleCityZone[];
+  roadCells: MapBundleCoordinate[];
+  farmZones: MapBundleFarmZone[];
+  farmToCityLinks: MapBundleFarmToCityLink[];
   blockedSpawnCellIndexSet: ReadonlySet<number>;
   impassableCellIndexSet: ReadonlySet<number>;
   source: MapBundleSource;
