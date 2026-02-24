@@ -33,6 +33,10 @@ export type ComputeSupplyLinesParams = {
   getInfluenceScoreAtCell: (col: number, row: number) => number;
   isCellImpassable: (cell: GridCoordinate) => boolean;
   enemyInfluenceSeverThreshold: number;
+  isCitySupplySourceEligible?: (
+    team: PlayerTeam,
+    cityCell: GridCoordinate,
+  ) => boolean;
   previousRetryStateByUnitId?: ReadonlyMap<string, SupplySourceRetryState>;
   blockedSourceRetryIntervalMs?: number;
   nowMs?: number;
@@ -49,12 +53,61 @@ export type ComputeSupplyLinesResult = {
   retryStateByUnitId: Map<string, SupplySourceRetryState>;
 };
 
+export type FarmToCitySupplyCity = {
+  cityZoneId: string;
+  owner: string;
+  cityCell: GridCoordinate;
+};
+
+export type FarmToCitySupplyFarm = {
+  farmZoneId: string;
+  sourceCell: GridCoordinate;
+};
+
+export type FarmToCitySupplyLink = {
+  farmZoneId: string;
+  cityZoneId: string;
+};
+
+export type ComputeFarmToCitySupplyStatusParams = {
+  cityZones: readonly FarmToCitySupplyCity[];
+  farmZones: readonly FarmToCitySupplyFarm[];
+  farmToCityLinks: readonly FarmToCitySupplyLink[];
+  getInfluenceScoreAtCell: (col: number, row: number) => number;
+  isCellImpassable: (cell: GridCoordinate) => boolean;
+  enemyInfluenceSeverThreshold: number;
+  isEnemyOccupiedCellForTeam?: (
+    team: PlayerTeam,
+    cell: GridCoordinate,
+  ) => boolean;
+};
+
+export type ComputeFarmToCitySupplyStatusResult = {
+  suppliedCityZoneIds: Set<string>;
+  suppliedCityCellKeys: Set<string>;
+  linkStates: ComputedFarmToCitySupplyLinkState[];
+};
+
+export type ComputedFarmToCitySupplyLinkState = {
+  linkId: string;
+  farmZoneId: string;
+  cityZoneId: string;
+  team: PlayerTeam;
+  connected: boolean;
+  severIndex: number;
+  path: GridCoordinate[];
+};
+
 function normalizeTeam(team: string): PlayerTeam | null {
   const normalized = team.toUpperCase();
   if (normalized === "RED" || normalized === "BLUE") {
     return normalized;
   }
   return null;
+}
+
+function getCellKey(cell: GridCoordinate): string {
+  return `${cell.col},${cell.row}`;
 }
 
 function getTeamSign(team: PlayerTeam): 1 | -1 {
@@ -439,6 +492,109 @@ export function findSupplySeverIndex({
   return -1;
 }
 
+export function computeFarmToCitySupplyStatus({
+  cityZones,
+  farmZones,
+  farmToCityLinks,
+  getInfluenceScoreAtCell,
+  isCellImpassable,
+  enemyInfluenceSeverThreshold,
+  isEnemyOccupiedCellForTeam,
+}: ComputeFarmToCitySupplyStatusParams): ComputeFarmToCitySupplyStatusResult {
+  const suppliedCityZoneIds = new Set<string>();
+  const suppliedCityCellKeys = new Set<string>();
+  const linkStates: ComputedFarmToCitySupplyLinkState[] = [];
+  if (cityZones.length === 0) {
+    return {
+      suppliedCityZoneIds,
+      suppliedCityCellKeys,
+      linkStates,
+    };
+  }
+
+  // Legacy sidecars had no farm metadata; preserve prior behavior in that mode.
+  if (farmZones.length === 0 || farmToCityLinks.length === 0) {
+    for (const cityZone of cityZones) {
+      suppliedCityZoneIds.add(cityZone.cityZoneId);
+      suppliedCityCellKeys.add(getCellKey(cityZone.cityCell));
+    }
+    return {
+      suppliedCityZoneIds,
+      suppliedCityCellKeys,
+      linkStates,
+    };
+  }
+
+  const farmById = new Map(farmZones.map((farmZone) => [farmZone.farmZoneId, farmZone]));
+  const linksByCityZoneId = new Map<string, FarmToCitySupplyLink[]>();
+  for (const link of farmToCityLinks) {
+    const existingLinks = linksByCityZoneId.get(link.cityZoneId);
+    if (existingLinks) {
+      existingLinks.push(link);
+      continue;
+    }
+    linksByCityZoneId.set(link.cityZoneId, [link]);
+  }
+
+  for (const cityZone of cityZones) {
+    const team = normalizeTeam(cityZone.owner);
+    if (!team) {
+      continue;
+    }
+
+    const inboundLinks = linksByCityZoneId.get(cityZone.cityZoneId) ?? [];
+    for (let inboundIndex = 0; inboundIndex < inboundLinks.length; inboundIndex += 1) {
+      const inboundLink = inboundLinks[inboundIndex];
+      const farmZone = farmById.get(inboundLink.farmZoneId);
+      if (!farmZone) {
+        continue;
+      }
+
+      const supplyPath = evaluateSupplyPath({
+        sourceCell: farmZone.sourceCell,
+        unitCell: cityZone.cityCell,
+        team,
+        getInfluenceScoreAtCell,
+        isCellImpassable,
+        enemyInfluenceSeverThreshold,
+      });
+
+      let severIndex = supplyPath.severIndex;
+      if (severIndex === -1 && isEnemyOccupiedCellForTeam) {
+        for (let pathIndex = 1; pathIndex < supplyPath.path.length; pathIndex += 1) {
+          const pathCell = supplyPath.path[pathIndex];
+          if (!isEnemyOccupiedCellForTeam(team, pathCell)) {
+            continue;
+          }
+          severIndex = pathIndex;
+          break;
+        }
+      }
+
+      const connected = severIndex === -1;
+      linkStates.push({
+        linkId: `${inboundLink.farmZoneId}->${cityZone.cityZoneId}#${inboundIndex}`,
+        farmZoneId: inboundLink.farmZoneId,
+        cityZoneId: cityZone.cityZoneId,
+        team,
+        connected,
+        severIndex,
+        path: supplyPath.path,
+      });
+      if (connected) {
+        suppliedCityZoneIds.add(cityZone.cityZoneId);
+        suppliedCityCellKeys.add(getCellKey(cityZone.cityCell));
+      }
+    }
+  }
+
+  return {
+    suppliedCityZoneIds,
+    suppliedCityCellKeys,
+    linkStates,
+  };
+}
+
 export function computeSupplyLinesForUnits({
   units,
   worldToGridCoordinate,
@@ -450,6 +606,7 @@ export function computeSupplyLinesForUnits({
   getInfluenceScoreAtCell,
   isCellImpassable,
   enemyInfluenceSeverThreshold,
+  isCitySupplySourceEligible,
   previousRetryStateByUnitId,
   blockedSourceRetryIntervalMs,
   nowMs,
@@ -493,7 +650,9 @@ export function computeSupplyLinesForUnits({
   for (const team of ["BLUE", "RED"] as const) {
     const teamUnitIds = unitIdsByTeam[team];
     teamUnitIds.sort((leftUnitId, rightUnitId) => leftUnitId.localeCompare(rightUnitId));
-    const ownedCities = ownedCityCellsByTeam[team];
+    const ownedCities = ownedCityCellsByTeam[team].filter((cityCell) =>
+      isCitySupplySourceEligible ? isCitySupplySourceEligible(team, cityCell) : true,
+    );
 
     for (const unitId of teamUnitIds) {
       const resolvedTeam = teamByUnitId.get(unitId);

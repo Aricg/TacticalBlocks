@@ -1,5 +1,6 @@
 import { Client, Room } from "colyseus";
 import { BattleState } from "../schema/BattleState.js";
+import { FarmCitySupplyLineState } from "../schema/FarmCitySupplyLineState.js";
 import { GridCellState } from "../schema/GridCellState.js";
 import { InfluenceGridState } from "../schema/InfluenceGridState.js";
 import { SupplyLineState } from "../schema/SupplyLineState.js";
@@ -34,6 +35,8 @@ import {
 } from "../systems/movement/MovementCommandRouter.js";
 import { simulateMovementTick } from "../systems/movement/MovementSimulation.js";
 import {
+  computeFarmToCitySupplyStatus,
+  type ComputedFarmToCitySupplyLinkState,
   computeSupplyLinesForUnits,
   type ComputedSupplyLineState,
   type SupplySourceRetryState,
@@ -124,6 +127,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
   private readonly supplySignatureByUnitId = new Map<string, string>();
+  private readonly farmCitySupplySignatureByLinkId = new Map<string, string>();
   private readonly supplySourceRetryStateByUnitId = new Map<
     string,
     SupplySourceRetryState
@@ -139,6 +143,27 @@ export class BattleRoom extends Room<BattleState> {
       DEFAULT_BLOCKED_SUPPLY_ENDPOINT_INFLUENCE_OPTIONS,
     );
   private readonly generationProfileByMapId = new Map<string, GenerationProfile>();
+  private readonly roadCellIndexSet = new Set<number>();
+  private readonly cityZoneCellSetByHomeTeam: Record<PlayerTeam, Set<string>> = {
+    BLUE: new Set<string>(),
+    RED: new Set<string>(),
+  };
+  private readonly cityZoneCellsByHomeTeam: Record<PlayerTeam, GridCoordinate[]> = {
+    BLUE: [],
+    RED: [],
+  };
+  private readonly cityZoneIdByHomeTeam: Record<PlayerTeam, string> = {
+    BLUE: "home-blue",
+    RED: "home-red",
+  };
+  private readonly neutralCityZoneCellSets: Set<string>[] = [];
+  private readonly neutralCityZoneCells: GridCoordinate[][] = [];
+  private readonly neutralCityZoneIds: string[] = [];
+  private readonly farmZoneAnchorById = new Map<string, GridCoordinate>();
+  private farmToCityLinks: Array<{
+    farmZoneId: string;
+    cityZoneId: string;
+  }> = [];
   private neutralCityCells: GridCoordinate[] = [];
   private matchPhase: MatchPhase = "LOBBY";
   private mapRevision = 0;
@@ -185,6 +210,15 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.terrain.movementMultiplierByType;
   private static readonly TERRAIN_MORALE_BONUS: Record<TerrainType, number> =
     GAMEPLAY_CONFIG.terrain.moraleBonusByType;
+  private static readonly ROAD_MOVEMENT_MULTIPLIER =
+    Number.isFinite(GAMEPLAY_CONFIG.terrain.roadMovementMultiplier) &&
+    GAMEPLAY_CONFIG.terrain.roadMovementMultiplier > 0
+      ? GAMEPLAY_CONFIG.terrain.roadMovementMultiplier
+      : 1;
+  private static readonly CITY_MORALE_BONUS_INSIDE_OWNED_ZONE =
+    Number.isFinite(GAMEPLAY_CONFIG.cities.moraleBonusInsideOwnedZone)
+      ? GAMEPLAY_CONFIG.cities.moraleBonusInsideOwnedZone
+      : 0;
   private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
   private static readonly GRID_HEIGHT = GAMEPLAY_CONFIG.influence.gridHeight;
   private static readonly CELL_WIDTH =
@@ -237,6 +271,7 @@ export class BattleRoom extends Room<BattleState> {
       this.activeMapBundle,
       getNeutralCityGridCoordinates(),
     );
+    this.syncMapFeatureMetadataFromBundle();
     this.mapRuntimeService.initializeNeutralCityOwnership(
       this.state.neutralCityOwners,
       this.neutralCityCells.length,
@@ -420,6 +455,22 @@ export class BattleRoom extends Room<BattleState> {
     ].join("|");
   }
 
+  private buildFarmCitySupplyLineSignature(
+    supplyLine: ComputedFarmToCitySupplyLinkState,
+  ): string {
+    const pathSignature = supplyLine.path
+      .map((cell) => `${cell.col},${cell.row}`)
+      .join(";");
+    return [
+      supplyLine.team,
+      supplyLine.farmZoneId,
+      supplyLine.cityZoneId,
+      supplyLine.connected ? "1" : "0",
+      `${supplyLine.severIndex}`,
+      pathSignature,
+    ].join("|");
+  }
+
   private createSupplyLineState(
     supplyLine: ComputedSupplyLineState,
   ): SupplyLineState {
@@ -429,6 +480,22 @@ export class BattleRoom extends Room<BattleState> {
     state.connected = supplyLine.connected;
     state.sourceCol = supplyLine.sourceCol;
     state.sourceRow = supplyLine.sourceRow;
+    state.severIndex = supplyLine.severIndex;
+    for (const cell of supplyLine.path) {
+      state.path.push(new GridCellState(cell.col, cell.row));
+    }
+    return state;
+  }
+
+  private createFarmCitySupplyLineState(
+    supplyLine: ComputedFarmToCitySupplyLinkState,
+  ): FarmCitySupplyLineState {
+    const state = new FarmCitySupplyLineState();
+    state.linkId = supplyLine.linkId;
+    state.farmZoneId = supplyLine.farmZoneId;
+    state.cityZoneId = supplyLine.cityZoneId;
+    state.team = supplyLine.team;
+    state.connected = supplyLine.connected;
     state.severIndex = supplyLine.severIndex;
     for (const cell of supplyLine.path) {
       state.path.push(new GridCellState(cell.col, cell.row));
@@ -593,6 +660,165 @@ export class BattleRoom extends Room<BattleState> {
 
   private getGridCellIndex(col: number, row: number): number {
     return row * BattleRoom.GRID_WIDTH + col;
+  }
+
+  private getGridCellKey(cell: GridCoordinate): string {
+    return `${cell.col},${cell.row}`;
+  }
+
+  private getGridCellKeyFromColRow(col: number, row: number): string {
+    return `${col},${row}`;
+  }
+
+  private buildCityZoneFallback(
+    zoneId: string,
+    homeTeam: PlayerTeam | "NEUTRAL",
+    anchor: GridCoordinate,
+  ): {
+    cityZoneId: string;
+    homeTeam: PlayerTeam | "NEUTRAL";
+    anchor: GridCoordinate;
+    cells: GridCoordinate[];
+  } {
+    return {
+      cityZoneId: zoneId,
+      homeTeam,
+      anchor: { col: anchor.col, row: anchor.row },
+      cells: [{ col: anchor.col, row: anchor.row }],
+    };
+  }
+
+  private findHomeCityZone(
+    homeTeam: PlayerTeam,
+    fallbackAnchor: GridCoordinate,
+  ): {
+    cityZoneId: string;
+    homeTeam: PlayerTeam | "NEUTRAL";
+    anchor: GridCoordinate;
+    cells: GridCoordinate[];
+  } {
+    const parsedZones = this.activeMapBundle?.cityZones ?? [];
+    const matchingZone = parsedZones.find((zone) => zone.homeTeam === homeTeam);
+    if (!matchingZone) {
+      return this.buildCityZoneFallback(
+        homeTeam === "RED" ? "home-red" : "home-blue",
+        homeTeam,
+        fallbackAnchor,
+      );
+    }
+    return {
+      cityZoneId: matchingZone.cityZoneId,
+      homeTeam: matchingZone.homeTeam,
+      anchor: { col: matchingZone.anchor.col, row: matchingZone.anchor.row },
+      cells: matchingZone.cells.map((cell) => ({ col: cell.col, row: cell.row })),
+    };
+  }
+
+  private findNeutralCityZoneForAnchor(
+    anchor: GridCoordinate,
+    usedZoneIds: Set<string>,
+    fallbackZoneId: string,
+  ): {
+    cityZoneId: string;
+    homeTeam: PlayerTeam | "NEUTRAL";
+    anchor: GridCoordinate;
+    cells: GridCoordinate[];
+  } {
+    const parsedZones = this.activeMapBundle?.cityZones ?? [];
+    for (const zone of parsedZones) {
+      if (zone.homeTeam !== "NEUTRAL" || usedZoneIds.has(zone.cityZoneId)) {
+        continue;
+      }
+      if (zone.anchor.col !== anchor.col || zone.anchor.row !== anchor.row) {
+        continue;
+      }
+      usedZoneIds.add(zone.cityZoneId);
+      return {
+        cityZoneId: zone.cityZoneId,
+        homeTeam: zone.homeTeam,
+        anchor: { col: zone.anchor.col, row: zone.anchor.row },
+        cells: zone.cells.map((cell) => ({ col: cell.col, row: cell.row })),
+      };
+    }
+
+    for (const zone of parsedZones) {
+      if (zone.homeTeam !== "NEUTRAL" || usedZoneIds.has(zone.cityZoneId)) {
+        continue;
+      }
+      usedZoneIds.add(zone.cityZoneId);
+      return {
+        cityZoneId: zone.cityZoneId,
+        homeTeam: zone.homeTeam,
+        anchor: { col: zone.anchor.col, row: zone.anchor.row },
+        cells: zone.cells.map((cell) => ({ col: cell.col, row: cell.row })),
+      };
+    }
+
+    return this.buildCityZoneFallback(fallbackZoneId, "NEUTRAL", anchor);
+  }
+
+  private syncMapFeatureMetadataFromBundle(): void {
+    this.roadCellIndexSet.clear();
+    this.cityZoneCellSetByHomeTeam.RED.clear();
+    this.cityZoneCellSetByHomeTeam.BLUE.clear();
+    this.cityZoneCellsByHomeTeam.RED = [];
+    this.cityZoneCellsByHomeTeam.BLUE = [];
+    this.cityZoneIdByHomeTeam.RED = "home-red";
+    this.cityZoneIdByHomeTeam.BLUE = "home-blue";
+    this.neutralCityZoneCellSets.length = 0;
+    this.neutralCityZoneCells.length = 0;
+    this.neutralCityZoneIds.length = 0;
+    this.farmZoneAnchorById.clear();
+    this.farmToCityLinks = [];
+
+    if (!this.activeMapBundle) {
+      return;
+    }
+
+    for (const roadCell of this.activeMapBundle.roadCells) {
+      const index = this.getGridCellIndex(roadCell.col, roadCell.row);
+      this.roadCellIndexSet.add(index);
+    }
+
+    const redZone = this.findHomeCityZone("RED", this.activeMapBundle.cityAnchors.RED);
+    const blueZone = this.findHomeCityZone("BLUE", this.activeMapBundle.cityAnchors.BLUE);
+    this.cityZoneIdByHomeTeam.RED = redZone.cityZoneId;
+    this.cityZoneIdByHomeTeam.BLUE = blueZone.cityZoneId;
+    this.cityZoneCellsByHomeTeam.RED = redZone.cells;
+    this.cityZoneCellsByHomeTeam.BLUE = blueZone.cells;
+    for (const cell of redZone.cells) {
+      this.cityZoneCellSetByHomeTeam.RED.add(this.getGridCellKey(cell));
+    }
+    for (const cell of blueZone.cells) {
+      this.cityZoneCellSetByHomeTeam.BLUE.add(this.getGridCellKey(cell));
+    }
+
+    const usedNeutralZoneIds = new Set<string>();
+    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
+      const anchor = this.neutralCityCells[index];
+      const neutralZone = this.findNeutralCityZoneForAnchor(
+        anchor,
+        usedNeutralZoneIds,
+        `neutral-${index}`,
+      );
+      const cellSet = new Set<string>(
+        neutralZone.cells.map((cell) => this.getGridCellKey(cell)),
+      );
+      this.neutralCityZoneIds.push(neutralZone.cityZoneId);
+      this.neutralCityZoneCells.push(neutralZone.cells);
+      this.neutralCityZoneCellSets.push(cellSet);
+    }
+
+    for (const farmZone of this.activeMapBundle.farmZones) {
+      this.farmZoneAnchorById.set(farmZone.farmZoneId, {
+        col: farmZone.anchor.col,
+        row: farmZone.anchor.row,
+      });
+    }
+    this.farmToCityLinks = this.activeMapBundle.farmToCityLinks.map((link) => ({
+      farmZoneId: link.farmZoneId,
+      cityZoneId: link.cityZoneId,
+    }));
   }
 
   private getMapBundleTerrainTypeAtCell(
@@ -788,12 +1014,52 @@ export class BattleRoom extends Room<BattleState> {
 
   private getTerrainSpeedMultiplierAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
-    return BattleRoom.TERRAIN_SPEED_MULTIPLIER[terrainType] ?? 1.0;
+    const terrainMultiplier = BattleRoom.TERRAIN_SPEED_MULTIPLIER[terrainType] ?? 1.0;
+    if (
+      terrainMultiplier <= 0 ||
+      !Number.isFinite(terrainMultiplier) ||
+      !this.roadCellIndexSet.has(this.getGridCellIndex(cell.col, cell.row))
+    ) {
+      return terrainMultiplier;
+    }
+    return terrainMultiplier * BattleRoom.ROAD_MOVEMENT_MULTIPLIER;
   }
 
   private getTerrainMoraleBonusAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
     return BattleRoom.TERRAIN_MORALE_BONUS[terrainType] ?? 0;
+  }
+
+  private getCityMoraleBonusAtCell(cell: GridCoordinate, team: PlayerTeam): number {
+    const configuredBonus = BattleRoom.CITY_MORALE_BONUS_INSIDE_OWNED_ZONE;
+    if (!Number.isFinite(configuredBonus) || configuredBonus === 0) {
+      return 0;
+    }
+
+    const cellKey = this.getGridCellKey(cell);
+    if (
+      this.getCityOwner("RED") === team &&
+      this.cityZoneCellSetByHomeTeam.RED.has(cellKey)
+    ) {
+      return configuredBonus;
+    }
+    if (
+      this.getCityOwner("BLUE") === team &&
+      this.cityZoneCellSetByHomeTeam.BLUE.has(cellKey)
+    ) {
+      return configuredBonus;
+    }
+
+    for (let index = 0; index < this.neutralCityZoneCellSets.length; index += 1) {
+      if (this.getNeutralCityOwner(index) !== team) {
+        continue;
+      }
+      if (this.neutralCityZoneCellSets[index]?.has(cellKey)) {
+        return configuredBonus;
+      }
+    }
+
+    return 0;
   }
 
   private getSlopeMoraleDelta(unit: Unit): number {
@@ -942,29 +1208,55 @@ export class BattleRoom extends Room<BattleState> {
     this.state.neutralCityOwners[index] = owner;
   }
 
-  private getOccupyingTeamAtCell(targetCell: GridCoordinate): PlayerTeam | null {
+  private getCityZoneCells(homeCity: PlayerTeam): readonly GridCoordinate[] {
+    return this.cityZoneCellsByHomeTeam[homeCity];
+  }
+
+  private getNeutralCityZoneCells(index: number): readonly GridCoordinate[] | null {
+    const zoneCells = this.neutralCityZoneCells[index];
+    return zoneCells ?? null;
+  }
+
+  private getUncontestedOccupyingTeamAtZone(
+    zoneCells: readonly GridCoordinate[],
+  ): PlayerTeam | null {
+    if (zoneCells.length === 0) {
+      return null;
+    }
+
+    const zoneCellSet = new Set<string>(zoneCells.map((cell) => this.getGridCellKey(cell)));
+    let occupyingTeam: PlayerTeam | null = null;
     for (const unit of this.state.units.values()) {
       if (unit.health <= 0) {
         continue;
       }
       const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
-      if (unitCell.col !== targetCell.col || unitCell.row !== targetCell.row) {
+      if (!zoneCellSet.has(this.getGridCellKey(unitCell))) {
         continue;
       }
-      return this.normalizeTeam(unit.team);
+
+      const unitTeam = this.normalizeTeam(unit.team);
+      if (!occupyingTeam) {
+        occupyingTeam = unitTeam;
+        continue;
+      }
+      if (occupyingTeam !== unitTeam) {
+        return null;
+      }
     }
 
-    return null;
+    return occupyingTeam;
   }
 
   private updateCityOwnershipFromOccupancy(): boolean {
     return updateCityOwnershipFromOccupancySystem({
-      getOccupyingTeamAtCell: (targetCell) => this.getOccupyingTeamAtCell(targetCell),
-      getCityCell: (homeCity) => this.getCityCell(homeCity),
+      getUncontestedOccupyingTeamAtZone: (zoneCells) =>
+        this.getUncontestedOccupyingTeamAtZone(zoneCells),
+      getCityZoneCells: (homeCity) => this.getCityZoneCells(homeCity),
       getCityOwner: (homeCity) => this.getCityOwner(homeCity),
       setCityOwner: (homeCity, owner) => this.setCityOwner(homeCity, owner),
       neutralCityCount: this.neutralCityCells.length,
-      getNeutralCityCell: (index) => this.getNeutralCityCell(index),
+      getNeutralCityZoneCells: (index) => this.getNeutralCityZoneCells(index),
       getNeutralCityOwner: (index) => this.getNeutralCityOwner(index),
       setNeutralCityOwner: (index, owner) => this.setNeutralCityOwner(index, owner),
     });
@@ -1270,7 +1562,11 @@ export class BattleRoom extends Room<BattleState> {
     for (const unitId of Array.from(this.state.supplyLines.keys())) {
       this.state.supplyLines.delete(unitId);
     }
+    for (const linkId of Array.from(this.state.farmCitySupplyLines.keys())) {
+      this.state.farmCitySupplyLines.delete(linkId);
+    }
     this.supplySignatureByUnitId.clear();
+    this.farmCitySupplySignatureByLinkId.clear();
     this.supplySourceRetryStateByUnitId.clear();
     this.blockedSupplyEndpointInfluenceTracker.clear();
   }
@@ -1312,6 +1608,7 @@ export class BattleRoom extends Room<BattleState> {
     this.state.mapId = mapId;
     this.applyLoadedMapBundle(mapId, switchResult);
     this.neutralCityCells = switchResult.neutralCityAnchors;
+    this.syncMapFeatureMetadataFromBundle();
     this.state.redCityOwner = "RED";
     this.state.blueCityOwner = "BLUE";
     this.mapRuntimeService.resetNeutralCityOwnership(
@@ -1598,6 +1895,69 @@ export class BattleRoom extends Room<BattleState> {
 
   private updateSupplyLines(): void {
     this.updateSupplyEvaluationInfluenceGrid();
+    const enemyOccupiedCellKeysByTeam: Record<PlayerTeam, Set<string>> = {
+      BLUE: new Set<string>(),
+      RED: new Set<string>(),
+    };
+    for (const unit of this.state.units.values()) {
+      if (!unit || unit.health <= 0) {
+        continue;
+      }
+      const team = this.normalizeTeam(unit.team);
+      const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+      const cellKey = this.getGridCellKeyFromColRow(unitCell.col, unitCell.row);
+      if (team === "BLUE") {
+        enemyOccupiedCellKeysByTeam.RED.add(cellKey);
+      } else {
+        enemyOccupiedCellKeysByTeam.BLUE.add(cellKey);
+      }
+    }
+
+    const cityZonesForSupply = [
+      {
+        cityZoneId: this.cityZoneIdByHomeTeam.RED,
+        owner: this.state.redCityOwner,
+        cityCell: this.getCityCell("RED"),
+      },
+      {
+        cityZoneId: this.cityZoneIdByHomeTeam.BLUE,
+        owner: this.state.blueCityOwner,
+        cityCell: this.getCityCell("BLUE"),
+      },
+      ...this.neutralCityCells.map((cityCell, index) => ({
+        cityZoneId: this.neutralCityZoneIds[index] ?? `neutral-${index}`,
+        owner: this.state.neutralCityOwners[index] ?? "NEUTRAL",
+        cityCell: {
+          col: cityCell.col,
+          row: cityCell.row,
+        },
+      })),
+    ];
+    const farmZonesForSupply = Array.from(this.farmZoneAnchorById.entries()).map(
+      ([farmZoneId, sourceCell]) => ({
+        farmZoneId,
+        sourceCell: {
+          col: sourceCell.col,
+          row: sourceCell.row,
+        },
+      }),
+    );
+    const farmToCitySupplyStatus = computeFarmToCitySupplyStatus({
+      cityZones: cityZonesForSupply,
+      farmZones: farmZonesForSupply,
+      farmToCityLinks: this.farmToCityLinks,
+      getInfluenceScoreAtCell: (col, row) =>
+        this.getSupplyEvaluationInfluenceScoreAtCell(col, row),
+      isCellImpassable: (cell) => this.isCellImpassable(cell),
+      enemyInfluenceSeverThreshold:
+        GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
+      isEnemyOccupiedCellForTeam: (team, cell) =>
+        enemyOccupiedCellKeysByTeam[team].has(
+          this.getGridCellKeyFromColRow(cell.col, cell.row),
+        ),
+    });
+    const computedFarmCitySupplyLines = farmToCitySupplyStatus.linkStates;
+
     const { supplyLinesByUnitId: computedSupplyLines, retryStateByUnitId } =
       computeSupplyLinesForUnits({
         units: this.state.units.values(),
@@ -1612,6 +1972,10 @@ export class BattleRoom extends Room<BattleState> {
         isCellImpassable: (cell) => this.isCellImpassable(cell),
         enemyInfluenceSeverThreshold:
           GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
+        isCitySupplySourceEligible: (_team, cityCell) =>
+          farmToCitySupplyStatus.suppliedCityCellKeys.has(
+            this.getGridCellKeyFromColRow(cityCell.col, cityCell.row),
+          ),
         previousRetryStateByUnitId: this.supplySourceRetryStateByUnitId,
         blockedSourceRetryIntervalMs:
           BattleRoom.SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS,
@@ -1650,6 +2014,38 @@ export class BattleRoom extends Room<BattleState> {
       }
     }
 
+    for (const supplyLine of computedFarmCitySupplyLines) {
+      const linkId = supplyLine.linkId;
+      const nextSignature = this.buildFarmCitySupplyLineSignature(supplyLine);
+      const previousSignature = this.farmCitySupplySignatureByLinkId.get(linkId);
+      if (previousSignature === nextSignature) {
+        continue;
+      }
+
+      this.farmCitySupplySignatureByLinkId.set(linkId, nextSignature);
+      const existingState = this.state.farmCitySupplyLines.get(linkId);
+      if (!existingState) {
+        this.state.farmCitySupplyLines.set(
+          linkId,
+          this.createFarmCitySupplyLineState(supplyLine),
+        );
+        continue;
+      }
+
+      existingState.linkId = supplyLine.linkId;
+      existingState.farmZoneId = supplyLine.farmZoneId;
+      existingState.cityZoneId = supplyLine.cityZoneId;
+      existingState.team = supplyLine.team;
+      existingState.connected = supplyLine.connected;
+      existingState.severIndex = supplyLine.severIndex;
+      while (existingState.path.length > 0) {
+        existingState.path.pop();
+      }
+      for (const cell of supplyLine.path) {
+        existingState.path.push(new GridCellState(cell.col, cell.row));
+      }
+    }
+
     const activeSupplyUnitIds = new Set(computedSupplyLines.keys());
     for (const unitId of Array.from(this.state.supplyLines.keys())) {
       if (activeSupplyUnitIds.has(unitId)) {
@@ -1674,6 +2070,23 @@ export class BattleRoom extends Room<BattleState> {
       }
       this.supplySourceRetryStateByUnitId.delete(unitId);
       this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
+    }
+
+    const activeFarmCityLinkIds = new Set(
+      computedFarmCitySupplyLines.map((supplyLine) => supplyLine.linkId),
+    );
+    for (const linkId of Array.from(this.state.farmCitySupplyLines.keys())) {
+      if (activeFarmCityLinkIds.has(linkId)) {
+        continue;
+      }
+      this.state.farmCitySupplyLines.delete(linkId);
+      this.farmCitySupplySignatureByLinkId.delete(linkId);
+    }
+    for (const linkId of Array.from(this.farmCitySupplySignatureByLinkId.keys())) {
+      if (activeFarmCityLinkIds.has(linkId)) {
+        continue;
+      }
+      this.farmCitySupplySignatureByLinkId.delete(linkId);
     }
   }
 
@@ -1767,8 +2180,13 @@ export class BattleRoom extends Room<BattleState> {
       }
       const commanderAuraBonus = getCommanderAuraBonus(unit);
       const slopeMoraleDelta = this.getSlopeMoraleDelta(unit);
+      const unitTeam = this.normalizeTeam(unit.team);
+      const cityMoraleBonus = this.getCityMoraleBonusAtCell(
+        this.worldToGridCoordinate(unit.x, unit.y),
+        unitTeam,
+      );
       return this.clamp(
-        baseMoraleScore + commanderAuraBonus + slopeMoraleDelta,
+        baseMoraleScore + commanderAuraBonus + slopeMoraleDelta + cityMoraleBonus,
         0,
         BattleRoom.MORALE_MAX_SCORE,
       );

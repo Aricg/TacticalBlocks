@@ -25,6 +25,16 @@ export type SupplyLineSnapshot = {
   path: SupplyLinePathCellSnapshot[];
 };
 
+export type FarmCitySupplyLineSnapshot = {
+  linkId: string;
+  farmZoneId: string;
+  cityZoneId: string;
+  team: 'BLUE' | 'RED';
+  connected: boolean;
+  severIndex: number;
+  path: SupplyLinePathCellSnapshot[];
+};
+
 type GridMeta = {
   width: number;
   height: number;
@@ -70,11 +80,20 @@ type SupplyLineRenderState = {
   cells: SupplyLineRenderCell[];
 };
 
+type FarmCitySupplyLineRenderState = {
+  team: 'BLUE' | 'RED';
+  connected: boolean;
+  endIndex: number;
+  severCell: SupplyLineRenderCell | null;
+  cells: SupplyLineRenderCell[];
+};
+
 type PlayerTeam = 'BLUE' | 'RED';
 
 export class InfluenceRenderer {
   private readonly scene: Phaser.Scene;
   private readonly frontLineGraphics: Phaser.GameObjects.Graphics;
+  private readonly farmCitySupplyGraphics: Phaser.GameObjects.Graphics;
   private readonly supplyWaveGraphics: Phaser.GameObjects.Graphics;
   private readonly debugGraphics: Phaser.GameObjects.Graphics;
   private readonly debugCellValueTexts: Phaser.GameObjects.Text[];
@@ -93,6 +112,8 @@ export class InfluenceRenderer {
   private visibleTeam: PlayerTeam | null = null;
   private supplyLines: SupplyLineSnapshot[] = [];
   private supplyLineRenderStates: SupplyLineRenderState[] = [];
+  private farmCitySupplyLines: FarmCitySupplyLineSnapshot[] = [];
+  private farmCitySupplyLineRenderStates: FarmCitySupplyLineRenderState[] = [];
 
   private static readonly EPSILON = 0.0001;
   private static readonly KEY_PRECISION = 1000;
@@ -111,6 +132,11 @@ export class InfluenceRenderer {
   private static readonly SUPPLY_WAVE_BLUE_COLOR = 0x65bfff;
   private static readonly SUPPLY_WAVE_RED_COLOR = 0xff7f6c;
   private static readonly SUPPLY_SEVER_COLOR = 0xfff3ad;
+  private static readonly FARM_CITY_SUPPLY_COLOR = 0xffd700;
+  private static readonly FARM_CITY_SUPPLY_DISCONNECTED_ALPHA = 0.55;
+  private static readonly FARM_CITY_SUPPLY_CONNECTED_ALPHA = 0.9;
+  private static readonly FARM_CITY_SUPPLY_SEVER_COLOR = 0xff4a4a;
+  private static readonly FARM_CITY_SUPPLY_LINE_WIDTH = 2;
   private static readonly SUPPLY_WAVE_RADIUS = 4;
   private static readonly SUPPLY_WAVE_SPEED_CELLS_PER_MS = 0.006;
   private static readonly SUPPLY_WAVE_SIGMA_CELLS = 1.6;
@@ -125,6 +151,8 @@ export class InfluenceRenderer {
     this.scene = scene;
     this.frontLineGraphics = scene.add.graphics();
     this.frontLineGraphics.setDepth(910);
+    this.farmCitySupplyGraphics = scene.add.graphics();
+    this.farmCitySupplyGraphics.setDepth(978);
     this.supplyWaveGraphics = scene.add.graphics();
     this.supplyWaveGraphics.setDepth(979);
     this.debugGraphics = scene.add.graphics();
@@ -191,6 +219,7 @@ export class InfluenceRenderer {
       this.interpolationElapsedMs = InfluenceRenderer.INTERPOLATION_DURATION_MS;
       this.latestRevision = influenceGrid.revision;
       this.rebuildSupplyLineRenderStates();
+      this.rebuildFarmCitySupplyLineRenderStates();
       return;
     }
 
@@ -201,6 +230,7 @@ export class InfluenceRenderer {
     this.interpolationElapsedMs = 0;
     this.latestRevision = influenceGrid.revision;
     this.rebuildSupplyLineRenderStates();
+    this.rebuildFarmCitySupplyLineRenderStates();
   }
 
   public setSupplyLines(supplyLines: Iterable<SupplyLineSnapshot>): void {
@@ -254,6 +284,57 @@ export class InfluenceRenderer {
     this.rebuildSupplyLineRenderStates();
   }
 
+  public setFarmCitySupplyLines(
+    supplyLines: Iterable<FarmCitySupplyLineSnapshot>,
+  ): void {
+    const normalized: FarmCitySupplyLineSnapshot[] = [];
+    for (const supplyLine of supplyLines) {
+      if (
+        !supplyLine ||
+        typeof supplyLine.linkId !== 'string' ||
+        supplyLine.linkId.length === 0
+      ) {
+        continue;
+      }
+
+      const team = supplyLine.team === 'RED' ? 'RED' : 'BLUE';
+      const path = Array.isArray(supplyLine.path)
+        ? supplyLine.path
+            .map((cell) => {
+              if (
+                !cell ||
+                !Number.isFinite(cell.col) ||
+                !Number.isFinite(cell.row)
+              ) {
+                return null;
+              }
+              return {
+                col: Math.round(cell.col),
+                row: Math.round(cell.row),
+              };
+            })
+            .filter((cell): cell is SupplyLinePathCellSnapshot => cell !== null)
+        : [];
+
+      normalized.push({
+        linkId: supplyLine.linkId,
+        farmZoneId:
+          typeof supplyLine.farmZoneId === 'string' ? supplyLine.farmZoneId : '',
+        cityZoneId:
+          typeof supplyLine.cityZoneId === 'string' ? supplyLine.cityZoneId : '',
+        team,
+        connected: supplyLine.connected === true,
+        severIndex: Number.isFinite(supplyLine.severIndex)
+          ? Math.round(supplyLine.severIndex)
+          : -1,
+        path,
+      });
+    }
+
+    this.farmCitySupplyLines = normalized;
+    this.rebuildFarmCitySupplyLineRenderStates();
+  }
+
   public setDebugFocusPoint(
     point: { x: number; y: number } | null,
     scoreOverride: number | null = null,
@@ -289,6 +370,7 @@ export class InfluenceRenderer {
 
   public render(timeMs: number, deltaMs: number): void {
     this.frontLineGraphics.clear();
+    this.farmCitySupplyGraphics.clear();
     this.supplyWaveGraphics.clear();
     this.debugGraphics.clear();
     if (
@@ -336,11 +418,13 @@ export class InfluenceRenderer {
     }
 
     this.renderDebugOverlay(this.targetServerCells);
+    this.renderFarmCitySupplyLines();
     this.renderSupplyWave(timeMs, deltaMs);
   }
 
   public destroy(): void {
     this.frontLineGraphics.destroy();
+    this.farmCitySupplyGraphics.destroy();
     this.supplyWaveGraphics.destroy();
     this.debugGraphics.destroy();
     for (const text of this.debugCellValueTexts) {
@@ -354,6 +438,8 @@ export class InfluenceRenderer {
     this.staticInfluenceSources = [];
     this.supplyLines = [];
     this.supplyLineRenderStates = [];
+    this.farmCitySupplyLines = [];
+    this.farmCitySupplyLineRenderStates = [];
     this.debugFocusPoint = null;
     this.debugFocusScoreOverride = null;
   }
@@ -398,6 +484,107 @@ export class InfluenceRenderer {
     }
 
     this.supplyLineRenderStates = nextRenderStates;
+  }
+
+  private rebuildFarmCitySupplyLineRenderStates(): void {
+    if (!this.gridMeta || this.farmCitySupplyLines.length === 0) {
+      this.farmCitySupplyLineRenderStates = [];
+      return;
+    }
+
+    const cellWidth = this.gridMeta.cellWidth;
+    const cellHeight = this.gridMeta.cellHeight;
+    const nextRenderStates: FarmCitySupplyLineRenderState[] = [];
+
+    for (const supplyLine of this.farmCitySupplyLines) {
+      if (supplyLine.path.length === 0) {
+        continue;
+      }
+
+      const cells: SupplyLineRenderCell[] = supplyLine.path.map((pathCell) => ({
+        x: (pathCell.col + 0.5) * cellWidth,
+        y: (pathCell.row + 0.5) * cellHeight,
+      }));
+      let endIndex = cells.length - 1;
+      let severCell: SupplyLineRenderCell | null = null;
+      if (!supplyLine.connected) {
+        if (supplyLine.severIndex < 0) {
+          continue;
+        }
+        const severIndex = Math.min(supplyLine.severIndex, cells.length - 1);
+        severCell = cells[severIndex] ?? null;
+        // Stop one cell before the severed point so broken links are visibly cut.
+        endIndex = severIndex - 1;
+      }
+      if (endIndex < 0 && !severCell) {
+        continue;
+      }
+
+      nextRenderStates.push({
+        team: supplyLine.team,
+        connected: supplyLine.connected,
+        endIndex,
+        severCell,
+        cells,
+      });
+    }
+
+    this.farmCitySupplyLineRenderStates = nextRenderStates;
+  }
+
+  private renderFarmCitySupplyLines(): void {
+    if (this.farmCitySupplyLineRenderStates.length === 0) {
+      return;
+    }
+
+    for (const supplyLine of this.farmCitySupplyLineRenderStates) {
+      this.farmCitySupplyGraphics.lineStyle(
+        InfluenceRenderer.FARM_CITY_SUPPLY_LINE_WIDTH,
+        InfluenceRenderer.FARM_CITY_SUPPLY_COLOR,
+        supplyLine.connected
+          ? InfluenceRenderer.FARM_CITY_SUPPLY_CONNECTED_ALPHA
+          : InfluenceRenderer.FARM_CITY_SUPPLY_DISCONNECTED_ALPHA,
+      );
+      if (supplyLine.endIndex >= 1) {
+        this.farmCitySupplyGraphics.beginPath();
+        this.farmCitySupplyGraphics.moveTo(
+          supplyLine.cells[0].x,
+          supplyLine.cells[0].y,
+        );
+        for (let index = 1; index <= supplyLine.endIndex; index += 1) {
+          this.farmCitySupplyGraphics.lineTo(
+            supplyLine.cells[index].x,
+            supplyLine.cells[index].y,
+          );
+        }
+        this.farmCitySupplyGraphics.strokePath();
+      }
+      if (!supplyLine.connected && supplyLine.severCell) {
+        const severCell = supplyLine.severCell;
+        this.farmCitySupplyGraphics.fillStyle(
+          InfluenceRenderer.FARM_CITY_SUPPLY_COLOR,
+          0.75,
+        );
+        this.farmCitySupplyGraphics.fillCircle(severCell.x, severCell.y, 3);
+        this.farmCitySupplyGraphics.lineStyle(
+          2,
+          InfluenceRenderer.FARM_CITY_SUPPLY_SEVER_COLOR,
+          0.95,
+        );
+        this.farmCitySupplyGraphics.lineBetween(
+          severCell.x - 4,
+          severCell.y - 4,
+          severCell.x + 4,
+          severCell.y + 4,
+        );
+        this.farmCitySupplyGraphics.lineBetween(
+          severCell.x - 4,
+          severCell.y + 4,
+          severCell.x + 4,
+          severCell.y - 4,
+        );
+      }
+    }
   }
 
   private renderSupplyWave(timeMs: number, deltaMs: number): void {
