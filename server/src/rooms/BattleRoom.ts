@@ -215,6 +215,23 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.terrain.roadMovementMultiplier > 0
       ? GAMEPLAY_CONFIG.terrain.roadMovementMultiplier
       : 1;
+  private static readonly TERRAIN_PATHFINDING_STEP_COST: Record<TerrainType, number> =
+    GAMEPLAY_CONFIG.terrain.pathfindingStepCostByType;
+  private static readonly PATHFINDING_ROAD_STEP_COST_MULTIPLIER =
+    Number.isFinite(GAMEPLAY_CONFIG.terrain.pathfindingRoadStepCostMultiplier) &&
+    GAMEPLAY_CONFIG.terrain.pathfindingRoadStepCostMultiplier > 0
+      ? GAMEPLAY_CONFIG.terrain.pathfindingRoadStepCostMultiplier
+      : 1;
+  private static readonly PATHFINDING_HEURISTIC_MIN_STEP_COST =
+    Number.isFinite(GAMEPLAY_CONFIG.terrain.pathfindingHeuristicMinStepCost) &&
+    GAMEPLAY_CONFIG.terrain.pathfindingHeuristicMinStepCost > 0
+      ? GAMEPLAY_CONFIG.terrain.pathfindingHeuristicMinStepCost
+      : 0;
+  private static readonly PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT =
+    Number.isFinite(GAMEPLAY_CONFIG.terrain.pathfindingMaxRouteExpansionsPerSegment) &&
+    GAMEPLAY_CONFIG.terrain.pathfindingMaxRouteExpansionsPerSegment > 0
+      ? Math.floor(GAMEPLAY_CONFIG.terrain.pathfindingMaxRouteExpansionsPerSegment)
+      : 3500;
   private static readonly CITY_MORALE_BONUS_INSIDE_OWNED_ZONE =
     Number.isFinite(GAMEPLAY_CONFIG.cities.moraleBonusInsideOwnedZone)
       ? GAMEPLAY_CONFIG.cities.moraleBonusInsideOwnedZone
@@ -614,6 +631,15 @@ export class BattleRoom extends Room<BattleState> {
       speedMultiplier: normalizedSpeedMultiplier,
       rotateToFace: normalizedRotateToFace,
     };
+  }
+
+  private resolvePathRoadPreference(
+    movementCommandMode?: Partial<MovementCommandModeInput>,
+  ): boolean {
+    if (typeof movementCommandMode?.preferRoads === "boolean") {
+      return movementCommandMode.preferRoads;
+    }
+    return true;
   }
 
   private faceCurrentDestination(unit: Unit, movementState: UnitMovementState): void {
@@ -1023,6 +1049,29 @@ export class BattleRoom extends Room<BattleState> {
       return terrainMultiplier;
     }
     return terrainMultiplier * BattleRoom.ROAD_MOVEMENT_MULTIPLIER;
+  }
+
+  private getPathfindingStepCostAtCell(
+    cell: GridCoordinate,
+    preferRoads: boolean,
+  ): number {
+    const terrainType = this.getTerrainTypeAtCell(cell);
+    const baseStepCost = BattleRoom.TERRAIN_PATHFINDING_STEP_COST[terrainType] ?? 1;
+    if (!Number.isFinite(baseStepCost) || baseStepCost <= 0) {
+      return Number.POSITIVE_INFINITY;
+    }
+    if (
+      !preferRoads ||
+      !this.roadCellIndexSet.has(this.getGridCellIndex(cell.col, cell.row))
+    ) {
+      return baseStepCost;
+    }
+
+    const roadCostMultiplier = BattleRoom.PATHFINDING_ROAD_STEP_COST_MULTIPLIER;
+    if (!Number.isFinite(roadCostMultiplier) || roadCostMultiplier <= 0) {
+      return baseStepCost;
+    }
+    return baseStepCost * roadCostMultiplier;
   }
 
   private getTerrainMoraleBonusAtCell(cell: GridCoordinate): number {
@@ -1736,11 +1785,18 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
+    const preferRoads = this.resolvePathRoadPreference(message.movementCommandMode);
     const route = buildTerrainAwareRoute(
       unitCell,
       normalizedPath,
       (x, y) => this.worldToGridCoordinate(x, y),
+      (_fromCell, toCell) => this.getPathfindingStepCostAtCell(toCell, preferRoads),
       (cell) => this.isCellImpassable(cell),
+      {
+        maxExpansionsPerSegment:
+          BattleRoom.PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT,
+        heuristicMinStepCost: BattleRoom.PATHFINDING_HEURISTIC_MIN_STEP_COST,
+      },
     );
 
     if (route.length === 0) {

@@ -3,6 +3,25 @@ const MAP_IDS = [
 ] as const;
 
 const UNIT_BASE_MOVE_SPEED = 50;
+const ROAD_MOVEMENT_MULTIPLIER = 2.0;
+const TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE = {
+  water: 0.3,
+  forest: 0.7,
+  hills: 0.5,
+  grass: 1.0,
+  unknown: 1.0,
+  mountains: 0,
+} as const;
+const TERRAIN_PATHFINDING_STEP_COST_BY_TYPE = {
+  water: 1 / TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE.water,
+  forest: 1 / TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE.forest,
+  hills: 1 / TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE.hills,
+  grass: 1 / TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE.grass,
+  unknown: 1 / TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE.unknown,
+  mountains: Number.POSITIVE_INFINITY,
+} as const;
+const PATHFINDING_ROAD_STEP_COST_MULTIPLIER = 1 / ROAD_MOVEMENT_MULTIPLIER;
+const PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT = 3500;
 
 export const GAMEPLAY_CONFIG = {
   map: {
@@ -97,15 +116,12 @@ export const GAMEPLAY_CONFIG = {
     allySoftSeparationPushSpeed: 90,
   },
   terrain: {
-    roadMovementMultiplier: 2.0,
-    movementMultiplierByType: {
-      water: 0.3,
-      forest: 0.7,
-      hills: 0.5,
-      grass: 1.0,
-      unknown: 1.0,
-      mountains: 0,
-    },
+    roadMovementMultiplier: ROAD_MOVEMENT_MULTIPLIER,
+    movementMultiplierByType: TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE,
+    pathfindingStepCostByType: TERRAIN_PATHFINDING_STEP_COST_BY_TYPE,
+    pathfindingRoadStepCostMultiplier: PATHFINDING_ROAD_STEP_COST_MULTIPLIER,
+    pathfindingHeuristicMinStepCost: PATHFINDING_ROAD_STEP_COST_MULTIPLIER,
+    pathfindingMaxRouteExpansionsPerSegment: PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT,
     moraleBonusByType: {
       water: -5,
       forest: 0,

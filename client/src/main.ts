@@ -73,7 +73,6 @@ import { ControlsOverlay } from './ControlsOverlay';
 import {
   buildGridRouteFromWorldPath,
   buildMovementCommandMode,
-  clipPathTargetsByTerrain,
   getFormationCenter,
   gridToWorldCenter,
   setPlannedPath,
@@ -2119,17 +2118,15 @@ class BattleScene extends Phaser.Scene {
         unit.y,
         BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
-      const clippedTargetCells = clipPathTargetsByTerrain({
-        start: unitCell,
-        targets: [sharedTargetCell],
-        isGridCellImpassable: (col, row) => this.isGridCellImpassable(col, row),
-      });
-      if (clippedTargetCells.length === 0) {
+      if (
+        unitCell.col === sharedTargetCell.col &&
+        unitCell.row === sharedTargetCell.row
+      ) {
         this.plannedPathsByUnitId.delete(unitId);
         this.pendingUnitPathCommandsByUnitId.delete(unitId);
         continue;
       }
-      const unitPath = clippedTargetCells.map((cell) =>
+      const unitPath = [sharedTargetCell].map((cell) =>
         gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
@@ -2153,7 +2150,9 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const movementCommandMode = buildMovementCommandMode(shiftHeld);
+    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
+      preferRoads: this.selectedUnits.size <= 1,
+    });
 
     for (const [unitId, unit] of this.unitsById) {
       if (!this.selectedUnits.has(unit)) {
@@ -2184,17 +2183,16 @@ class BattleScene extends Phaser.Scene {
         unit.y,
         BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
-      const clippedTargetCells = clipPathTargetsByTerrain({
-        start: unitCell,
-        targets: targetCells,
-        isGridCellImpassable: (col, row) => this.isGridCellImpassable(col, row),
-      });
-      if (clippedTargetCells.length === 0) {
+      if (
+        targetCells.length === 1 &&
+        unitCell.col === targetCells[0].col &&
+        unitCell.row === targetCells[0].row
+      ) {
         this.plannedPathsByUnitId.delete(unitId);
         this.pendingUnitPathCommandsByUnitId.delete(unitId);
         continue;
       }
-      const unitPath = clippedTargetCells.map((cell) =>
+      const unitPath = targetCells.map((cell) =>
         gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);

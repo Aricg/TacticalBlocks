@@ -32,10 +32,10 @@ export type MovementCommandMode = {
   rotateToFace: boolean;
 };
 
-export type MovementCommandModeInput = Pick<
-  MovementCommandMode,
-  "rotateToFace"
->;
+export type MovementCommandModeInput = {
+  rotateToFace: boolean;
+  preferRoads: boolean;
+};
 
 export type UnitPathMessage = {
   unitId: string;

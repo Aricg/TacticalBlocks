@@ -32,14 +32,25 @@ type SetPlannedPathArgs = {
 
 export function buildMovementCommandMode(
   shiftHeld: boolean,
+  options?: {
+    preferRoads?: boolean;
+  },
 ): NetworkUnitPathCommand['movementCommandMode'] {
-  if (!shiftHeld) {
+  const preferRoads = options?.preferRoads ?? true;
+  if (!shiftHeld && preferRoads) {
     return undefined;
   }
 
-  return {
-    rotateToFace: false,
-  };
+  const movementCommandMode: NonNullable<
+    NetworkUnitPathCommand['movementCommandMode']
+  > = {};
+  if (shiftHeld) {
+    movementCommandMode.rotateToFace = false;
+  }
+  if (!preferRoads) {
+    movementCommandMode.preferRoads = false;
+  }
+  return movementCommandMode;
 }
 
 export function getFormationCenter(
