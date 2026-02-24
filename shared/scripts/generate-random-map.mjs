@@ -1,20 +1,28 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
-import {
-  accessSync,
-  constants,
-  mkdtempSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { accessSync, constants } from 'node:fs';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import {
+  DEFAULT_FRIENDLY_CITY_COUNT,
+  DEFAULT_NEUTRAL_CITY_COUNT,
+  DEFAULT_RIVER_COUNT,
+  MAX_FOREST_BIAS,
+  MAX_MOUNTAIN_BIAS,
+  MIN_FOREST_BIAS,
+  MIN_MOUNTAIN_BIAS,
+  assertFinite,
+  assertGenerationMethod,
+  assertInteger,
+  assertIntegerInRange,
+  assertWaterMode,
+  parseArgs,
+  resolveGenerationMethod,
+  resolveWaterMode,
+} from './generation/cli-options.mjs';
+import {
+  runSyncMaps,
+  writeGeneratedMapArtifacts,
+} from './generation/io/map-artifacts.mjs';
 import {
   HILL_GRADE_NONE,
   TERRAIN_CODE_BY_TYPE,
@@ -23,215 +31,9 @@ import {
   quantizeHillGradeFromNoise,
 } from './terrain-semantics.mjs';
 
-const DEFAULT_GRID_WIDTH = 80;
-const DEFAULT_GRID_HEIGHT = 44;
-const DEFAULT_OUTPUT_WIDTH = 1920;
-const DEFAULT_OUTPUT_HEIGHT = 1080;
-const DEFAULT_WATER_BIAS = 0.05;
-const DEFAULT_MOUNTAIN_BIAS = 0.03;
-const DEFAULT_FOREST_BIAS = 0.0;
-const MIN_MOUNTAIN_BIAS = -0.25;
-const MAX_MOUNTAIN_BIAS = 0.25;
-const MIN_FOREST_BIAS = -0.25;
-const MAX_FOREST_BIAS = 0.25;
-const DEFAULT_RIVER_COUNT = 2;
-const DEFAULT_NEUTRAL_CITY_COUNT = 3;
-const DEFAULT_FRIENDLY_CITY_COUNT = 0;
-const DEFAULT_METHOD = 'wfc';
-const DEFAULT_WATER_MODE = 'auto';
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const SHARED_DIR = path.resolve(SCRIPT_DIR, '..');
 const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
-const GENERATION_METHODS = ['noise', 'wfc', 'auto'];
-const WATER_MODES = ['auto', 'none', 'lake', 'river'];
 const CITY_MARKER_COLOR = 0xefb72f;
 const TERRAIN_TYPES = ['water', 'grass', 'forest', 'hills', 'mountains'];
-
-function printUsage() {
-  console.log('Usage: node ./scripts/generate-random-map.mjs [options]');
-  console.log('');
-  console.log('Options:');
-  console.log('  --map-id <id>          Use a specific map ID/file prefix');
-  console.log('  --seed <seed>          Seed for reproducible generation');
-  console.log(`  --grid-width <n>       Default: ${DEFAULT_GRID_WIDTH}`);
-  console.log(`  --grid-height <n>      Default: ${DEFAULT_GRID_HEIGHT}`);
-  console.log(`  --width <pixels>       Default: ${DEFAULT_OUTPUT_WIDTH}`);
-  console.log(`  --height <pixels>      Default: ${DEFAULT_OUTPUT_HEIGHT}`);
-  console.log(`  --water-bias <value>   Default: ${DEFAULT_WATER_BIAS}`);
-  console.log(`  --river-count <n>      Default: ${DEFAULT_RIVER_COUNT}`);
-  console.log(`  --neutral-city-count <n> Default: ${DEFAULT_NEUTRAL_CITY_COUNT}`);
-  console.log(`  --friendly-city-count <n> Default: ${DEFAULT_FRIENDLY_CITY_COUNT}`);
-  console.log(`  --mountain-bias <value> Default: ${DEFAULT_MOUNTAIN_BIAS}`);
-  console.log(`  --forest-bias <value>  Default: ${DEFAULT_FOREST_BIAS}`);
-  console.log(`  --method <name>        noise | wfc | auto (default: ${DEFAULT_METHOD})`);
-  console.log(
-    `  --water-mode <name>    auto | none | lake | river (default: ${DEFAULT_WATER_MODE})`,
-  );
-  console.log(`  --output-dir <path>    Default: ${SHARED_DIR}`);
-  console.log('  --no-sync              Skip running map:sync');
-  console.log('  --help, -h             Show this help');
-}
-
-function parseArgs(argv) {
-  const options = {
-    mapId: '',
-    seed: '',
-    gridWidth: DEFAULT_GRID_WIDTH,
-    gridHeight: DEFAULT_GRID_HEIGHT,
-    width: DEFAULT_OUTPUT_WIDTH,
-    height: DEFAULT_OUTPUT_HEIGHT,
-    waterBias: DEFAULT_WATER_BIAS,
-    riverCount: DEFAULT_RIVER_COUNT,
-    neutralCityCount: DEFAULT_NEUTRAL_CITY_COUNT,
-    friendlyCityCount: DEFAULT_FRIENDLY_CITY_COUNT,
-    mountainBias: DEFAULT_MOUNTAIN_BIAS,
-    forestBias: DEFAULT_FOREST_BIAS,
-    method: DEFAULT_METHOD,
-    waterMode: DEFAULT_WATER_MODE,
-    outputDir: SHARED_DIR,
-    noSync: false,
-  };
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    switch (token) {
-      case '--map-id':
-        options.mapId = argv[i + 1] ?? '';
-        i += 1;
-        break;
-      case '--seed':
-        options.seed = argv[i + 1] ?? '';
-        i += 1;
-        break;
-      case '--grid-width':
-        options.gridWidth = Number.parseInt(argv[i + 1] ?? '', 10);
-        i += 1;
-        break;
-      case '--grid-height':
-        options.gridHeight = Number.parseInt(argv[i + 1] ?? '', 10);
-        i += 1;
-        break;
-      case '--width':
-        options.width = Number.parseInt(argv[i + 1] ?? '', 10);
-        i += 1;
-        break;
-      case '--height':
-        options.height = Number.parseInt(argv[i + 1] ?? '', 10);
-        i += 1;
-        break;
-      case '--water-bias':
-        options.waterBias = Number.parseFloat(argv[i + 1] ?? '');
-        i += 1;
-        break;
-      case '--river-count':
-        options.riverCount = Number.parseInt(argv[i + 1] ?? '', 10);
-        i += 1;
-        break;
-      case '--neutral-city-count':
-        options.neutralCityCount = Number.parseInt(argv[i + 1] ?? '', 10);
-        i += 1;
-        break;
-      case '--friendly-city-count':
-        options.friendlyCityCount = Number.parseInt(argv[i + 1] ?? '', 10);
-        i += 1;
-        break;
-      case '--mountain-bias':
-        options.mountainBias = Number.parseFloat(argv[i + 1] ?? '');
-        i += 1;
-        break;
-      case '--forest-bias':
-        options.forestBias = Number.parseFloat(argv[i + 1] ?? '');
-        i += 1;
-        break;
-      case '--method':
-        options.method = (argv[i + 1] ?? '').trim().toLowerCase();
-        i += 1;
-        break;
-      case '--water-mode':
-        options.waterMode = (argv[i + 1] ?? '').trim().toLowerCase();
-        i += 1;
-        break;
-      case '--output-dir':
-        options.outputDir = path.resolve(process.cwd(), argv[i + 1] ?? '.');
-        i += 1;
-        break;
-      case '--no-sync':
-        options.noSync = true;
-        break;
-      case '--help':
-      case '-h':
-        printUsage();
-        process.exit(0);
-      default:
-        console.error(`Unknown option: ${token}`);
-        printUsage();
-        process.exit(1);
-    }
-  }
-
-  return options;
-}
-
-function assertInteger(name, value, min) {
-  if (!Number.isInteger(value) || value < min) {
-    console.error(`Invalid ${name}: ${value}`);
-    process.exit(1);
-  }
-}
-
-function assertIntegerInRange(name, value, min, max) {
-  if (!Number.isInteger(value) || value < min || value > max) {
-    console.error(`Invalid ${name}: ${value}. Expected ${min}..${max}.`);
-    process.exit(1);
-  }
-}
-
-function assertFinite(name, value, min, max) {
-  if (!Number.isFinite(value) || value < min || value > max) {
-    console.error(`Invalid ${name}: ${value}. Expected ${min}..${max}.`);
-    process.exit(1);
-  }
-}
-
-function assertGenerationMethod(method) {
-  if (!GENERATION_METHODS.includes(method)) {
-    console.error(
-      `Invalid method: ${method}. Expected one of: ${GENERATION_METHODS.join(', ')}.`,
-    );
-    process.exit(1);
-  }
-}
-
-function assertWaterMode(waterMode) {
-  if (!WATER_MODES.includes(waterMode)) {
-    console.error(
-      `Invalid water mode: ${waterMode}. Expected one of: ${WATER_MODES.join(', ')}.`,
-    );
-    process.exit(1);
-  }
-}
-
-function resolveGenerationMethod(method, rng) {
-  if (method === 'auto') {
-    return rng() < 0.5 ? 'noise' : 'wfc';
-  }
-  return method;
-}
-
-function resolveWaterMode(waterMode, rng) {
-  if (waterMode !== 'auto') {
-    return waterMode;
-  }
-
-  const roll = rng();
-  if (roll < 0.68) {
-    return 'river';
-  }
-  if (roll < 0.90) {
-    return 'lake';
-  }
-  return 'none';
-}
 
 function clamp(value, min, max) {
   if (value < min) {
@@ -322,14 +124,6 @@ function chooseTerrainColor(terrainType, rng, hillGrade = HILL_GRADE_NONE) {
       variantIndex: Math.floor(rng() * 1024),
     },
   );
-}
-
-function colorIntToRgb(color) {
-  return {
-    red: (color >> 16) & 0xff,
-    green: (color >> 8) & 0xff,
-    blue: color & 0xff,
-  };
 }
 
 function buildNoiseTerrainGrid(config, rng) {
@@ -2067,179 +1861,6 @@ function buildTerrainCodeGrid(terrain, width, height) {
   return codes.join('');
 }
 
-function toPpm(width, height, pixels) {
-  const lines = [`P3`, `${width} ${height}`, `255`];
-  for (let i = 0; i < pixels.length; i += 1) {
-    const rgb = colorIntToRgb(pixels[i]);
-    lines.push(`${rgb.red} ${rgb.green} ${rgb.blue}`);
-  }
-  return `${lines.join('\n')}\n`;
-}
-
-function runMagick(args) {
-  const result = spawnSync('magick', args, { stdio: 'pipe', encoding: 'utf8' });
-  if (result.error) {
-    if (result.error.code === 'ENOENT') {
-      console.error('ImageMagick is required. Install it and ensure "magick" is in PATH.');
-    } else {
-      console.error(`Failed to run ImageMagick: ${result.error.message}`);
-    }
-    process.exit(1);
-  }
-  if (result.status !== 0) {
-    if (result.stderr) {
-      process.stderr.write(result.stderr);
-    }
-    process.exit(result.status ?? 1);
-  }
-}
-
-function runSyncMaps(outputDir) {
-  const result = spawnSync(process.execPath, ['./scripts/sync-maps.mjs', outputDir], {
-    cwd: SHARED_DIR,
-    stdio: 'inherit',
-  });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
-
-function buildAtomicTempPath(targetPath) {
-  const randomSuffix = Math.floor(Math.random() * 1e9).toString(36);
-  const directory = path.dirname(targetPath);
-  const extension = path.extname(targetPath);
-  const fileStem = path.basename(targetPath, extension);
-  return path.join(
-    directory,
-    `${fileStem}.tmp-${process.pid}-${Date.now()}-${randomSuffix}${extension}`,
-  );
-}
-
-function assertNonEmptyFile(filePath, label) {
-  let stats;
-  try {
-    stats = statSync(filePath);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to validate ${label}: ${message}`);
-    process.exit(1);
-  }
-  if (!stats.isFile() || stats.size <= 0) {
-    console.error(`Invalid ${label}: expected non-empty file (${filePath}).`);
-    process.exit(1);
-  }
-}
-
-function assertPngSignature(filePath, label) {
-  let fileBytes;
-  try {
-    fileBytes = readFileSync(filePath);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to validate ${label} PNG signature: ${message}`);
-    process.exit(1);
-  }
-
-  if (fileBytes.length < 8) {
-    console.error(`Invalid ${label}: file is too short to be a PNG (${filePath}).`);
-    process.exit(1);
-  }
-
-  // PNG signature bytes: 89 50 4E 47 0D 0A 1A 0A
-  const isPng =
-    fileBytes[0] === 0x89 &&
-    fileBytes[1] === 0x50 &&
-    fileBytes[2] === 0x4e &&
-    fileBytes[3] === 0x47 &&
-    fileBytes[4] === 0x0d &&
-    fileBytes[5] === 0x0a &&
-    fileBytes[6] === 0x1a &&
-    fileBytes[7] === 0x0a;
-  if (!isPng) {
-    console.error(`Invalid ${label}: expected PNG signature (${filePath}).`);
-    process.exit(1);
-  }
-}
-
-function validateElevationGridSidecar(
-  sidecarPath,
-  {
-    mapId,
-    gridWidth,
-    gridHeight,
-  },
-) {
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync(sidecarPath, 'utf8'));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Invalid elevation sidecar JSON at ${sidecarPath}: ${message}`);
-    process.exit(1);
-  }
-
-  const expectedCellCount = gridWidth * gridHeight;
-  if (parsed.mapId !== mapId) {
-    console.error(
-      `Invalid elevation sidecar mapId at ${sidecarPath}: expected ${mapId}, received ${parsed.mapId}.`,
-    );
-    process.exit(1);
-  }
-  if (parsed.gridWidth !== gridWidth || parsed.gridHeight !== gridHeight) {
-    console.error(
-      `Invalid elevation sidecar dimensions at ${sidecarPath}: expected ${gridWidth}x${gridHeight}.`,
-    );
-    process.exit(1);
-  }
-  if (
-    !Array.isArray(parsed.hillGradeGrid) ||
-    parsed.hillGradeGrid.length !== expectedCellCount
-  ) {
-    console.error(
-      `Invalid elevation sidecar hill grade grid length at ${sidecarPath}.`,
-    );
-    process.exit(1);
-  }
-  if (
-    typeof parsed.terrainCodeGrid !== 'string' ||
-    parsed.terrainCodeGrid.length !== expectedCellCount
-  ) {
-    console.error(
-      `Invalid elevation sidecar terrain code grid length at ${sidecarPath}.`,
-    );
-    process.exit(1);
-  }
-
-  for (let index = 0; index < expectedCellCount; index += 1) {
-    const terrainCode = parsed.terrainCodeGrid.charAt(index);
-    const hillGrade = parsed.hillGradeGrid[index];
-    if (terrainCode === 'h') {
-      if (
-        typeof hillGrade !== 'number' ||
-        !Number.isFinite(hillGrade) ||
-        Math.round(hillGrade) < 0
-      ) {
-        console.error(
-          `Invalid elevation sidecar hill grade at index ${index} in ${sidecarPath}.`,
-        );
-        process.exit(1);
-      }
-      continue;
-    }
-
-    if (
-      typeof hillGrade !== 'number' ||
-      !Number.isFinite(hillGrade) ||
-      Math.round(hillGrade) !== HILL_GRADE_NONE
-    ) {
-      console.error(
-        `Invalid elevation sidecar non-hill grade marker at index ${index} in ${sidecarPath}.`,
-      );
-      process.exit(1);
-    }
-  }
-}
-
 const options = parseArgs(process.argv.slice(2));
 assertInteger('grid width', options.gridWidth, 8);
 assertInteger('grid height', options.gridHeight, 8);
@@ -2326,17 +1947,6 @@ const { pixels, hillGradeGrid } = buildPixelColors(
   rng,
 );
 
-const tempDir = mkdtempSync(path.join(os.tmpdir(), 'tb-random-map-'));
-const ppmPath = path.join(tempDir, `${mapId}.ppm`);
-const sourcePath = path.join(options.outputDir, `${mapId}.png`);
-const quantizedPath = path.join(options.outputDir, `${mapId}-16c.png`);
-const elevationGridPath = path.join(
-  options.outputDir,
-  `${mapId}${ELEVATION_GRID_SUFFIX}`,
-);
-const sourceTempPath = buildAtomicTempPath(sourcePath);
-const quantizedTempPath = buildAtomicTempPath(quantizedPath);
-const elevationGridTempPath = buildAtomicTempPath(elevationGridPath);
 const terrainCodeGrid = buildTerrainCodeGrid(
   terrain,
   options.gridWidth,
@@ -2356,55 +1966,21 @@ const elevationSidecar = {
   neutralCityAnchors: cityLayout.neutralCityAnchors,
   terrainCodeGrid,
 };
-
-try {
-  writeFileSync(
-    ppmPath,
-    toPpm(options.gridWidth, options.gridHeight, pixels),
-    'utf8',
-  );
-  runMagick([
-    ppmPath,
-    '-filter',
-    'point',
-    '-resize',
-    `${options.width}x${options.height}!`,
-    `png:${sourceTempPath}`,
-  ]);
-  runMagick([
-    sourceTempPath,
-    '-dither',
-    'None',
-    '-colors',
-    '16',
-    '-type',
-    'Palette',
-    `png:${quantizedTempPath}`,
-  ]);
-  writeFileSync(
-    elevationGridTempPath,
-    `${JSON.stringify(elevationSidecar)}\n`,
-    'utf8',
-  );
-  assertNonEmptyFile(sourceTempPath, 'source map image');
-  assertNonEmptyFile(quantizedTempPath, 'quantized map image');
-  assertPngSignature(sourceTempPath, 'source map image');
-  assertPngSignature(quantizedTempPath, 'quantized map image');
-  validateElevationGridSidecar(elevationGridTempPath, {
-    mapId,
-    gridWidth: options.gridWidth,
-    gridHeight: options.gridHeight,
-  });
-
-  renameSync(sourceTempPath, sourcePath);
-  renameSync(quantizedTempPath, quantizedPath);
-  renameSync(elevationGridTempPath, elevationGridPath);
-} finally {
-  rmSync(tempDir, { recursive: true, force: true });
-  rmSync(sourceTempPath, { force: true });
-  rmSync(quantizedTempPath, { force: true });
-  rmSync(elevationGridTempPath, { force: true });
-}
+const {
+  sourcePath,
+  quantizedPath,
+  elevationGridPath,
+} = writeGeneratedMapArtifacts({
+  mapId,
+  outputDir: options.outputDir,
+  outputWidth: options.width,
+  outputHeight: options.height,
+  gridWidth: options.gridWidth,
+  gridHeight: options.gridHeight,
+  pixels,
+  elevationGridSuffix: ELEVATION_GRID_SUFFIX,
+  elevationSidecar,
+});
 
 if (!options.noSync) {
   runSyncMaps(options.outputDir);

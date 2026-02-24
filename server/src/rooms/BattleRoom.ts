@@ -48,7 +48,7 @@ import {
 } from "../systems/morale/moraleMath.js";
 import { LobbyService } from "./services/LobbyService.js";
 import { BattleLifecycleService } from "./services/BattleLifecycleService.js";
-import { MapGenerationService } from "./services/MapGenerationService.js";
+import { LobbyMapGenerationService } from "./services/LobbyMapGenerationService.js";
 import {
   MapRuntimeService,
   type LoadActiveMapBundleResult,
@@ -57,7 +57,6 @@ import { StartingForcePlanner } from "./services/StartingForcePlanner.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import {
   DEFAULT_GENERATION_PROFILE,
-  resolveGenerationProfile,
   type GenerationProfile,
   type StartingForceLayoutStrategy,
 } from "../../../shared/src/generationProfile.js";
@@ -119,7 +118,7 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.map.availableMapIds,
   );
   private readonly battleLifecycleService = new BattleLifecycleService();
-  private readonly mapGenerationService = new MapGenerationService();
+  private readonly lobbyMapGenerationService = new LobbyMapGenerationService();
   private readonly mapRuntimeService = new MapRuntimeService();
   private readonly startingForcePlanner = new StartingForcePlanner();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
@@ -212,18 +211,26 @@ export class BattleRoom extends Room<BattleState> {
       ? GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds * 1000
       : 3000;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
-  private static readonly MOUNTAIN_DENSITY_AT_MAX_BIAS = 0.12;
-  private static readonly MOUNTAIN_BIAS_MIN = -0.25;
-  private static readonly MOUNTAIN_BIAS_MAX = 0.25;
-  private static readonly FOREST_DENSITY_AT_MAX_BIAS = 0.24;
-  private static readonly FOREST_BIAS_MIN = -0.25;
-  private static readonly FOREST_BIAS_MAX = 0.25;
 
   onCreate(): void {
     this.maxClients = GAMEPLAY_CONFIG.network.maxPlayers;
     this.setState(new BattleState());
     this.state.mapId = this.lobbyService.getValidatedMapId(this.state.mapId);
-    this.ensureStartupRuntimeGeneratedMap(this.state.mapId);
+    const startupMapResult =
+      this.lobbyMapGenerationService.ensureStartupRuntimeGeneratedMap(
+        this.state.mapId,
+        import.meta.url,
+      );
+    if (startupMapResult.attempted && !startupMapResult.ok) {
+      console.error(
+        `Failed to generate startup runtime map "${this.state.mapId}" (reason ${startupMapResult.failure.reason}). Continuing with existing artifacts if available.`,
+      );
+      this.lobbyMapGenerationService.logMapGenerationFailure(
+        "startup",
+        this.state.mapId,
+        startupMapResult.failure,
+      );
+    }
     this.mapRuntimeService.applyMapIdToRuntimeTerrain(this.state.mapId);
     this.loadActiveMapBundle(this.state.mapId, this.mapRevision);
     this.neutralCityCells = this.mapRuntimeService.resolveNeutralCityCells(
@@ -582,43 +589,6 @@ export class BattleRoom extends Room<BattleState> {
       return max;
     }
     return value;
-  }
-
-  private resolveForestBiasFromDensity(forestDensity: number): number {
-    const safeForestDensity = Number.isFinite(forestDensity)
-      ? this.clamp(forestDensity, 0, 1)
-      : 0;
-    const normalizedDensity =
-      BattleRoom.FOREST_DENSITY_AT_MAX_BIAS > 0
-        ? this.clamp(
-            safeForestDensity / BattleRoom.FOREST_DENSITY_AT_MAX_BIAS,
-            0,
-            1,
-          )
-        : 0;
-    return (
-      BattleRoom.FOREST_BIAS_MIN +
-      normalizedDensity * (BattleRoom.FOREST_BIAS_MAX - BattleRoom.FOREST_BIAS_MIN)
-    );
-  }
-
-  private resolveMountainBiasFromDensity(mountainDensity: number): number {
-    const safeMountainDensity = Number.isFinite(mountainDensity)
-      ? this.clamp(mountainDensity, 0, 1)
-      : 0;
-    const normalizedDensity =
-      BattleRoom.MOUNTAIN_DENSITY_AT_MAX_BIAS > 0
-        ? this.clamp(
-            safeMountainDensity / BattleRoom.MOUNTAIN_DENSITY_AT_MAX_BIAS,
-            0,
-            1,
-          )
-        : 0;
-    return (
-      BattleRoom.MOUNTAIN_BIAS_MIN +
-      normalizedDensity *
-        (BattleRoom.MOUNTAIN_BIAS_MAX - BattleRoom.MOUNTAIN_BIAS_MIN)
-    );
   }
 
   private getGridCellIndex(col: number, row: number): number {
@@ -1238,48 +1208,31 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const generationMethod = this.mapGenerationService.normalizeGenerationMethod(
-      message?.method,
-    );
     const mapId = this.lobbyService.getGeneratedMapId();
-    const seed = `lobby-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-    const profileResult = resolveGenerationProfile(message?.profile, {
-      fallbackMethod: generationMethod,
-      fallbackSeed: seed,
-    });
-    if (!profileResult.ok) {
-      console.warn(
-        `[map-generation][invalid-profile] mapId=${mapId} ${profileResult.errors.join("; ")}`,
-      );
-      return;
-    }
-    const profile = profileResult.profile;
     this.isGeneratingMap = true;
     this.broadcastLobbyState();
 
     try {
-      const generated = this.mapGenerationService.generateRuntimeMap({
+      const generationResult = this.lobbyMapGenerationService.generateLobbyRuntimeMap({
         mapId,
-        method: profile.method,
-        seed: profile.seed,
-        waterMode: profile.terrain.waterMode,
-        riverCount: profile.terrain.riverCount,
-        neutralCityCount: profile.cities.neutralCityCount,
-        friendlyCityCount: profile.cities.friendlyCityCount,
-        mountainBias: this.resolveMountainBiasFromDensity(
-          profile.terrain.mountainDensity,
-        ),
-        forestBias: this.resolveForestBiasFromDensity(
-          profile.terrain.forestDensity,
-        ),
-        contextLabel: "lobby",
+        message,
         roomModuleUrl: import.meta.url,
       });
-      if (!generated.ok) {
-        this.logMapGenerationFailure("lobby", mapId, generated);
+      if (!generationResult.ok && generationResult.reason === "invalid-profile") {
+        console.warn(
+          `[map-generation][invalid-profile] mapId=${mapId} ${generationResult.errors.join("; ")}`,
+        );
         return;
       }
-
+      if (!generationResult.ok) {
+        this.lobbyMapGenerationService.logMapGenerationFailure(
+          "lobby",
+          mapId,
+          generationResult.failure,
+        );
+        return;
+      }
+      const profile = generationResult.profile;
       this.generationProfileByMapId.set(mapId, profile);
       this.lobbyService.addAvailableMapId(mapId);
       this.applyLobbyMapSelection(mapId);
@@ -1289,51 +1242,6 @@ export class BattleRoom extends Room<BattleState> {
     } finally {
       this.isGeneratingMap = false;
       this.broadcastLobbyState();
-    }
-  }
-
-  private ensureStartupRuntimeGeneratedMap(mapId: string): void {
-    if (!mapId.startsWith("runtime-generated-")) {
-      return;
-    }
-
-    const seed = `startup-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-    const generated = this.mapGenerationService.generateRuntimeMap({
-      mapId,
-      method: "auto",
-      seed,
-      contextLabel: "startup",
-      roomModuleUrl: import.meta.url,
-    });
-    if (!generated.ok) {
-      console.error(
-        `Failed to generate startup runtime map "${mapId}" (reason ${generated.reason}). Continuing with existing artifacts if available.`,
-      );
-      this.logMapGenerationFailure("startup", mapId, generated);
-    }
-  }
-
-  private logMapGenerationFailure(
-    contextLabel: string,
-    mapId: string,
-    failure: {
-      reason: string;
-      message: string;
-      stderr?: string;
-      stdout?: string;
-      exitStatus?: number;
-    },
-  ): void {
-    const statusSuffix =
-      typeof failure.exitStatus === "number" ? ` status=${failure.exitStatus}` : "";
-    console.error(
-      `[map-generation][${failure.reason}] context=${contextLabel} mapId=${mapId}${statusSuffix} ${failure.message}`,
-    );
-    if (failure.stderr) {
-      console.error(failure.stderr);
-    }
-    if (failure.stdout) {
-      console.error(failure.stdout);
     }
   }
 

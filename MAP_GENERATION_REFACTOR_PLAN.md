@@ -96,6 +96,9 @@ Replace hardcoded initial deployment with strategy interface:
 - [x] Added structured map-generation failure reasons (`shared-dir-unresolved`, `generator-script-missing`, `generator-process-failed`).
 - [x] Added structured sidecar load warning codes (`shared-dir-unresolved`, `sidecar-parse-failed`, `sidecar-grid-mismatch`, `sidecar-data-invalid`).
 - [x] Moved neutral-city ownership reset and influence-grid clear helpers into `MapRuntimeService`.
+- [x] Extracted lobby/startup map-generation orchestration into `LobbyMapGenerationService` (profile resolve + density-to-bias mapping + failure logging), reducing map-generation logic inside `BattleRoom`.
+- [x] Started Phase 3 modularization by extracting generator CLI/defaults/validation + method/water resolution into `shared/scripts/generation/cli-options.mjs` while keeping `generate-random-map.mjs` behavior stable.
+- [x] Continued Phase 3 modularization by extracting artifact IO/sync pipeline (ImageMagick conversion, atomic writes, sidecar validation, map sync) into `shared/scripts/generation/io/map-artifacts.mjs`.
 - [x] Added runtime city-anchor sync to client: server now includes active `cityAnchors` and `neutralCityAnchors` in lobby state; client consumes these for city star placement and city-based fog ownership logic.
 - [x] Tightened runtime sidecar loading: require both `terrainCodeGrid` and `elevation` payloads before accepting a runtime bundle.
 - [x] Removed static-terrain default from movement route building so pathing always uses room-provided impassable checks.
@@ -141,7 +144,7 @@ Replace hardcoded initial deployment with strategy interface:
 ### Phase 3: Generator Modularization
 - [ ] Split `generate-random-map.mjs` into engine modules (`noise`, `wfc`).
 - [ ] Split terrain/city/water/validation logic into composable passes.
-- [ ] Split artifact writing and sync logic into IO modules.
+- [x] Split artifact writing and sync logic into IO modules.
 - [ ] Keep CLI interface and outputs backward-compatible.
 - [ ] Done when `generate-random-map` entry behavior remains stable.
 
