@@ -37,6 +37,10 @@ const CONTROL_SECTIONS: ControlSection[] = [
         effect: 'Queue the movement command instead of replacing.',
       },
       {
+        input: 'F then Left Drag (with units selected)',
+        effect: 'Draw a one-shot line formation; release to stage unit slots.',
+      },
+      {
         input: 'Space',
         effect:
           'Send staged movement for selected units, or toggle pause if no staged path.',

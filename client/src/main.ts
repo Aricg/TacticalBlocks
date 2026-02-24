@@ -75,6 +75,7 @@ import {
   buildMovementCommandMode,
   getFormationCenter,
   gridToWorldCenter,
+  planFormationLineAssignments,
   setPlannedPath,
   snapAndCompactPath,
   worldToGridCoordinate,
@@ -520,6 +521,10 @@ class BattleScene extends Phaser.Scene {
           path: Phaser.Math.Vector2[],
           shiftHeld: boolean,
         ) => this.commandSelectedUnitsAlongPath(path, shiftHeld),
+        commandSelectedUnitsIntoLine: (
+          path: Phaser.Math.Vector2[],
+          shiftHeld: boolean,
+        ) => this.commandSelectedUnitsIntoLine(path, shiftHeld),
         selectUnitsInBox: (
           startX: number,
           startY: number,
@@ -2078,6 +2083,69 @@ class BattleScene extends Phaser.Scene {
         gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
+    }
+  }
+
+  private commandSelectedUnitsIntoLine(
+    path: Phaser.Math.Vector2[],
+    shiftHeld = false,
+  ): void {
+    if (
+      !this.isBattleActive() ||
+      this.selectedUnits.size === 0 ||
+      path.length === 0
+    ) {
+      return;
+    }
+
+    const selectedUnitsForPlanning = Array.from(this.unitsById.entries())
+      .filter(([, unit]) => this.selectedUnits.has(unit))
+      .map(([unitId, unit]) => ({
+        unitId,
+        x: unit.x,
+        y: unit.y,
+      }));
+    if (selectedUnitsForPlanning.length === 0) {
+      return;
+    }
+
+    const assignments = planFormationLineAssignments({
+      path,
+      units: selectedUnitsForPlanning,
+      grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
+    });
+    if (assignments.length === 0) {
+      return;
+    }
+
+    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
+      preferRoads: this.selectedUnits.size <= 1,
+    });
+
+    for (const assignment of assignments) {
+      const unit = this.unitsById.get(assignment.unitId);
+      if (!unit || !this.selectedUnits.has(unit)) {
+        continue;
+      }
+      const unitCell = worldToGridCoordinate(
+        unit.x,
+        unit.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
+      const targetCell = worldToGridCoordinate(
+        assignment.slot.x,
+        assignment.slot.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
+      if (unitCell.col === targetCell.col && unitCell.row === targetCell.row) {
+        this.plannedPathsByUnitId.delete(assignment.unitId);
+        this.pendingUnitPathCommandsByUnitId.delete(assignment.unitId);
+        continue;
+      }
+      const unitPath = [
+        gridToWorldCenter(targetCell, BattleScene.UNIT_COMMAND_GRID_METRICS),
+      ];
+      this.stageUnitPathCommand(assignment.unitId, unitPath, movementCommandMode);
     }
   }
 

@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
 import type { NetworkUnitPathCommand } from './NetworkManager';
+import {
+  assignUnitsToSlotsStable,
+  distributeSlotsAlongPolyline,
+  type FormationLinePoint,
+  type FormationLineUnit,
+} from '../../shared/src/formationLinePlanner.js';
 
 export type GridCoordinate = {
   col: number;
@@ -18,6 +24,11 @@ type UnitPosition = {
   y: number;
 };
 
+export type FormationLineAssignment = {
+  unitId: string;
+  slot: FormationLinePoint;
+};
+
 type ClipPathTargetsByTerrainArgs = {
   start: GridCoordinate;
   targets: GridCoordinate[];
@@ -28,6 +39,12 @@ type SetPlannedPathArgs = {
   plannedPathsByUnitId: Map<string, Phaser.Math.Vector2[]>;
   unitId: string;
   path: Phaser.Math.Vector2[];
+};
+
+type PlanFormationLineAssignmentsArgs = {
+  path: ReadonlyArray<FormationLinePoint>;
+  units: ReadonlyArray<FormationLineUnit>;
+  grid: UnitCommandPlannerGridMetrics;
 };
 
 export function buildMovementCommandMode(
@@ -241,6 +258,32 @@ export function setPlannedPath({
     unitId,
     path.map((point) => point.clone()),
   );
+}
+
+export function distributeFormationLineSlots(
+  path: ReadonlyArray<FormationLinePoint>,
+  slotCount: number,
+  grid: UnitCommandPlannerGridMetrics,
+): FormationLinePoint[] {
+  const distributedSlots = distributeSlotsAlongPolyline(path, slotCount);
+  return distributedSlots.map((slot) => {
+    const cell = worldToGridCoordinate(slot.x, slot.y, grid);
+    const center = gridToWorldCenter(cell, grid);
+    return { x: center.x, y: center.y };
+  });
+}
+
+export function planFormationLineAssignments({
+  path,
+  units,
+  grid,
+}: PlanFormationLineAssignmentsArgs): FormationLineAssignment[] {
+  if (path.length === 0 || units.length === 0) {
+    return [];
+  }
+
+  const slots = distributeFormationLineSlots(path, units.length, grid);
+  return assignUnitsToSlotsStable(units, slots);
 }
 
 function traceGridLine(
