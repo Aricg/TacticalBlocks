@@ -2,7 +2,7 @@ const MAP_IDS = [
   'runtime-generated-lobby',
 ] as const;
 
-const UNIT_BASE_MOVE_SPEED = 50;
+const UNIT_BASE_MOVE_SPEED = 40;
 const ROAD_MOVEMENT_MULTIPLIER = 2.0;
 const TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE = {
   water: 0.3,
