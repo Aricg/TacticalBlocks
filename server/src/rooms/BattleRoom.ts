@@ -92,6 +92,7 @@ import type {
   PlayerTeam,
   RuntimeTuningUpdateMessage,
   UnitCancelMovementMessage,
+  UnitHoldMovementMessage,
   UnitToggleMovementPauseMessage,
   UnitMovementState,
   UnitPathMessage,
@@ -265,6 +266,12 @@ export class BattleRoom extends Room<BattleState> {
       },
     );
     this.onMessage(
+      NETWORK_MESSAGE_TYPES.unitHoldMovement,
+      (client, message: UnitHoldMovementMessage) => {
+        this.handleUnitHoldMovementMessage(client, message);
+      },
+    );
+    this.onMessage(
       NETWORK_MESSAGE_TYPES.runtimeTuningUpdate,
       (client, message: RuntimeTuningUpdateMessage) => {
         this.handleRuntimeTuningUpdate(client, message);
@@ -364,10 +371,11 @@ export class BattleRoom extends Room<BattleState> {
     }
     cells.push(...movementState.queuedCells);
     if (cells.length === 0) {
-      return "";
+      return movementState.isPaused ? "|paused=1" : "";
     }
 
-    return cells.map((cell) => `${cell.col},${cell.row}`).join(";");
+    const pathSignature = cells.map((cell) => `${cell.col},${cell.row}`).join(";");
+    return `${pathSignature}|paused=${movementState.isPaused ? "1" : "0"}`;
   }
 
   private buildSupplyLineSignature(supplyLine: ComputedSupplyLineState): string {
@@ -402,7 +410,7 @@ export class BattleRoom extends Room<BattleState> {
   private buildUnitPathStateMessage(unitId: string): UnitPathStateMessage {
     const movementState = this.movementStateByUnitId.get(unitId);
     if (!movementState) {
-      return { unitId, path: [] };
+      return { unitId, path: [], isPaused: false };
     }
 
     const pathCells: GridCoordinate[] = [];
@@ -414,12 +422,31 @@ export class BattleRoom extends Room<BattleState> {
     return {
       unitId,
       path: pathCells.map((cell) => this.gridToWorldCenter(cell)),
+      isPaused: movementState.isPaused,
     };
+  }
+
+  private sendUnitPathStateToTeam(
+    team: PlayerTeam,
+    message: UnitPathStateMessage,
+  ): void {
+    for (const client of this.clients) {
+      const assignedTeam = this.lobbyService.getAssignedTeam(client.sessionId);
+      if (assignedTeam !== team) {
+        continue;
+      }
+      client.send(NETWORK_MESSAGE_TYPES.unitPathState, message);
+    }
   }
 
   private syncUnitPathState(unitId: string): void {
     const movementState = this.movementStateByUnitId.get(unitId);
     if (!movementState) {
+      this.lastBroadcastPathSignatureByUnitId.delete(unitId);
+      return;
+    }
+    const unit = this.state.units.get(unitId);
+    if (!unit) {
       this.lastBroadcastPathSignatureByUnitId.delete(unitId);
       return;
     }
@@ -431,10 +458,8 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     this.lastBroadcastPathSignatureByUnitId.set(unitId, nextSignature);
-    this.broadcast(
-      NETWORK_MESSAGE_TYPES.unitPathState,
-      this.buildUnitPathStateMessage(unitId),
-    );
+    const team: PlayerTeam = unit.team.toUpperCase() === "RED" ? "RED" : "BLUE";
+    this.sendUnitPathStateToTeam(team, this.buildUnitPathStateMessage(unitId));
   }
 
   private syncAllUnitPathStates(): void {
@@ -452,9 +477,22 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private sendUnitPathStateSnapshot(client: Client): void {
+    const assignedTeam = this.lobbyService.getAssignedTeam(client.sessionId);
+    if (!assignedTeam) {
+      return;
+    }
+
     for (const [unitId, movementState] of this.movementStateByUnitId) {
       const signature = this.buildPathSignature(movementState);
       if (signature.length === 0) {
+        continue;
+      }
+      const unit = this.state.units.get(unitId);
+      if (!unit) {
+        continue;
+      }
+      const unitTeam: PlayerTeam = unit.team.toUpperCase() === "RED" ? "RED" : "BLUE";
+      if (unitTeam !== assignedTeam) {
         continue;
       }
       client.send(
@@ -1500,6 +1538,43 @@ export class BattleRoom extends Room<BattleState> {
       movementState.movementBudget = 0;
       movementState.targetRotation = null;
     }
+    this.syncUnitPathState(unit.unitId);
+  }
+
+  private handleUnitHoldMovementMessage(
+    client: Client,
+    message: UnitHoldMovementMessage,
+  ): void {
+    if (this.matchPhase !== "BATTLE") {
+      return;
+    }
+
+    const assignedTeam = this.lobbyService.getAssignedTeam(client.sessionId);
+    if (!assignedTeam) {
+      return;
+    }
+
+    if (typeof message?.unitId !== "string") {
+      return;
+    }
+
+    const unit = this.state.units.get(message.unitId);
+    if (!unit) {
+      return;
+    }
+
+    if (unit.team.toUpperCase() !== assignedTeam) {
+      return;
+    }
+
+    const movementState = this.getOrCreateMovementState(unit.unitId);
+    movementState.isPaused = !movementState.isPaused;
+    if (movementState.isPaused) {
+      movementState.movementBudget = 0;
+      movementState.targetRotation = null;
+    }
+
+    this.syncUnitPathState(unit.unitId);
   }
 
   private updateMovement(deltaSeconds: number): void {

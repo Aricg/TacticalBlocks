@@ -37,6 +37,7 @@ type BattleInputCallbacks = {
   buildCommandPath: (path: Phaser.Math.Vector2[]) => Phaser.Math.Vector2[];
   cancelSelectedUnitMovement: () => void;
   engageSelectedUnitMovement: () => void;
+  holdSelectedUnitMovement: () => void;
   isShiftHeld: (pointer: Phaser.Input.Pointer) => boolean;
   clearAllQueuedMovement: () => void;
 };
@@ -64,6 +65,7 @@ export class BattleInputController {
     this.scene.input.on('pointermove', this.handlePointerMove);
     this.scene.input.on('pointerup', this.handlePointerUp);
     this.scene.input.keyboard?.on('keydown-SPACE', this.handleKeyDownSpace);
+    this.scene.input.keyboard?.on('keydown-H', this.handleKeyDownH);
     this.scene.input.keyboard?.on('keydown-ESC', this.handleKeyDownEsc);
     this.scene.input.keyboard?.on('keydown-D', this.handleKeyDownD);
   }
@@ -86,6 +88,7 @@ export class BattleInputController {
     this.scene.input.off('pointermove', this.handlePointerMove);
     this.scene.input.off('pointerup', this.handlePointerUp);
     this.scene.input.keyboard?.off('keydown-SPACE', this.handleKeyDownSpace);
+    this.scene.input.keyboard?.off('keydown-H', this.handleKeyDownH);
     this.scene.input.keyboard?.off('keydown-ESC', this.handleKeyDownEsc);
     this.scene.input.keyboard?.off('keydown-D', this.handleKeyDownD);
     this.reset();
@@ -277,6 +280,13 @@ export class BattleInputController {
       return;
     }
     this.callbacks.engageSelectedUnitMovement();
+  };
+
+  private readonly handleKeyDownH = (): void => {
+    if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    this.callbacks.holdSelectedUnitMovement();
   };
 
   private readonly handleKeyDownEsc = (): void => {

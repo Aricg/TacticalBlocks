@@ -33,6 +33,7 @@ export class Unit extends Phaser.GameObjects.Container {
   private moraleScore: number | null;
   private terrainColor: number | null;
   private terrainType: TerrainType;
+  private movementHeld: boolean;
   private waterTransitionFlashStartedAtMs = 0;
   private waterTransitionFlashUntilMs = 0;
 
@@ -40,6 +41,12 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly BODY_HEIGHT: number = GAMEPLAY_CONFIG.unit.bodyHeight;
   private static readonly COMMANDER_BODY_SIZE = Math.round(Unit.BODY_HEIGHT * 1.1);
   private static readonly OUTLINE_WIDTH = 2;
+  private static readonly OUTLINE_DEFAULT_COLOR = 0x222222;
+  private static readonly OUTLINE_DEFAULT_ALPHA = 0.8;
+  private static readonly OUTLINE_SELECTED_COLOR = 0xffffff;
+  private static readonly OUTLINE_SELECTED_ALPHA = 1;
+  private static readonly OUTLINE_HELD_COLOR = 0xe04646;
+  private static readonly OUTLINE_HELD_ALPHA = 1;
   private static readonly HEALTH_BOX_WIDTH = Unit.BODY_WIDTH;
   private static readonly HEALTH_BOX_HEIGHT = Math.max(
     4,
@@ -104,6 +111,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.moraleScore = null;
     this.terrainColor = null;
     this.terrainType = 'unknown';
+    this.movementHeld = false;
     this.rotation = rotation;
 
     const isCommander = this.unitType === 'COMMANDER';
@@ -124,7 +132,11 @@ export class Unit extends Phaser.GameObjects.Container {
       this.unitBody.setFillStyle(Unit.TEAM_FILL_COLORS[this.team], 0.78);
     }
     this.unitBody.setOrigin(0.5, 0.5);
-    this.unitBody.setStrokeStyle(Unit.OUTLINE_WIDTH, 0x222222, 0.8);
+    this.unitBody.setStrokeStyle(
+      Unit.OUTLINE_WIDTH,
+      Unit.OUTLINE_DEFAULT_COLOR,
+      Unit.OUTLINE_DEFAULT_ALPHA,
+    );
     this.unitBody.setInteractive({ cursor: 'pointer' });
     this.unitBody.setData('unit', this);
 
@@ -251,6 +263,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.add(containerChildren);
 
     scene.add.existing(this);
+    this.refreshOutlineStyle();
     this.refreshHealthVisuals();
     this.refreshMoraleVisuals();
   }
@@ -275,10 +288,32 @@ export class Unit extends Phaser.GameObjects.Container {
 
   public setSelected(isSelected: boolean): void {
     this.selected = isSelected;
+    this.refreshOutlineStyle();
+  }
+
+  public setMovementHold(isHeld: boolean): void {
+    this.movementHeld = isHeld;
+    this.refreshOutlineStyle();
+  }
+
+  public isMovementHeld(): boolean {
+    return this.movementHeld;
+  }
+
+  private refreshOutlineStyle(): void {
+    if (this.movementHeld) {
+      this.unitBody.setStrokeStyle(
+        Unit.OUTLINE_WIDTH,
+        Unit.OUTLINE_HELD_COLOR,
+        Unit.OUTLINE_HELD_ALPHA,
+      );
+      return;
+    }
+
     this.unitBody.setStrokeStyle(
       Unit.OUTLINE_WIDTH,
-      isSelected ? 0xffffff : 0x222222,
-      1,
+      this.selected ? Unit.OUTLINE_SELECTED_COLOR : Unit.OUTLINE_DEFAULT_COLOR,
+      this.selected ? Unit.OUTLINE_SELECTED_ALPHA : Unit.OUTLINE_DEFAULT_ALPHA,
     );
   }
 

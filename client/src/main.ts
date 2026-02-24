@@ -68,6 +68,7 @@ import {
 import { PathPreviewRenderer } from './PathPreviewRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
+import { ControlsOverlay } from './ControlsOverlay';
 import {
   buildGridRouteFromWorldPath,
   buildMovementCommandMode,
@@ -336,6 +337,7 @@ class BattleScene extends Phaser.Scene {
   private shiftKey: Phaser.Input.Keyboard.Key | null = null;
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
+  private controlsOverlay: ControlsOverlay | null = null;
   private showMoraleBreakdownOverlay = true;
   private latestInfluenceGrid: NetworkInfluenceGridUpdate | null = null;
   private mapSamplingWidth = 0;
@@ -496,6 +498,7 @@ class BattleScene extends Phaser.Scene {
     this.moraleBreakdownOverlay = new MoraleBreakdownOverlay(
       this.showMoraleBreakdownOverlay,
     );
+    this.controlsOverlay = new ControlsOverlay();
     this.applyRuntimeTuning(this.runtimeTuning);
     this.refreshFogOfWar();
     this.createLobbyOverlay();
@@ -551,6 +554,7 @@ class BattleScene extends Phaser.Scene {
           this.buildCommandPath(path),
         cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
         engageSelectedUnitMovement: () => this.engageSelectedUnitMovement(),
+        holdSelectedUnitMovement: () => this.holdSelectedUnitMovement(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
         clearAllQueuedMovement: () => this.clearAllQueuedMovement(),
       },
@@ -658,6 +662,8 @@ class BattleScene extends Phaser.Scene {
       this.tuningPanel = null;
       this.moraleBreakdownOverlay?.destroy();
       this.moraleBreakdownOverlay = null;
+      this.controlsOverlay?.destroy();
+      this.controlsOverlay = null;
       this.latestInfluenceGrid = null;
       this.mapBackground = null;
       this.stopMapTextureRetryLoop();
@@ -1275,6 +1281,7 @@ class BattleScene extends Phaser.Scene {
         this.clearSelection();
         this.plannedPathsByUnitId.clear();
         this.pendingUnitPathCommandsByUnitId.clear();
+        this.setAllUnitMovementHold(false);
         if (nextPhase !== 'BATTLE') {
           this.supplyLinesByUnitId.clear();
           this.syncSupplyLinesToInfluenceRenderer();
@@ -1295,6 +1302,7 @@ class BattleScene extends Phaser.Scene {
     this.clearSelection();
     this.plannedPathsByUnitId.clear();
     this.pendingUnitPathCommandsByUnitId.clear();
+    this.setAllUnitMovementHold(false);
     this.supplyLinesByUnitId.clear();
     this.syncSupplyLinesToInfluenceRenderer();
     this.refreshLobbyOverlay();
@@ -1348,6 +1356,7 @@ class BattleScene extends Phaser.Scene {
     this.clearSelection();
     this.plannedPathsByUnitId.clear();
     this.pendingUnitPathCommandsByUnitId.clear();
+    this.setAllUnitMovementHold(false);
     this.supplyLinesByUnitId.clear();
     this.syncSupplyLinesToInfluenceRenderer();
 
@@ -1509,7 +1518,12 @@ class BattleScene extends Phaser.Scene {
   private applyNetworkUnitPathState(
     pathStateUpdate: NetworkUnitPathStateUpdate,
   ): void {
-    const { unitId, path } = pathStateUpdate;
+    const { unitId, path, isPaused } = pathStateUpdate;
+    const unit = this.unitsById.get(unitId);
+    if (!unit || unit.team !== this.localPlayerTeam) {
+      return;
+    }
+    unit.setMovementHold(isPaused);
     if (this.pendingUnitPathCommandsByUnitId.has(unitId)) {
       return;
     }
@@ -2210,6 +2224,19 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private holdSelectedUnitMovement(): void {
+    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !this.networkManager) {
+      return;
+    }
+
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+      this.networkManager.sendUnitHoldMovement(unitId);
+    }
+  }
+
   private stageUnitPathCommand(
     unitId: string,
     path: Phaser.Math.Vector2[],
@@ -2299,6 +2326,12 @@ class BattleScene extends Phaser.Scene {
     }
 
     this.selectedUnits.clear();
+  }
+
+  private setAllUnitMovementHold(isHeld: boolean): void {
+    for (const unit of this.unitsById.values()) {
+      unit.setMovementHold(isHeld);
+    }
   }
 
   private refreshFogOfWar(): void {
