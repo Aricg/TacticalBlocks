@@ -580,6 +580,8 @@ class BattleScene extends Phaser.Scene {
         ) => this.commandSelectedUnitsIntoLine(path, shiftHeld),
         commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) =>
           this.commandSelectedUnitsTowardEnemyInfluenceLine(shiftHeld),
+        commandSelectedUnitsTowardNearestVisibleEnemyUnit: (shiftHeld: boolean) =>
+          this.commandSelectedUnitsTowardNearestVisibleEnemyUnit(shiftHeld),
         selectUnitsInBox: (
           startX: number,
           startY: number,
@@ -2485,6 +2487,112 @@ class BattleScene extends Phaser.Scene {
       ];
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
     }
+  }
+
+  private commandSelectedUnitsTowardNearestVisibleEnemyUnit(
+    shiftHeld = false,
+  ): void {
+    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
+      return;
+    }
+
+    const visibleEnemyTargets = this.getVisibleEnemyUnitTargets();
+    if (visibleEnemyTargets.length === 0) {
+      return;
+    }
+
+    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
+      preferRoads: false,
+    });
+
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+
+      const unitPosition = this.getAuthoritativeUnitPosition(unit);
+      const target = this.getNearestVisibleEnemyUnitTarget(
+        unitPosition,
+        visibleEnemyTargets,
+      );
+      if (!target) {
+        continue;
+      }
+
+      const unitCell = worldToGridCoordinate(
+        unitPosition.x,
+        unitPosition.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
+      const targetCell = worldToGridCoordinate(
+        target.x,
+        target.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
+      if (unitCell.col === targetCell.col && unitCell.row === targetCell.row) {
+        this.plannedPathsByUnitId.delete(unitId);
+        this.clearPendingUnitPathCommand(unitId);
+        continue;
+      }
+
+      const unitPath = [
+        gridToWorldCenter(targetCell, BattleScene.UNIT_COMMAND_GRID_METRICS),
+      ];
+      this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
+    }
+  }
+
+  private getVisibleEnemyUnitTargets(): Array<{
+    unitId: string;
+    x: number;
+    y: number;
+  }> {
+    const visibleEnemyTargets: Array<{ unitId: string; x: number; y: number }> = [];
+    for (const [unitId, unit] of this.unitsById) {
+      if (
+        unit.team === this.localPlayerTeam ||
+        !unit.isAlive() ||
+        !unit.visible
+      ) {
+        continue;
+      }
+
+      const position = this.getAuthoritativeUnitPosition(unit);
+      visibleEnemyTargets.push({
+        unitId,
+        x: position.x,
+        y: position.y,
+      });
+    }
+    return visibleEnemyTargets;
+  }
+
+  private getNearestVisibleEnemyUnitTarget(
+    unitPosition: { x: number; y: number },
+    visibleEnemyTargets: ReadonlyArray<{ unitId: string; x: number; y: number }>,
+  ): { unitId: string; x: number; y: number } | null {
+    let nearestTarget: { unitId: string; x: number; y: number } | null = null;
+    let nearestDistanceSquared = Number.POSITIVE_INFINITY;
+
+    for (const target of visibleEnemyTargets) {
+      const distanceSquared =
+        (unitPosition.x - target.x) * (unitPosition.x - target.x)
+        + (unitPosition.y - target.y) * (unitPosition.y - target.y);
+      if (distanceSquared < nearestDistanceSquared) {
+        nearestDistanceSquared = distanceSquared;
+        nearestTarget = target;
+        continue;
+      }
+      if (
+        distanceSquared === nearestDistanceSquared &&
+        nearestTarget &&
+        target.unitId.localeCompare(nearestTarget.unitId) < 0
+      ) {
+        nearestTarget = target;
+      }
+    }
+
+    return nearestTarget;
   }
 
   private isShiftHeld(pointer: Phaser.Input.Pointer): boolean {

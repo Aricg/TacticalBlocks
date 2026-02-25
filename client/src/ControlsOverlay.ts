@@ -66,6 +66,11 @@ const CONTROL_SECTIONS: ControlSection[] = [
         effect:
           'Stage per-unit paths to enemy city pressure line; repeated presses cycle enemy city target.',
       },
+      {
+        input: 'Q',
+        effect:
+          'Stage per-unit paths toward each selected unit\'s nearest currently visible enemy.',
+      },
     ],
   },
   {

@@ -19,6 +19,7 @@ type BattleInputCallbacks = {
     shiftHeld: boolean,
   ) => void;
   commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) => void;
+  commandSelectedUnitsTowardNearestVisibleEnemyUnit: (shiftHeld: boolean) => void;
   selectUnitsInBox: (
     startX: number,
     startY: number,
@@ -79,6 +80,7 @@ export class BattleInputController {
     this.scene.input.keyboard?.on('keydown-F', this.handleKeyDownF);
     this.scene.input.keyboard?.on('keydown-S', this.handleKeyDownS);
     this.scene.input.keyboard?.on('keydown-A', this.handleKeyDownA);
+    this.scene.input.keyboard?.on('keydown-Q', this.handleKeyDownQ);
   }
 
   public reset(): void {
@@ -107,6 +109,7 @@ export class BattleInputController {
     this.scene.input.keyboard?.off('keydown-F', this.handleKeyDownF);
     this.scene.input.keyboard?.off('keydown-S', this.handleKeyDownS);
     this.scene.input.keyboard?.off('keydown-A', this.handleKeyDownA);
+    this.scene.input.keyboard?.off('keydown-Q', this.handleKeyDownQ);
     this.reset();
   }
 
@@ -364,6 +367,15 @@ export class BattleInputController {
       return;
     }
     this.callbacks.commandSelectedUnitsTowardEnemyInfluenceLine(
+      Boolean(event?.shiftKey),
+    );
+  };
+
+  private readonly handleKeyDownQ = (event: KeyboardEvent): void => {
+    if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    this.callbacks.commandSelectedUnitsTowardNearestVisibleEnemyUnit(
       Boolean(event?.shiftKey),
     );
   };
