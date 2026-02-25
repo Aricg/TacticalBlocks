@@ -36,6 +36,13 @@ type BattleInputCallbacks = {
     currentY: number,
   ) => void;
   clearSelectionBox: () => void;
+  drawFormationAreaPreview: (
+    startX: number,
+    startY: number,
+    currentX: number,
+    currentY: number,
+  ) => void;
+  clearFormationAreaPreview: () => void;
   appendDraggedPathPoint: (
     draggedPath: Phaser.Math.Vector2[],
     x: number,
@@ -92,6 +99,7 @@ export class BattleInputController {
     this.pathDrawing = false;
     this.draggedPath = [];
     this.callbacks.clearSelectionBox();
+    this.callbacks.clearFormationAreaPreview();
     this.callbacks.clearPathPreview();
   }
 
@@ -158,6 +166,7 @@ export class BattleInputController {
     this.leftDragStartedWithSelection = this.callbacks.hasSelectedUnits();
     this.dragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
     this.boxSelecting = false;
+    this.callbacks.clearFormationAreaPreview();
   };
 
   private readonly handlePointerMove = (pointer: Phaser.Input.Pointer): void => {
@@ -217,6 +226,18 @@ export class BattleInputController {
           pointer.worldX,
           pointer.worldY,
         );
+        if (this.leftDragStartedWithSelection) {
+          this.callbacks.drawFormationAreaPreview(
+            this.dragStart.x,
+            this.dragStart.y,
+            pointer.worldX,
+            pointer.worldY,
+          );
+        } else {
+          this.callbacks.clearFormationAreaPreview();
+        }
+      } else {
+        this.callbacks.clearFormationAreaPreview();
       }
     }
   };
@@ -278,6 +299,7 @@ export class BattleInputController {
         );
       }
       this.callbacks.clearSelectionBox();
+      this.callbacks.clearFormationAreaPreview();
       this.dragStart = null;
       this.boxSelecting = false;
       this.leftDragStartedWithSelection = false;
@@ -286,6 +308,7 @@ export class BattleInputController {
 
     if (this.dragStart) {
       this.callbacks.clearSelectionBox();
+      this.callbacks.clearFormationAreaPreview();
       this.dragStart = null;
       this.boxSelecting = false;
       this.leftDragStartedWithSelection = false;
@@ -326,6 +349,7 @@ export class BattleInputController {
     this.pathDrawing = false;
     this.draggedPath = [];
     this.callbacks.clearSelectionBox();
+    this.callbacks.clearFormationAreaPreview();
     this.callbacks.clearPathPreview();
     this.callbacks.clearSelection();
   };
@@ -360,6 +384,7 @@ export class BattleInputController {
     this.pathDrawing = false;
     this.draggedPath = [this.pathDragStart.clone()];
     this.callbacks.clearSelectionBox();
+    this.callbacks.clearFormationAreaPreview();
     this.callbacks.clearPathPreview();
   }
 }

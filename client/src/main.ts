@@ -347,6 +347,7 @@ class BattleScene extends Phaser.Scene {
   private fogOfWarController: FogOfWarController | null = null;
   private lobbyOverlayController: LobbyOverlayController | null = null;
   private selectionBox!: Phaser.GameObjects.Graphics;
+  private formationAreaPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
   private influenceRenderer: InfluenceRenderer | null = null;
   private moraleBreakdownOverlay: MoraleBreakdownOverlay | null = null;
@@ -437,6 +438,20 @@ class BattleScene extends Phaser.Scene {
   private static readonly TICK_RATE_SMOOTHING_FACTOR = 0.15;
   private static readonly SERVER_TICK_SMOOTHING_FACTOR = 0.2;
   private static readonly TICK_RATE_DISPLAY_UPDATE_INTERVAL_MS = 120;
+  private static readonly FORMATION_PREVIEW_DEPTH = 1001;
+  private static readonly FORMATION_PREVIEW_FILL_COLOR = 0xbad7f7;
+  private static readonly FORMATION_PREVIEW_FILL_ALPHA = 0.25;
+  private static readonly FORMATION_PREVIEW_STROKE_COLOR = 0xe4f2ff;
+  private static readonly FORMATION_PREVIEW_STROKE_ALPHA = 0.92;
+  private static readonly FORMATION_PREVIEW_STROKE_WIDTH = 1;
+  private static readonly FORMATION_PREVIEW_SLOT_WIDTH = Math.max(
+    4,
+    Math.round(GAMEPLAY_CONFIG.unit.bodyWidth * 0.78),
+  );
+  private static readonly FORMATION_PREVIEW_SLOT_HEIGHT = Math.max(
+    4,
+    Math.round(GAMEPLAY_CONFIG.unit.bodyHeight * 0.78),
+  );
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -476,6 +491,8 @@ class BattleScene extends Phaser.Scene {
 
     this.selectionBox = this.add.graphics();
     this.selectionBox.setDepth(1000);
+    this.formationAreaPreview = this.add.graphics();
+    this.formationAreaPreview.setDepth(BattleScene.FORMATION_PREVIEW_DEPTH);
     this.pathPreviewRenderer = new PathPreviewRenderer(this, {
       depth: 950,
       previewPointSpacing: BattleScene.PREVIEW_PATH_POINT_SPACING,
@@ -604,6 +621,13 @@ class BattleScene extends Phaser.Scene {
           currentY: number,
         ) => this.drawSelectionBox(startX, startY, currentX, currentY),
         clearSelectionBox: () => this.clearSelectionBox(),
+        drawFormationAreaPreview: (
+          startX: number,
+          startY: number,
+          currentX: number,
+          currentY: number,
+        ) => this.drawFormationAreaPreview(startX, startY, currentX, currentY),
+        clearFormationAreaPreview: () => this.clearFormationAreaPreview(),
         appendDraggedPathPoint: (
           draggedPath: Phaser.Math.Vector2[],
           x: number,
@@ -706,6 +730,7 @@ class BattleScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.inputController?.destroy();
       this.inputController = null;
+      this.formationAreaPreview?.destroy();
       this.pathPreviewRenderer?.destroy();
       this.pathPreviewRenderer = null;
       this.fogOfWarController?.destroy();
@@ -2229,6 +2254,59 @@ class BattleScene extends Phaser.Scene {
 
   private clearSelectionBox(): void {
     this.selectionBox.clear();
+    this.clearFormationAreaPreview();
+  }
+
+  private clearFormationAreaPreview(): void {
+    this.formationAreaPreview.clear();
+  }
+
+  private drawFormationAreaPreview(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+  ): void {
+    const assignments = this.getFormationAreaAssignmentsForSelectedUnits(
+      startX,
+      startY,
+      endX,
+      endY,
+    );
+    this.formationAreaPreview.clear();
+    if (assignments.length === 0) {
+      return;
+    }
+
+    const slotWidth = BattleScene.FORMATION_PREVIEW_SLOT_WIDTH;
+    const slotHeight = BattleScene.FORMATION_PREVIEW_SLOT_HEIGHT;
+    const halfSlotWidth = slotWidth * 0.5;
+    const halfSlotHeight = slotHeight * 0.5;
+    this.formationAreaPreview.fillStyle(
+      BattleScene.FORMATION_PREVIEW_FILL_COLOR,
+      BattleScene.FORMATION_PREVIEW_FILL_ALPHA,
+    );
+    this.formationAreaPreview.lineStyle(
+      BattleScene.FORMATION_PREVIEW_STROKE_WIDTH,
+      BattleScene.FORMATION_PREVIEW_STROKE_COLOR,
+      BattleScene.FORMATION_PREVIEW_STROKE_ALPHA,
+    );
+    for (const assignment of assignments) {
+      const x = assignment.slot.x;
+      const y = assignment.slot.y;
+      this.formationAreaPreview.fillRect(
+        x - halfSlotWidth,
+        y - halfSlotHeight,
+        slotWidth,
+        slotHeight,
+      );
+      this.formationAreaPreview.strokeRect(
+        x - halfSlotWidth,
+        y - halfSlotHeight,
+        slotWidth,
+        slotHeight,
+      );
+    }
   }
 
   private selectOnlyUnit(unit: Unit): void {
@@ -2394,15 +2472,14 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  private commandSelectedUnitsIntoFormationArea(
+  private getFormationAreaAssignmentsForSelectedUnits(
     startX: number,
     startY: number,
     endX: number,
     endY: number,
-    shiftHeld = false,
-  ): void {
+  ) {
     if (!this.isBattleActive() || this.selectedUnits.size === 0) {
-      return;
+      return [];
     }
 
     const selectedUnitsForPlanning = Array.from(this.unitsById.entries())
@@ -2413,15 +2490,30 @@ class BattleScene extends Phaser.Scene {
         y: unit.y,
       }));
     if (selectedUnitsForPlanning.length === 0) {
-      return;
+      return [];
     }
 
-    const assignments = planFormationAreaAssignments({
+    return planFormationAreaAssignments({
       start: { x: startX, y: startY },
       end: { x: endX, y: endY },
       units: selectedUnitsForPlanning,
       grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
     });
+  }
+
+  private commandSelectedUnitsIntoFormationArea(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    shiftHeld = false,
+  ): void {
+    const assignments = this.getFormationAreaAssignmentsForSelectedUnits(
+      startX,
+      startY,
+      endX,
+      endY,
+    );
     if (assignments.length === 0) {
       return;
     }

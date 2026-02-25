@@ -22,7 +22,8 @@ const CONTROL_SECTIONS: ControlSection[] = [
       },
       {
         input: 'Left Drag (with units selected)',
-        effect: 'Draw a formation area box; release to stage unit slots.',
+        effect:
+          'Draw a formation area box with live slot preview; release to stage unit slots.',
       },
       {
         input: 'Right Drag (from selected unit or while units selected)',
