@@ -32,12 +32,25 @@ export function isDestinationBlocked(
   destinationCell: GridCoordinate,
   unitId: string,
 ): boolean {
+  return getDestinationBlockers(
+    occupiedByCellKey,
+    destinationCell,
+    unitId,
+  ).length > 0;
+}
+
+export function getDestinationBlockers(
+  occupiedByCellKey: Map<string, Set<string>>,
+  destinationCell: GridCoordinate,
+  unitId: string,
+): string[] {
   const destinationSet = occupiedByCellKey.get(gridKey(destinationCell));
   if (!destinationSet) {
-    return false;
+    return [];
   }
-
-  return !(destinationSet.size === 1 && destinationSet.has(unitId));
+  return Array.from(destinationSet)
+    .filter((candidateUnitId) => candidateUnitId !== unitId)
+    .sort();
 }
 
 export function traceGridLine(

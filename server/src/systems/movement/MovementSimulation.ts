@@ -4,9 +4,25 @@ import type {
   UnitMovementState,
   Vector2,
 } from "../../rooms/BattleRoomTypes.js";
-import { isDestinationBlocked } from "./gridPathing.js";
+import { getDestinationBlockers } from "./gridPathing.js";
 
 type OccupiedByCellKey = Map<string, Set<string>>;
+type UnitByUnitId = Map<string, Unit>;
+
+const BLOCKED_TICKS_BEFORE_SIDESTEP = 6;
+const SIDESTEP_NEIGHBOR_OFFSETS: ReadonlyArray<{
+  colOffset: number;
+  rowOffset: number;
+}> = [
+  { colOffset: 1, rowOffset: 0 },
+  { colOffset: -1, rowOffset: 0 },
+  { colOffset: 0, rowOffset: 1 },
+  { colOffset: 0, rowOffset: -1 },
+  { colOffset: 1, rowOffset: 1 },
+  { colOffset: 1, rowOffset: -1 },
+  { colOffset: -1, rowOffset: 1 },
+  { colOffset: -1, rowOffset: -1 },
+];
 
 function gridKey(cell: GridCoordinate): string {
   return `${cell.col}:${cell.row}`;
@@ -42,6 +58,155 @@ function removeOccupancy(
   if (set.size === 0) {
     occupiedByCellKey.delete(key);
   }
+}
+
+function clearBlockedState(movementState: UnitMovementState): void {
+  movementState.blockedByUnitId = null;
+  movementState.blockedTicks = 0;
+}
+
+function setBlockedByUnit(
+  movementState: UnitMovementState,
+  blockerUnitId: string,
+): number {
+  if (movementState.blockedByUnitId === blockerUnitId) {
+    const nextBlockedTicks = (movementState.blockedTicks ?? 0) + 1;
+    movementState.blockedTicks = nextBlockedTicks;
+    return nextBlockedTicks;
+  }
+
+  movementState.blockedByUnitId = blockerUnitId;
+  movementState.blockedTicks = 1;
+  return 1;
+}
+
+function hasPendingMovement(movementState: UnitMovementState): boolean {
+  return (
+    movementState.destinationCell !== null || movementState.queuedCells.length > 0
+  );
+}
+
+function selectSidestepCell({
+  blockerCell,
+  blockedUnitCell,
+  occupiedByCellKey,
+  isCellImpassable,
+  isWaterCell,
+}: {
+  blockerCell: GridCoordinate;
+  blockedUnitCell: GridCoordinate;
+  occupiedByCellKey: OccupiedByCellKey;
+  isCellImpassable: (cell: GridCoordinate) => boolean;
+  isWaterCell: (cell: GridCoordinate) => boolean;
+}): GridCoordinate | null {
+  const blockerIsInWater = isWaterCell(blockerCell);
+  const candidates = SIDESTEP_NEIGHBOR_OFFSETS.map(({ colOffset, rowOffset }) => ({
+    col: blockerCell.col + colOffset,
+    row: blockerCell.row + rowOffset,
+  })).filter((candidate) => {
+    if (isCellImpassable(candidate)) {
+      return false;
+    }
+    const occupiedUnits = occupiedByCellKey.get(gridKey(candidate));
+    if (occupiedUnits && occupiedUnits.size > 0) {
+      return false;
+    }
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort((left, right) => {
+    const leftTerrainPenalty = isWaterCell(left) === blockerIsInWater ? 0 : 1;
+    const rightTerrainPenalty = isWaterCell(right) === blockerIsInWater ? 0 : 1;
+    if (leftTerrainPenalty !== rightTerrainPenalty) {
+      return leftTerrainPenalty - rightTerrainPenalty;
+    }
+
+    const leftDistanceSquared =
+      (left.col - blockedUnitCell.col) * (left.col - blockedUnitCell.col) +
+      (left.row - blockedUnitCell.row) * (left.row - blockedUnitCell.row);
+    const rightDistanceSquared =
+      (right.col - blockedUnitCell.col) * (right.col - blockedUnitCell.col) +
+      (right.row - blockedUnitCell.row) * (right.row - blockedUnitCell.row);
+    if (leftDistanceSquared !== rightDistanceSquared) {
+      return rightDistanceSquared - leftDistanceSquared;
+    }
+
+    if (left.row !== right.row) {
+      return left.row - right.row;
+    }
+    return left.col - right.col;
+  });
+
+  return candidates[0] ?? null;
+}
+
+function tryQueueArrivedUnitSidestep({
+  blockedUnitId,
+  blockerUnitId,
+  movementStateByUnitId,
+  unitByUnitId,
+  cellByUnitId,
+  occupiedByCellKey,
+  isCellImpassable,
+  isWaterCell,
+  faceCurrentDestination,
+}: {
+  blockedUnitId: string;
+  blockerUnitId: string;
+  movementStateByUnitId: Map<string, UnitMovementState>;
+  unitByUnitId: UnitByUnitId;
+  cellByUnitId: Map<string, GridCoordinate>;
+  occupiedByCellKey: OccupiedByCellKey;
+  isCellImpassable: (cell: GridCoordinate) => boolean;
+  isWaterCell: (cell: GridCoordinate) => boolean;
+  faceCurrentDestination: (unit: Unit, movementState: UnitMovementState) => void;
+}): boolean {
+  const blockerMovementState = movementStateByUnitId.get(blockerUnitId);
+  const blockerUnit = unitByUnitId.get(blockerUnitId);
+  const blockerCell = cellByUnitId.get(blockerUnitId);
+  const blockedUnitCell = cellByUnitId.get(blockedUnitId);
+  if (
+    !blockerMovementState ||
+    !blockerUnit ||
+    !blockerCell ||
+    !blockedUnitCell ||
+    blockerMovementState.isPaused ||
+    blockerMovementState.terrainTransitionPauseRemainingSeconds > 0 ||
+    hasPendingMovement(blockerMovementState)
+  ) {
+    return false;
+  }
+
+  const sidestepCell = selectSidestepCell({
+    blockerCell,
+    blockedUnitCell,
+    occupiedByCellKey,
+    isCellImpassable,
+    isWaterCell,
+  });
+  if (!sidestepCell) {
+    return false;
+  }
+
+  blockerMovementState.destinationCell = {
+    col: sidestepCell.col,
+    row: sidestepCell.row,
+  };
+  blockerMovementState.queuedCells = [
+    {
+      col: blockerCell.col,
+      row: blockerCell.row,
+    },
+  ];
+  blockerMovementState.targetRotation = null;
+  blockerMovementState.movementBudget = 0;
+  clearBlockedState(blockerMovementState);
+  faceCurrentDestination(blockerUnit, blockerMovementState);
+  return true;
 }
 
 export interface MovementSimulationParams {
@@ -136,6 +301,7 @@ export function simulateMovementTick({
       : 0;
 
   const aliveUnits: Unit[] = [];
+  const unitByUnitId: UnitByUnitId = new Map<string, Unit>();
   const cellByUnitId = new Map<string, GridCoordinate>();
   const occupiedByCellKey: OccupiedByCellKey = new Map<string, Set<string>>();
 
@@ -146,6 +312,7 @@ export function simulateMovementTick({
     ensureFiniteUnitState(unit);
     const snappedCell = snapUnitToGrid(unit);
     aliveUnits.push(unit);
+    unitByUnitId.set(unit.unitId, unit);
     cellByUnitId.set(unit.unitId, snappedCell);
     addOccupancy(occupiedByCellKey, snappedCell, unit.unitId);
   }
@@ -157,6 +324,7 @@ export function simulateMovementTick({
     }
 
     if (movementState.terrainTransitionPauseRemainingSeconds > 0) {
+      clearBlockedState(movementState);
       movementState.terrainTransitionPauseRemainingSeconds = Math.max(
         0,
         movementState.terrainTransitionPauseRemainingSeconds - deltaSeconds,
@@ -166,11 +334,13 @@ export function simulateMovementTick({
     }
 
     if (isUnitMovementSuppressed(unit.unitId)) {
+      clearBlockedState(movementState);
       movementState.movementBudget = 0;
       continue;
     }
 
     if (movementState.isPaused) {
+      clearBlockedState(movementState);
       movementState.movementBudget = 0;
       continue;
     }
@@ -181,6 +351,7 @@ export function simulateMovementTick({
     }
 
     if (!movementState.destinationCell) {
+      clearBlockedState(movementState);
       continue;
     }
 
@@ -192,6 +363,7 @@ export function simulateMovementTick({
       movementState.movementCommandMode.speedMultiplier *
       terrainSpeedMultiplier;
     if (perSecondSpeed <= 0 || !Number.isFinite(perSecondSpeed)) {
+      clearBlockedState(movementState);
       continue;
     }
 
@@ -228,13 +400,16 @@ export function simulateMovementTick({
         Math.abs(wrapAngle(movementState.targetRotation - unit.rotation)) <=
           waypointMoveAngleTolerance;
       if (!isFacingDestination) {
+        clearBlockedState(movementState);
         continue;
       }
     }
 
+    let blockedByUnitIdForTick: string | null = null;
     while (movementState.destinationCell && movementState.movementBudget > 0) {
       const destinationCell = movementState.destinationCell;
       if (isCellImpassable(destinationCell)) {
+        clearBlockedState(movementState);
         clearMovementForUnit(unit.unitId);
         break;
       }
@@ -244,6 +419,7 @@ export function simulateMovementTick({
       const distance = Math.hypot(toTargetX, toTargetY);
 
       if (distance <= 0.0001) {
+        clearBlockedState(movementState);
         movementState.destinationCell = movementState.queuedCells.shift() ?? null;
         faceCurrentDestination(unit, movementState);
         continue;
@@ -253,9 +429,31 @@ export function simulateMovementTick({
         break;
       }
 
-      if (
-        isDestinationBlocked(occupiedByCellKey, destinationCell, unit.unitId)
-      ) {
+      const blockerUnitIds = getDestinationBlockers(
+        occupiedByCellKey,
+        destinationCell,
+        unit.unitId,
+      );
+      if (blockerUnitIds.length > 0) {
+        const primaryBlockerUnitId = blockerUnitIds[0];
+        blockedByUnitIdForTick = primaryBlockerUnitId;
+        const blockedTicks = setBlockedByUnit(
+          movementState,
+          primaryBlockerUnitId,
+        );
+        if (blockedTicks >= BLOCKED_TICKS_BEFORE_SIDESTEP) {
+          tryQueueArrivedUnitSidestep({
+            blockedUnitId: unit.unitId,
+            blockerUnitId: primaryBlockerUnitId,
+            movementStateByUnitId,
+            unitByUnitId,
+            cellByUnitId,
+            occupiedByCellKey,
+            isCellImpassable,
+            isWaterCell,
+            faceCurrentDestination,
+          });
+        }
         break;
       }
 
@@ -268,6 +466,7 @@ export function simulateMovementTick({
       unit.x = destination.x;
       unit.y = destination.y;
       movementState.movementBudget -= distance;
+      clearBlockedState(movementState);
 
       const reachedCell = { col: destinationCell.col, row: destinationCell.row };
       cellByUnitId.set(unit.unitId, reachedCell);
@@ -293,6 +492,10 @@ export function simulateMovementTick({
           break;
         }
       }
+    }
+
+    if (blockedByUnitIdForTick === null) {
+      clearBlockedState(movementState);
     }
   }
 }

@@ -440,6 +440,8 @@ export class BattleRoom extends Room<BattleState> {
       movementBudget: 0,
       isPaused: false,
       terrainTransitionPauseRemainingSeconds: 0,
+      blockedByUnitId: null,
+      blockedTicks: 0,
     };
   }
 
@@ -469,6 +471,8 @@ export class BattleRoom extends Room<BattleState> {
     movementState.movementBudget = 0;
     movementState.isPaused = false;
     movementState.terrainTransitionPauseRemainingSeconds = 0;
+    movementState.blockedByUnitId = null;
+    movementState.blockedTicks = 0;
   }
 
   private buildPathSignature(movementState: UnitMovementState): string {
@@ -1881,6 +1885,8 @@ export class BattleRoom extends Room<BattleState> {
     movementState.movementBudget = 0;
     movementState.isPaused = false;
     movementState.terrainTransitionPauseRemainingSeconds = 0;
+    movementState.blockedByUnitId = null;
+    movementState.blockedTicks = 0;
 
     if (normalizedPath.length === 0) {
       this.clearMovementForUnit(unit.unitId);
@@ -1986,6 +1992,8 @@ export class BattleRoom extends Room<BattleState> {
     if (movementState.isPaused) {
       movementState.movementBudget = 0;
       movementState.targetRotation = null;
+      movementState.blockedByUnitId = null;
+      movementState.blockedTicks = 0;
     }
     this.syncUnitPathState(unit.unitId);
   }
@@ -2021,6 +2029,8 @@ export class BattleRoom extends Room<BattleState> {
     if (movementState.isPaused) {
       movementState.movementBudget = 0;
       movementState.targetRotation = null;
+      movementState.blockedByUnitId = null;
+      movementState.blockedTicks = 0;
     }
 
     this.syncUnitPathState(unit.unitId);
@@ -2492,6 +2502,8 @@ export class BattleRoom extends Room<BattleState> {
           ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE,
         };
         movementState.movementBudget = 0;
+        movementState.blockedByUnitId = null;
+        movementState.blockedTicks = 0;
         occupiedCellIndexes.add(candidateIndex);
         return;
       }
