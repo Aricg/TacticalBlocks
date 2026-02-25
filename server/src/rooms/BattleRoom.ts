@@ -312,6 +312,7 @@ export class BattleRoom extends Room<BattleState> {
       }
       const deltaSeconds = deltaMs / 1000;
       this.simulationFrame += 1;
+      this.state.simulationFrame = this.simulationFrame;
       this.updateMovement(deltaSeconds);
       const cityOwnershipChanged = this.updateCityOwnershipFromOccupancy();
       if (cityOwnershipChanged) {
@@ -402,6 +403,7 @@ export class BattleRoom extends Room<BattleState> {
     this.engagedUnitIds.clear();
     this.lobbyService.dispose();
     this.simulationFrame = 0;
+    this.state.simulationFrame = 0;
     this.resetCityUnitGenerationState();
   }
 
@@ -1681,6 +1683,7 @@ export class BattleRoom extends Room<BattleState> {
     this.updateInfluenceGrid(true);
     this.updateSupplyLines();
     this.simulationFrame = 0;
+    this.state.simulationFrame = 0;
     this.mapRevision = switchResult.nextMapRevision;
   }
 

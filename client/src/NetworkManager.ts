@@ -106,6 +106,7 @@ type BattleRoomState = {
   supplyLines: unknown;
   farmCitySupplyLines: unknown;
   influenceGrid: ServerInfluenceGridState;
+  simulationFrame: number;
   mapId: string;
   redCityOwner: string;
   blueCityOwner: string;
@@ -148,6 +149,10 @@ export type NetworkUnitMoraleUpdate = {
 export type NetworkUnitAttackingUpdate = {
   unitId: string;
   isAttacking: boolean;
+};
+
+export type NetworkSimulationFrameUpdate = {
+  simulationFrame: number;
 };
 
 export type NetworkUnitPathStateUpdate = UnitPathStateMessage;
@@ -226,6 +231,9 @@ export type NetworkUnitPathCommand = UnitPathMessage;
 type UnitAddedHandler = (unit: NetworkUnitSnapshot) => void;
 type UnitRemovedHandler = (unitId: string) => void;
 type TeamAssignedHandler = (team: PlayerTeam) => void;
+type SimulationFrameChangedHandler = (
+  simulationFrameUpdate: NetworkSimulationFrameUpdate,
+) => void;
 type UnitPositionChangedHandler = (position: NetworkUnitPositionUpdate) => void;
 type UnitPathStateChangedHandler = (
   pathStateUpdate: NetworkUnitPathStateUpdate,
@@ -286,6 +294,7 @@ export class NetworkManager {
     private readonly onTeamAssigned: TeamAssignedHandler,
     private readonly onLobbyStateChanged: LobbyStateChangedHandler,
     private readonly onBattleEnded: BattleEndedHandler,
+    private readonly onSimulationFrameChanged: SimulationFrameChangedHandler,
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     private readonly onUnitPathStateChanged: UnitPathStateChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
@@ -373,6 +382,16 @@ export class NetworkManager {
 
     const $ = getStateCallbacks(room);
     room.onStateChange.once((state) => {
+      const emitSimulationFrameUpdate = () => {
+        const simulationFrame =
+          typeof state.simulationFrame === 'number' &&
+          Number.isFinite(state.simulationFrame)
+            ? Math.max(0, Math.round(state.simulationFrame))
+            : 0;
+        this.onSimulationFrameChanged({
+          simulationFrame,
+        });
+      };
       const emitInfluenceGridUpdate = () => {
         this.onInfluenceGridChanged({
           width: state.influenceGrid.width,
@@ -413,12 +432,17 @@ export class NetworkManager {
           emitCityOwnershipUpdate();
         },
       );
+      const detachSimulationFrame = $(state).listen('simulationFrame', () => {
+        emitSimulationFrameUpdate();
+      });
       this.detachCallbacks.push(
         detachInfluenceGridRevision,
         detachRedCityOwner,
         detachBlueCityOwner,
         detachNeutralCityOwnerChange,
+        detachSimulationFrame,
       );
+      emitSimulationFrameUpdate();
       emitInfluenceGridUpdate();
       emitCityOwnershipUpdate();
 

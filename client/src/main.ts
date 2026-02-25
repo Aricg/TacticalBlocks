@@ -5,6 +5,7 @@ import {
   type NetworkFarmCitySupplyLineUpdate,
   type NetworkInfluenceGridUpdate,
   type NetworkLobbyStateUpdate,
+  type NetworkSimulationFrameUpdate,
   NetworkManager,
   type NetworkUnitAttackingUpdate,
   type NetworkUnitHealthUpdate,
@@ -344,7 +345,12 @@ class BattleScene extends Phaser.Scene {
   private controlsOverlay: ControlsOverlay | null = null;
   private tickRateText: Phaser.GameObjects.Text | null = null;
   private smoothedTickDeltaMs = 1000 / 60;
+  private smoothedServerTickDeltaMs: number =
+    GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
   private tickRateDisplayAccumulatorMs = 0;
+  private lastObservedSimulationFrame: number | null = null;
+  private lastObservedSimulationFrameAtMs: number | null = null;
+  private hasServerTickSample = false;
   private showMoraleBreakdownOverlay = true;
   private latestInfluenceGrid: NetworkInfluenceGridUpdate | null = null;
   private mapSamplingWidth = 0;
@@ -413,6 +419,7 @@ class BattleScene extends Phaser.Scene {
   private static readonly TICK_RATE_DISPLAY_DEPTH = 2301;
   private static readonly TICK_RATE_DISPLAY_MARGIN = 12;
   private static readonly TICK_RATE_SMOOTHING_FACTOR = 0.15;
+  private static readonly SERVER_TICK_SMOOTHING_FACTOR = 0.2;
   private static readonly TICK_RATE_DISPLAY_UPDATE_INTERVAL_MS = 120;
 
   constructor() {
@@ -503,9 +510,9 @@ class BattleScene extends Phaser.Scene {
     );
     this.controlsOverlay = new ControlsOverlay();
     this.tickRateText = this.add
-      .text(0, 0, 'Tick: -- /s (-- ms)', {
+      .text(0, 0, 'Render: -- fps (-- ms)\nServer: -- tps', {
         fontFamily: 'monospace',
-        fontSize: '15px',
+        fontSize: '13px',
         color: '#dbe9ff',
         backgroundColor: 'rgba(10, 14, 18, 0.62)',
         padding: { x: 6, y: 4 },
@@ -598,6 +605,9 @@ class BattleScene extends Phaser.Scene {
       },
       (battleEnded) => {
         this.applyBattleEnded(battleEnded);
+      },
+      (simulationFrameUpdate) => {
+        this.applyNetworkSimulationFrame(simulationFrameUpdate);
       },
       (positionUpdate) => {
         this.applyNetworkUnitPosition(positionUpdate);
@@ -696,6 +706,10 @@ class BattleScene extends Phaser.Scene {
       this.controlsOverlay = null;
       this.tickRateText?.destroy();
       this.tickRateText = null;
+      this.lastObservedSimulationFrame = null;
+      this.lastObservedSimulationFrameAtMs = null;
+      this.hasServerTickSample = false;
+      this.smoothedServerTickDeltaMs = GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
       this.latestInfluenceGrid = null;
       this.mapBackground = null;
       this.stopMapTextureRetryLoop();
@@ -1552,6 +1566,41 @@ class BattleScene extends Phaser.Scene {
           snapImmediately,
         ),
     });
+  }
+
+  private applyNetworkSimulationFrame(
+    simulationFrameUpdate: NetworkSimulationFrameUpdate,
+  ): void {
+    const nextFrame = Math.max(0, Math.round(simulationFrameUpdate.simulationFrame));
+    const nowMs =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    if (
+      this.lastObservedSimulationFrame !== null &&
+      this.lastObservedSimulationFrameAtMs !== null &&
+      nextFrame > this.lastObservedSimulationFrame
+    ) {
+      const elapsedMs = nowMs - this.lastObservedSimulationFrameAtMs;
+      const framesAdvanced = nextFrame - this.lastObservedSimulationFrame;
+      if (elapsedMs > 0 && framesAdvanced > 0) {
+        const measuredServerTickDeltaMs = elapsedMs / framesAdvanced;
+        this.smoothedServerTickDeltaMs = Phaser.Math.Linear(
+          this.smoothedServerTickDeltaMs,
+          measuredServerTickDeltaMs,
+          BattleScene.SERVER_TICK_SMOOTHING_FACTOR,
+        );
+        this.hasServerTickSample = true;
+      }
+    } else if (
+      this.lastObservedSimulationFrame !== null &&
+      nextFrame < this.lastObservedSimulationFrame
+    ) {
+      this.hasServerTickSample = false;
+      this.smoothedServerTickDeltaMs = GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
+    }
+    this.lastObservedSimulationFrame = nextFrame;
+    this.lastObservedSimulationFrameAtMs = nowMs;
   }
 
   private applyNetworkUnitPathState(
@@ -2959,10 +3008,20 @@ class BattleScene extends Phaser.Scene {
       return;
     }
     this.tickRateDisplayAccumulatorMs = 0;
-    const safeDeltaMs = Math.max(0.1, this.smoothedTickDeltaMs);
-    const tickRate = 1000 / safeDeltaMs;
+    const safeRenderDeltaMs = Math.max(0.1, this.smoothedTickDeltaMs);
+    const renderFps = 1000 / safeRenderDeltaMs;
+    const targetServerTickDeltaMs = Math.max(
+      0.1,
+      GAMEPLAY_CONFIG.network.positionSyncIntervalMs,
+    );
+    const targetServerTps = 1000 / targetServerTickDeltaMs;
+    const serverTickDeltaMs = Math.max(0.1, this.smoothedServerTickDeltaMs);
+    const serverTps = 1000 / serverTickDeltaMs;
+    const serverLine = this.hasServerTickSample
+      ? `Server: ${serverTps.toFixed(1)} tps (${serverTickDeltaMs.toFixed(1)} ms)`
+      : `Server: -- tps (target ${targetServerTps.toFixed(1)})`;
     this.tickRateText.setText(
-      `Tick: ${tickRate.toFixed(1)} /s (${safeDeltaMs.toFixed(1)} ms)`,
+      `Render: ${renderFps.toFixed(1)} fps (${safeRenderDeltaMs.toFixed(1)} ms)\n${serverLine}`,
     );
   }
 

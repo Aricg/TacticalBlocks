@@ -11,6 +11,7 @@ export class BattleState extends Schema {
   @type({ map: FarmCitySupplyLineState })
   farmCitySupplyLines = new MapSchema<FarmCitySupplyLineState>();
   @type(InfluenceGridState) influenceGrid = new InfluenceGridState();
+  @type("number") simulationFrame = 0;
   @type("string") mapId: string = GAMEPLAY_CONFIG.map.activeMapId;
   @type("string") redCityOwner = "RED";
   @type("string") blueCityOwner = "BLUE";
