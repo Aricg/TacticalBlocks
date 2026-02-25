@@ -33,7 +33,10 @@ import {
   buildTerrainAwareRoute,
   normalizePathWaypoints,
 } from "../systems/movement/MovementCommandRouter.js";
-import { simulateMovementTick } from "../systems/movement/MovementSimulation.js";
+import {
+  isMoraleSafeStep,
+  simulateMovementTick,
+} from "../systems/movement/MovementSimulation.js";
 import {
   computeFarmToCitySupplyStatus,
   type ComputedFarmToCitySupplyLinkState,
@@ -2357,9 +2360,23 @@ export class BattleRoom extends Room<BattleState> {
         { col: unitCell.col + colStep, row: unitCell.row },
         { col: unitCell.col, row: unitCell.row + rowStep },
       ];
+      const unitTeam = this.normalizeTeam(unit.team);
 
       for (const candidateCell of candidateAdvanceCells) {
         if (this.isCellImpassable(candidateCell)) {
+          continue;
+        }
+        if (
+          !isMoraleSafeStep({
+            currentCell: unitCell,
+            destinationCell: candidateCell,
+            getTerrainMoraleBonusAtCell: (cell) =>
+              this.getTerrainMoraleBonusAtCell(cell),
+            getHillGradeAtCell: (cell) => this.getHillGradeAtCell(cell),
+            getCityMoraleBonusAtCell: (cell) =>
+              this.getCityMoraleBonusAtCell(cell, unitTeam),
+          })
+        ) {
           continue;
         }
         const candidateIndex = this.getGridCellIndex(

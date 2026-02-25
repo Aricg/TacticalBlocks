@@ -67,6 +67,43 @@ export interface MovementSimulationParams {
   wrapAngle: (angle: number) => number;
 }
 
+export interface MoraleSafeStepParams {
+  currentCell: GridCoordinate;
+  destinationCell: GridCoordinate;
+  getTerrainMoraleBonusAtCell: (cell: GridCoordinate) => number;
+  getHillGradeAtCell: (cell: GridCoordinate) => number;
+  getCityMoraleBonusAtCell: (cell: GridCoordinate) => number;
+}
+
+export function isMoraleSafeStep({
+  currentCell,
+  destinationCell,
+  getTerrainMoraleBonusAtCell,
+  getHillGradeAtCell,
+  getCityMoraleBonusAtCell,
+}: MoraleSafeStepParams): boolean {
+  const currentTerrainMoraleBonus = getTerrainMoraleBonusAtCell(currentCell);
+  const destinationTerrainMoraleBonus =
+    getTerrainMoraleBonusAtCell(destinationCell);
+  if (destinationTerrainMoraleBonus < currentTerrainMoraleBonus) {
+    return false;
+  }
+
+  const currentHillGrade = getHillGradeAtCell(currentCell);
+  const destinationHillGrade = getHillGradeAtCell(destinationCell);
+  if (destinationHillGrade < currentHillGrade) {
+    return false;
+  }
+
+  const currentCityMoraleBonus = getCityMoraleBonusAtCell(currentCell);
+  const destinationCityMoraleBonus = getCityMoraleBonusAtCell(destinationCell);
+  if (destinationCityMoraleBonus < currentCityMoraleBonus) {
+    return false;
+  }
+
+  return true;
+}
+
 export function simulateMovementTick({
   deltaSeconds,
   units,

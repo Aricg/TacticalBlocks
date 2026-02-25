@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { simulateMovementTick } from './MovementSimulation.js';
+import { isMoraleSafeStep, simulateMovementTick } from './MovementSimulation.js';
 import type { UnitMovementState } from '../../rooms/BattleRoomTypes.js';
 import type { Unit } from '../../schema/Unit.js';
 
@@ -104,4 +104,65 @@ function runRoadMultiplierMovementBudgetTest(): void {
   assert.equal(unitOnRoad.y, 0);
 }
 
+function runMoraleSafeStepRejectsMoraleLossTest(): void {
+  assert.equal(
+    isMoraleSafeStep({
+      currentCell: { col: 0, row: 0 },
+      destinationCell: { col: 1, row: 0 },
+      getTerrainMoraleBonusAtCell: (cell) => (cell.col === 0 ? 0 : -5),
+      getHillGradeAtCell: () => 0,
+      getCityMoraleBonusAtCell: () => 0,
+    }),
+    false,
+  );
+
+  assert.equal(
+    isMoraleSafeStep({
+      currentCell: { col: 0, row: 0 },
+      destinationCell: { col: 1, row: 0 },
+      getTerrainMoraleBonusAtCell: () => 0,
+      getHillGradeAtCell: (cell) => (cell.col === 0 ? 2 : 1),
+      getCityMoraleBonusAtCell: () => 0,
+    }),
+    false,
+  );
+
+  assert.equal(
+    isMoraleSafeStep({
+      currentCell: { col: 0, row: 0 },
+      destinationCell: { col: 1, row: 0 },
+      getTerrainMoraleBonusAtCell: () => 0,
+      getHillGradeAtCell: () => 0,
+      getCityMoraleBonusAtCell: (cell) => (cell.col === 0 ? 1 : 0),
+    }),
+    false,
+  );
+}
+
+function runMoraleSafeStepAllowsEqualOrBetterMoraleTest(): void {
+  assert.equal(
+    isMoraleSafeStep({
+      currentCell: { col: 0, row: 0 },
+      destinationCell: { col: 1, row: 0 },
+      getTerrainMoraleBonusAtCell: () => 0,
+      getHillGradeAtCell: () => 0,
+      getCityMoraleBonusAtCell: () => 0,
+    }),
+    true,
+  );
+
+  assert.equal(
+    isMoraleSafeStep({
+      currentCell: { col: 0, row: 0 },
+      destinationCell: { col: 1, row: 0 },
+      getTerrainMoraleBonusAtCell: (cell) => (cell.col === 0 ? 0 : 1),
+      getHillGradeAtCell: (cell) => (cell.col === 0 ? 1 : 2),
+      getCityMoraleBonusAtCell: (cell) => (cell.col === 0 ? 0 : 1),
+    }),
+    true,
+  );
+}
+
 runRoadMultiplierMovementBudgetTest();
+runMoraleSafeStepRejectsMoraleLossTest();
+runMoraleSafeStepAllowsEqualOrBetterMoraleTest();
