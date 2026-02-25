@@ -359,6 +359,9 @@ class BattleScene extends Phaser.Scene {
   private moraleDebugHillGradeGrid: Int8Array | null = null;
   private moraleDebugMapGridLoadToken = 0;
   private mapTextureRetryTimer: Phaser.Time.TimerEvent | null = null;
+  private autoAdvanceCityCycleSignature: string | null = null;
+  private autoAdvanceCityCycleOrderedTargets: GridCoordinate[] = [];
+  private autoAdvanceCityCycleNextIndex = 0;
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
@@ -2253,6 +2256,16 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
+    const firstSelectedUnit = this.selectedUnits.values().next().value as Unit | undefined;
+    if (!firstSelectedUnit) {
+      return;
+    }
+    const selectedTeam = firstSelectedUnit.team;
+    const targetCityCell = this.selectAutoAdvanceEnemyCityTarget(this.localPlayerTeam);
+    if (!targetCityCell) {
+      return;
+    }
+
     const movementCommandMode = buildMovementCommandMode(shiftHeld, {
       preferRoads: false,
     });
@@ -2270,6 +2283,7 @@ class BattleScene extends Phaser.Scene {
       const autoAdvanceCells = this.buildAutoAdvanceCellsToContestedInfluence(
         unitCell,
         unit.team,
+        targetCityCell,
       );
       if (autoAdvanceCells.length === 0) {
         continue;
@@ -2414,14 +2428,116 @@ class BattleScene extends Phaser.Scene {
   }
 
   private getCityWorldPosition(team: Team): Phaser.Math.Vector2 {
-    const overrideCell = this.cityGridCoordinatesByTeam?.[team];
-    if (overrideCell) {
-      return gridToWorldCenter(overrideCell, BattleScene.UNIT_COMMAND_GRID_METRICS);
-    }
     return gridToWorldCenter(
-      getTeamCityGridCoordinate(team),
+      this.getCityGridCoordinate(team),
       BattleScene.UNIT_COMMAND_GRID_METRICS,
     );
+  }
+
+  private getCityGridCoordinate(team: Team): GridCoordinate {
+    const overrideCell = this.cityGridCoordinatesByTeam?.[team];
+    if (overrideCell) {
+      return { col: overrideCell.col, row: overrideCell.row };
+    }
+    const cityCell = getTeamCityGridCoordinate(team);
+    return { col: cityCell.col, row: cityCell.row };
+  }
+
+  private getAutoAdvanceTargetCityCells(friendlyTeam: Team): GridCoordinate[] {
+    const uniqueByKey = new Map<string, GridCoordinate>();
+    const homeTeams: Team[] = [Team.RED, Team.BLUE];
+    for (const homeTeam of homeTeams) {
+      const owner = this.cityOwnerByHomeTeam[homeTeam];
+      if (owner === friendlyTeam) {
+        continue;
+      }
+      const cell = this.getCityGridCoordinate(homeTeam);
+      uniqueByKey.set(`${cell.col}:${cell.row}`, cell);
+    }
+
+    for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
+      const owner = this.neutralCityOwners[index];
+      if (owner === friendlyTeam) {
+        continue;
+      }
+      const cell = this.neutralCityGridCoordinates[index];
+      uniqueByKey.set(`${cell.col}:${cell.row}`, { col: cell.col, row: cell.row });
+    }
+
+    return Array.from(uniqueByKey.values());
+  }
+
+  private getSelectedUnitIdsSorted(): string[] {
+    const selectedUnitIds: string[] = [];
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+      selectedUnitIds.push(unitId);
+    }
+    selectedUnitIds.sort();
+    return selectedUnitIds;
+  }
+
+  private selectAutoAdvanceEnemyCityTarget(friendlyTeam: Team): GridCoordinate | null {
+    const enemyTeam = friendlyTeam === Team.BLUE ? Team.RED : Team.BLUE;
+    const candidateTargets = this.getAutoAdvanceTargetCityCells(friendlyTeam);
+    if (candidateTargets.length === 0) {
+      candidateTargets.push(this.getCityGridCoordinate(enemyTeam));
+    }
+    if (candidateTargets.length === 0) {
+      return null;
+    }
+
+    const formationCenter = getFormationCenter(this.selectedUnits);
+    if (!formationCenter) {
+      return candidateTargets[0];
+    }
+    const formationCell = worldToGridCoordinate(
+      formationCenter.x,
+      formationCenter.y,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
+
+    const selectedUnitIds = this.getSelectedUnitIdsSorted();
+    const candidateKeys = candidateTargets
+      .map((cell) => `${cell.col}:${cell.row}`)
+      .sort();
+    const cycleSignature = `${friendlyTeam}|${selectedUnitIds.join(',')}|${candidateKeys.join(';')}`;
+
+    if (
+      this.autoAdvanceCityCycleSignature !== cycleSignature ||
+      this.autoAdvanceCityCycleOrderedTargets.length === 0
+    ) {
+      const sortedByDistance = candidateTargets
+        .map((cell) => ({ cell, key: `${cell.col}:${cell.row}` }))
+        .sort((left, right) => {
+          const leftDistance =
+            (left.cell.col - formationCell.col) * (left.cell.col - formationCell.col) +
+            (left.cell.row - formationCell.row) * (left.cell.row - formationCell.row);
+          const rightDistance =
+            (right.cell.col - formationCell.col) * (right.cell.col - formationCell.col) +
+            (right.cell.row - formationCell.row) * (right.cell.row - formationCell.row);
+          if (leftDistance !== rightDistance) {
+            return leftDistance - rightDistance;
+          }
+          return left.key.localeCompare(right.key);
+        });
+
+      this.autoAdvanceCityCycleSignature = cycleSignature;
+      this.autoAdvanceCityCycleOrderedTargets = sortedByDistance.map(({ cell }) => ({
+        col: cell.col,
+        row: cell.row,
+      }));
+      this.autoAdvanceCityCycleNextIndex = 1;
+      return this.autoAdvanceCityCycleOrderedTargets[0] ?? null;
+    }
+
+    const targetCount = this.autoAdvanceCityCycleOrderedTargets.length;
+    const selectedIndex = this.autoAdvanceCityCycleNextIndex % targetCount;
+    this.autoAdvanceCityCycleNextIndex = (selectedIndex + 1) % targetCount;
+    const target = this.autoAdvanceCityCycleOrderedTargets[selectedIndex];
+    return target ? { col: target.col, row: target.row } : null;
   }
 
   private getOwnedCityPositions(ownerTeam: Team): Phaser.Math.Vector2[] {
@@ -2892,8 +3008,8 @@ class BattleScene extends Phaser.Scene {
   private buildAutoAdvanceCellsToContestedInfluence(
     startCell: GridCoordinate,
     team: Team,
+    targetCell: GridCoordinate,
   ): GridCoordinate[] {
-    const targetCell = this.getEnemyAdvanceTargetCell(startCell, team);
     const directLine = this.traceGridLine(startCell, targetCell);
     if (directLine.length <= 1) {
       return [];
@@ -2924,34 +3040,6 @@ class BattleScene extends Phaser.Scene {
     }
 
     return pathCells;
-  }
-
-  private getEnemyAdvanceTargetCell(
-    startCell: GridCoordinate,
-    team: Team,
-  ): GridCoordinate {
-    const enemyTeam = team === Team.BLUE ? Team.RED : Team.BLUE;
-    const enemyCityCell =
-      this.cityGridCoordinatesByTeam?.[enemyTeam] ?? getTeamCityGridCoordinate(enemyTeam);
-    if (
-      enemyCityCell.col !== startCell.col ||
-      enemyCityCell.row !== startCell.row
-    ) {
-      return enemyCityCell;
-    }
-
-    const defaultTargetCol =
-      team === Team.BLUE ? 0 : BattleScene.GRID_WIDTH - 1;
-    if (defaultTargetCol === startCell.col) {
-      return {
-        col: defaultTargetCol,
-        row: Math.max(0, BattleScene.GRID_HEIGHT - 1 - startCell.row),
-      };
-    }
-    return {
-      col: defaultTargetCol,
-      row: startCell.row,
-    };
   }
 
   private traceGridLine(

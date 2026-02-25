@@ -104,6 +104,9 @@ export type LobbyStateMessage = {
   isGeneratingMap: boolean;
   cityAnchors?: Record<PlayerTeam, GridCoordinate>;
   neutralCityAnchors?: GridCoordinate[];
+  redCityOwner?: string;
+  blueCityOwner?: string;
+  neutralCityOwners?: string[];
 };
 
 export type BattleEndedMessage = {

@@ -64,7 +64,7 @@ const CONTROL_SECTIONS: ControlSection[] = [
       {
         input: 'A',
         effect:
-          'Stage per-unit direct paths to the contested influence border; press Space to send.',
+          'Stage per-unit paths to enemy city pressure line; repeated presses cycle enemy city target.',
       },
     ],
   },

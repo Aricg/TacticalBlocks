@@ -346,6 +346,7 @@ export class NetworkManager {
         this.onLobbyStateChanged(
           this.normalizeLobbyStateUpdate(message, room.sessionId),
         );
+        this.emitCityOwnershipFromLobbyStateMessage(message);
       },
     );
     room.onMessage(
@@ -941,6 +942,26 @@ export class NetworkManager {
       cityAnchors,
       neutralCityAnchors,
     };
+  }
+
+  private emitCityOwnershipFromLobbyStateMessage(
+    message: LobbyStateMessage,
+  ): void {
+    if (
+      typeof message?.redCityOwner !== 'string' ||
+      typeof message?.blueCityOwner !== 'string' ||
+      !Array.isArray(message?.neutralCityOwners)
+    ) {
+      return;
+    }
+
+    this.onCityOwnershipChanged({
+      redCityOwner: message.redCityOwner,
+      blueCityOwner: message.blueCityOwner,
+      neutralCityOwners: message.neutralCityOwners.filter(
+        (owner): owner is string => typeof owner === 'string',
+      ),
+    });
   }
 
   private normalizeBattleEndedUpdate(

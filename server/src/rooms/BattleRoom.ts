@@ -2643,6 +2643,9 @@ export class BattleRoom extends Room<BattleState> {
       neutralCityAnchors: this.activeMapBundle.neutralCityAnchors.map((cell) => ({
         ...cell,
       })),
+      redCityOwner: this.state.redCityOwner,
+      blueCityOwner: this.state.blueCityOwner,
+      neutralCityOwners: this.state.neutralCityOwners.map((owner) => owner),
     };
   }
 
