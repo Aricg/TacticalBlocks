@@ -81,6 +81,7 @@ type SupplyLineRenderState = {
 };
 
 type FarmCitySupplyLineRenderState = {
+  linkId: string;
   team: 'BLUE' | 'RED';
   connected: boolean;
   endIndex: number;
@@ -114,6 +115,8 @@ export class InfluenceRenderer {
   private supplyLineRenderStates: SupplyLineRenderState[] = [];
   private farmCitySupplyLines: FarmCitySupplyLineSnapshot[] = [];
   private farmCitySupplyLineRenderStates: FarmCitySupplyLineRenderState[] = [];
+  private farmCitySupplyTripDurationSeconds =
+    Math.max(0.25, GAMEPLAY_CONFIG.runtimeTuning.defaults.cityUnitGenerationIntervalSeconds / 10);
 
   private static readonly EPSILON = 0.0001;
   private static readonly KEY_PRECISION = 1000;
@@ -137,6 +140,9 @@ export class InfluenceRenderer {
   private static readonly FARM_CITY_SUPPLY_CONNECTED_ALPHA = 0.9;
   private static readonly FARM_CITY_SUPPLY_SEVER_COLOR = 0xff4a4a;
   private static readonly FARM_CITY_SUPPLY_LINE_WIDTH = 2;
+  private static readonly FARM_CITY_SUPPLY_DOT_RADIUS = 4;
+  private static readonly FARM_CITY_SUPPLY_DOT_COLOR = 0xfff3ad;
+  private static readonly FARM_CITY_SUPPLY_DOT_ALPHA = 0.95;
   private static readonly SUPPLY_WAVE_RADIUS = 4;
   private static readonly SUPPLY_WAVE_SPEED_CELLS_PER_MS = 0.006;
   private static readonly SUPPLY_WAVE_SIGMA_CELLS = 1.6;
@@ -368,6 +374,13 @@ export class InfluenceRenderer {
     this.visibleTeam = team;
   }
 
+  public setFarmCitySupplyTripDurationSeconds(durationSeconds: number): void {
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      return;
+    }
+    this.farmCitySupplyTripDurationSeconds = Math.max(0.25, durationSeconds);
+  }
+
   public render(timeMs: number, deltaMs: number): void {
     this.frontLineGraphics.clear();
     this.farmCitySupplyGraphics.clear();
@@ -418,7 +431,7 @@ export class InfluenceRenderer {
     }
 
     this.renderDebugOverlay(this.targetServerCells);
-    this.renderFarmCitySupplyLines();
+    this.renderFarmCitySupplyLines(timeMs);
     this.renderSupplyWave(timeMs, deltaMs);
   }
 
@@ -521,6 +534,7 @@ export class InfluenceRenderer {
       }
 
       nextRenderStates.push({
+        linkId: supplyLine.linkId,
         team: supplyLine.team,
         connected: supplyLine.connected,
         endIndex,
@@ -532,10 +546,13 @@ export class InfluenceRenderer {
     this.farmCitySupplyLineRenderStates = nextRenderStates;
   }
 
-  private renderFarmCitySupplyLines(): void {
+  private renderFarmCitySupplyLines(timeMs: number): void {
     if (this.farmCitySupplyLineRenderStates.length === 0) {
       return;
     }
+
+    const tripDurationMs = this.farmCitySupplyTripDurationSeconds * 1000;
+    const cycleDurationMs = tripDurationMs * 2;
 
     for (const supplyLine of this.farmCitySupplyLineRenderStates) {
       this.farmCitySupplyGraphics.lineStyle(
@@ -584,7 +601,48 @@ export class InfluenceRenderer {
           severCell.y - 4,
         );
       }
+
+      if (
+        !supplyLine.connected ||
+        supplyLine.endIndex < 1 ||
+        cycleDurationMs <= 0
+      ) {
+        continue;
+      }
+
+      const phaseOffset = this.getStablePhaseOffset(supplyLine.linkId);
+      const rawCyclePhase = ((timeMs / cycleDurationMs) + phaseOffset) % 1;
+      const forwardPhase =
+        rawCyclePhase < 0.5 ? rawCyclePhase * 2 : (1 - rawCyclePhase) * 2;
+      const segmentPosition = forwardPhase * supplyLine.endIndex;
+      const segmentIndex = Math.floor(segmentPosition);
+      const interpolationT = segmentPosition - segmentIndex;
+      const startCell = supplyLine.cells[segmentIndex];
+      const endCell = supplyLine.cells[Math.min(segmentIndex + 1, supplyLine.endIndex)];
+      if (!startCell || !endCell) {
+        continue;
+      }
+      const dotX = Phaser.Math.Linear(startCell.x, endCell.x, interpolationT);
+      const dotY = Phaser.Math.Linear(startCell.y, endCell.y, interpolationT);
+      this.farmCitySupplyGraphics.fillStyle(
+        InfluenceRenderer.FARM_CITY_SUPPLY_DOT_COLOR,
+        InfluenceRenderer.FARM_CITY_SUPPLY_DOT_ALPHA,
+      );
+      this.farmCitySupplyGraphics.fillCircle(
+        dotX,
+        dotY,
+        InfluenceRenderer.FARM_CITY_SUPPLY_DOT_RADIUS,
+      );
     }
+  }
+
+  private getStablePhaseOffset(seed: string): number {
+    let hash = 2166136261;
+    for (let index = 0; index < seed.length; index += 1) {
+      hash ^= seed.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) / 0xffffffff;
   }
 
   private renderSupplyWave(timeMs: number, deltaMs: number): void {

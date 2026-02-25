@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   type NetworkBattleEndedUpdate,
   type NetworkCityOwnershipUpdate,
+  type NetworkCitySupplyUpdate,
   type NetworkFarmCitySupplyLineUpdate,
   type NetworkInfluenceGridUpdate,
   type NetworkLobbyStateUpdate,
@@ -120,6 +121,13 @@ type RemoteUnitRenderState = {
 type RuntimeMapGridSidecar = {
   terrainCodeGrid: string;
   hillGradeGrid: Int8Array;
+  cityZones: RuntimeMapCityZone[];
+};
+
+type RuntimeMapCityZone = {
+  homeTeam: Team | 'NEUTRAL';
+  anchor: GridCoordinate;
+  cellSet: Set<string>;
 };
 
 const getNonEmptyString = (value: unknown): string | null => {
@@ -291,6 +299,8 @@ class BattleScene extends Phaser.Scene {
     string,
     NetworkFarmCitySupplyLineUpdate
   > = new Map<string, NetworkFarmCitySupplyLineUpdate>();
+  private readonly citySupplyBySourceId: Map<string, number> =
+    new Map<string, number>();
   private readonly cities: City[] = [];
   private readonly cityByHomeTeam: Record<Team, City | null> = {
     [Team.RED]: null,
@@ -359,6 +369,7 @@ class BattleScene extends Phaser.Scene {
   private mapSamplingHeight = 0;
   private moraleDebugTerrainCodeGrid: string | null = null;
   private moraleDebugHillGradeGrid: Int8Array | null = null;
+  private moraleDebugCityZones: RuntimeMapCityZone[] = [];
   private moraleDebugMapGridLoadToken = 0;
   private mapTextureRetryTimer: Phaser.Time.TimerEvent | null = null;
   private autoAdvanceCityCycleSignature: string | null = null;
@@ -647,6 +658,9 @@ class BattleScene extends Phaser.Scene {
       (cityOwnershipUpdate) => {
         this.applyCityOwnership(cityOwnershipUpdate);
       },
+      (citySupplyUpdate) => {
+        this.applyCitySupply(citySupplyUpdate);
+      },
       (supplyLineUpdate) => {
         this.applySupplyLineUpdate(supplyLineUpdate);
       },
@@ -709,6 +723,7 @@ class BattleScene extends Phaser.Scene {
       this.lastKnownHealthByUnitId.clear();
       this.attackingUnitIds.clear();
       this.moraleScoreByUnitId.clear();
+      this.citySupplyBySourceId.clear();
       this.supplyLinesByUnitId.clear();
       this.farmCitySupplyLinesByLinkId.clear();
       this.syncSupplyLinesToInfluenceRenderer();
@@ -765,6 +780,44 @@ class BattleScene extends Phaser.Scene {
       this.cities.push(neutralCity);
       this.neutralCities.push(neutralCity);
     }
+
+    this.refreshCitySupplyLabels();
+  }
+
+  private getHomeCitySupplySourceId(homeTeam: Team): string {
+    return `home:${homeTeam}`;
+  }
+
+  private getNeutralCitySupplySourceId(index: number): string {
+    return `neutral:${index}`;
+  }
+
+  private getCitySupplyAmountBySourceId(sourceId: string): number {
+    const supplyAmount = this.citySupplyBySourceId.get(sourceId);
+    if (typeof supplyAmount !== 'number' || !Number.isFinite(supplyAmount)) {
+      return 0;
+    }
+    return Math.max(0, Math.floor(supplyAmount));
+  }
+
+  private refreshCitySupplyLabels(): void {
+    this.cityByHomeTeam[Team.RED]?.setSupply(
+      this.getCitySupplyAmountBySourceId(
+        this.getHomeCitySupplySourceId(Team.RED),
+      ),
+    );
+    this.cityByHomeTeam[Team.BLUE]?.setSupply(
+      this.getCitySupplyAmountBySourceId(
+        this.getHomeCitySupplySourceId(Team.BLUE),
+      ),
+    );
+    for (let index = 0; index < this.neutralCities.length; index += 1) {
+      this.neutralCities[index]?.setSupply(
+        this.getCitySupplyAmountBySourceId(
+          this.getNeutralCitySupplySourceId(index),
+        ),
+      );
+    }
   }
 
   private rebuildCitiesForCurrentMap(): void {
@@ -791,6 +844,7 @@ class BattleScene extends Phaser.Scene {
     const normalizedMapId = mapId.trim();
     this.moraleDebugTerrainCodeGrid = null;
     this.moraleDebugHillGradeGrid = null;
+    this.moraleDebugCityZones = [];
     const loadToken = this.moraleDebugMapGridLoadToken + 1;
     this.moraleDebugMapGridLoadToken = loadToken;
     this.updateMoraleBreakdownOverlay();
@@ -826,6 +880,7 @@ class BattleScene extends Phaser.Scene {
 
           this.moraleDebugTerrainCodeGrid = sidecar.terrainCodeGrid;
           this.moraleDebugHillGradeGrid = sidecar.hillGradeGrid;
+          this.moraleDebugCityZones = sidecar.cityZones;
           this.updateMoraleBreakdownOverlay();
           return;
         } catch {
@@ -844,6 +899,7 @@ class BattleScene extends Phaser.Scene {
       terrainCodeGrid?: unknown;
       hillGradeGrid?: unknown;
       elevation?: unknown;
+      cityZones?: unknown;
     };
     const expectedLength = BattleScene.GRID_WIDTH * BattleScene.GRID_HEIGHT;
     if (
@@ -890,10 +946,109 @@ class BattleScene extends Phaser.Scene {
       hillGradeGrid[index] = normalizedGrade === HILL_GRADE_NONE ? 0 : normalizedGrade;
     }
 
+    const cityZones = this.parseRuntimeMapCityZones(candidate.cityZones);
+
     return {
       terrainCodeGrid: candidate.terrainCodeGrid,
       hillGradeGrid,
+      cityZones,
     };
+  }
+
+  private parseRuntimeMapCityZones(payload: unknown): RuntimeMapCityZone[] {
+    if (!Array.isArray(payload)) {
+      return [];
+    }
+
+    const parsedZones: RuntimeMapCityZone[] = [];
+    for (const rawZone of payload) {
+      if (!rawZone || typeof rawZone !== 'object') {
+        continue;
+      }
+
+      const candidateZone = rawZone as {
+        homeTeam?: unknown;
+        anchor?: unknown;
+        cells?: unknown;
+      };
+      const homeTeam =
+        candidateZone.homeTeam === Team.RED
+        || candidateZone.homeTeam === Team.BLUE
+        || candidateZone.homeTeam === 'NEUTRAL'
+          ? candidateZone.homeTeam
+          : null;
+      if (!homeTeam || !Array.isArray(candidateZone.cells)) {
+        continue;
+      }
+
+      const cellSet = new Set<string>();
+      let firstCell: GridCoordinate | null = null;
+      for (const rawCell of candidateZone.cells) {
+        const cell = this.parseRuntimeMapGridCoordinate(rawCell);
+        if (!cell) {
+          continue;
+        }
+        if (!firstCell) {
+          firstCell = cell;
+        }
+        cellSet.add(this.getGridCellKey(cell));
+      }
+      if (cellSet.size === 0) {
+        continue;
+      }
+
+      const anchor = this.parseRuntimeMapGridCoordinate(candidateZone.anchor) ?? firstCell;
+      if (!anchor) {
+        continue;
+      }
+
+      parsedZones.push({
+        homeTeam,
+        anchor,
+        cellSet,
+      });
+    }
+
+    return parsedZones;
+  }
+
+  private parseRuntimeMapGridCoordinate(value: unknown): GridCoordinate | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    const candidate = value as {
+      col?: unknown;
+      row?: unknown;
+    };
+    if (
+      typeof candidate.col !== 'number'
+      || !Number.isFinite(candidate.col)
+      || typeof candidate.row !== 'number'
+      || !Number.isFinite(candidate.row)
+    ) {
+      return null;
+    }
+
+    return {
+      col: Phaser.Math.Clamp(
+        Math.round(candidate.col),
+        0,
+        BattleScene.GRID_WIDTH - 1,
+      ),
+      row: Phaser.Math.Clamp(
+        Math.round(candidate.row),
+        0,
+        BattleScene.GRID_HEIGHT - 1,
+      ),
+    };
+  }
+
+  private getGridCellKeyFromColRow(col: number, row: number): string {
+    return `${col}:${row}`;
+  }
+
+  private getGridCellKey(cell: GridCoordinate): string {
+    return this.getGridCellKeyFromColRow(cell.col, cell.row);
   }
 
   private reloadMapTexture(mapId: string, revision: number): void {
@@ -1332,6 +1487,8 @@ class BattleScene extends Phaser.Scene {
         this.clearAllPendingUnitPathCommands();
         this.setAllUnitMovementHold(false);
         if (nextPhase !== 'BATTLE') {
+          this.citySupplyBySourceId.clear();
+          this.refreshCitySupplyLabels();
           this.supplyLinesByUnitId.clear();
           this.farmCitySupplyLinesByLinkId.clear();
           this.syncSupplyLinesToInfluenceRenderer();
@@ -1353,6 +1510,8 @@ class BattleScene extends Phaser.Scene {
     this.plannedPathsByUnitId.clear();
     this.clearAllPendingUnitPathCommands();
     this.setAllUnitMovementHold(false);
+    this.citySupplyBySourceId.clear();
+    this.refreshCitySupplyLabels();
     this.supplyLinesByUnitId.clear();
     this.farmCitySupplyLinesByLinkId.clear();
     this.syncSupplyLinesToInfluenceRenderer();
@@ -1408,6 +1567,8 @@ class BattleScene extends Phaser.Scene {
     this.plannedPathsByUnitId.clear();
     this.clearAllPendingUnitPathCommands();
     this.setAllUnitMovementHold(false);
+    this.citySupplyBySourceId.clear();
+    this.refreshCitySupplyLabels();
     this.supplyLinesByUnitId.clear();
     this.farmCitySupplyLinesByLinkId.clear();
     this.syncSupplyLinesToInfluenceRenderer();
@@ -1443,6 +1604,9 @@ class BattleScene extends Phaser.Scene {
       lineThickness: this.runtimeTuning.lineThickness,
       lineAlpha: this.runtimeTuning.lineAlpha,
     });
+    this.influenceRenderer?.setFarmCitySupplyTripDurationSeconds(
+      Math.max(0.25, this.runtimeTuning.cityUnitGenerationIntervalSeconds / 10),
+    );
     this.updateMoraleBreakdownOverlay();
   }
 
@@ -1473,6 +1637,19 @@ class BattleScene extends Phaser.Scene {
     this.autoAdvanceCityCycleSignature = null;
     this.autoAdvanceCityCycleOrderedTargets = [];
     this.autoAdvanceCityCycleNextIndex = 0;
+  }
+
+  private applyCitySupply(citySupplyUpdate: NetworkCitySupplyUpdate): void {
+    this.citySupplyBySourceId.clear();
+    for (const [sourceId, supplyAmount] of Object.entries(
+      citySupplyUpdate.citySupplyBySourceId,
+    )) {
+      if (!Number.isFinite(supplyAmount)) {
+        continue;
+      }
+      this.citySupplyBySourceId.set(sourceId, Math.max(0, Math.floor(supplyAmount)));
+    }
+    this.refreshCitySupplyLabels();
   }
 
   private applySupplyLineUpdate(supplyLineUpdate: NetworkSupplyLineUpdate): void {
@@ -2966,6 +3143,7 @@ class BattleScene extends Phaser.Scene {
         terrainBonus: Number.NaN,
         commanderAuraBonus: Number.NaN,
         slopeDelta: Number.NaN,
+        cityBonus: Number.NaN,
       };
     }
 
@@ -2983,11 +3161,12 @@ class BattleScene extends Phaser.Scene {
       centerCell,
     );
     const slopeDelta = this.getSlopeMoraleDeltaForUnit(unitId, centerCell);
+    const cityBonus = this.getCityMoraleBonusAtCell(centerCell, unit.team);
     const supplyBlocked = Boolean(supplyLine && !supplyLine.connected);
     const estimatedMoraleScore = supplyBlocked
       ? 0
       : Phaser.Math.Clamp(
-          influenceWithTerrainScore + commanderAuraBonus + slopeDelta,
+          influenceWithTerrainScore + commanderAuraBonus + slopeDelta + cityBonus,
           0,
           BattleScene.MORALE_MAX_SCORE,
         );
@@ -3006,6 +3185,7 @@ class BattleScene extends Phaser.Scene {
       terrainBonus,
       commanderAuraBonus,
       slopeDelta,
+      cityBonus,
     };
   }
 
@@ -3219,6 +3399,46 @@ class BattleScene extends Phaser.Scene {
       moralePerInfluenceDot,
       slopeMoraleDotEquivalent: BattleScene.SLOPE_MORALE_DOT_EQUIVALENT,
     });
+  }
+
+  private getCityMoraleBonusAtCell(cell: GridCoordinate, team: Team): number {
+    const configuredBonus = Number(GAMEPLAY_CONFIG.cities.moraleBonusInsideOwnedZone);
+    if (!Number.isFinite(configuredBonus) || configuredBonus === 0) {
+      return 0;
+    }
+
+    const cellKey = this.getGridCellKey(cell);
+    for (const zone of this.moraleDebugCityZones) {
+      const owner = this.getMoraleDebugCityZoneOwner(zone);
+      if (owner !== team) {
+        continue;
+      }
+      if (zone.cellSet.has(cellKey)) {
+        return configuredBonus;
+      }
+    }
+
+    return 0;
+  }
+
+  private getMoraleDebugCityZoneOwner(zone: RuntimeMapCityZone): CityOwner {
+    if (zone.homeTeam === Team.RED) {
+      return this.cityOwnerByHomeTeam[Team.RED];
+    }
+    if (zone.homeTeam === Team.BLUE) {
+      return this.cityOwnerByHomeTeam[Team.BLUE];
+    }
+
+    const zoneAnchorKey = this.getGridCellKey(zone.anchor);
+    for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
+      const neutralAnchor = this.neutralCityGridCoordinates[index];
+      if (this.getGridCellKey(neutralAnchor) !== zoneAnchorKey) {
+        continue;
+      }
+      return this.neutralCityOwners[index] ?? 'NEUTRAL';
+    }
+
+    return 'NEUTRAL';
   }
 
   private getContactDpsForMorale(unit: Unit, moraleScore: number | null): number | null {

@@ -105,6 +105,7 @@ type BattleRoomState = {
   units: unknown;
   supplyLines: unknown;
   farmCitySupplyLines: unknown;
+  citySupplyBySourceId: unknown;
   influenceGrid: ServerInfluenceGridState;
   simulationFrame: number;
   mapId: string;
@@ -170,6 +171,10 @@ export type NetworkCityOwnershipUpdate = {
   redCityOwner: string;
   blueCityOwner: string;
   neutralCityOwners: string[];
+};
+
+export type NetworkCitySupplyUpdate = {
+  citySupplyBySourceId: Record<string, number>;
 };
 
 export type NetworkSupplyLinePathCell = {
@@ -254,6 +259,9 @@ type InfluenceGridChangedHandler = (
 type CityOwnershipChangedHandler = (
   cityOwnershipUpdate: NetworkCityOwnershipUpdate,
 ) => void;
+type CitySupplyChangedHandler = (
+  citySupplyUpdate: NetworkCitySupplyUpdate,
+) => void;
 type SupplyLineChangedHandler = (
   supplyLineUpdate: NetworkSupplyLineUpdate,
 ) => void;
@@ -303,6 +311,7 @@ export class NetworkManager {
     private readonly onUnitMoraleChanged: UnitMoraleChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
     private readonly onCityOwnershipChanged: CityOwnershipChangedHandler,
+    private readonly onCitySupplyChanged: CitySupplyChangedHandler,
     private readonly onSupplyLineChanged: SupplyLineChangedHandler,
     private readonly onSupplyLineRemoved: SupplyLineRemovedHandler,
     private readonly onFarmCitySupplyLineChanged: FarmCitySupplyLineChangedHandler,
@@ -396,6 +405,7 @@ export class NetworkManager {
       ): string =>
         `${update.redCityOwner}|${update.blueCityOwner}|${update.neutralCityOwners.join(',')}`;
       let lastCityOwnershipSignature: string | null = null;
+      let lastCitySupplySignature: string | null = null;
 
       const emitSimulationFrameUpdate = () => {
         const simulationFrame =
@@ -428,6 +438,15 @@ export class NetworkManager {
         lastCityOwnershipSignature = signature;
         this.onCityOwnershipChanged(update);
       };
+      const emitCitySupplyUpdate = (force = false) => {
+        const update = this.buildCitySupplyUpdate(state.citySupplyBySourceId);
+        const signature = this.getCitySupplySignature(update);
+        if (!force && signature === lastCitySupplySignature) {
+          return;
+        }
+        lastCitySupplySignature = signature;
+        this.onCitySupplyChanged(update);
+      };
 
       const detachInfluenceGridRevision = $(state.influenceGrid).listen(
         'revision',
@@ -446,6 +465,15 @@ export class NetworkManager {
           emitCityOwnershipUpdate();
         },
       );
+      const detachCitySupplyAdd = $(state).citySupplyBySourceId.onAdd(() => {
+        emitCitySupplyUpdate();
+      });
+      const detachCitySupplyChange = $(state).citySupplyBySourceId.onChange(() => {
+        emitCitySupplyUpdate();
+      });
+      const detachCitySupplyRemove = $(state).citySupplyBySourceId.onRemove(() => {
+        emitCitySupplyUpdate();
+      });
       const detachSimulationFrame = $(state).listen('simulationFrame', () => {
         emitSimulationFrameUpdate();
         emitCityOwnershipUpdate();
@@ -455,11 +483,15 @@ export class NetworkManager {
         detachRedCityOwner,
         detachBlueCityOwner,
         detachNeutralCityOwnerChange,
+        detachCitySupplyAdd,
+        detachCitySupplyChange,
+        detachCitySupplyRemove,
         detachSimulationFrame,
       );
       emitSimulationFrameUpdate();
       emitInfluenceGridUpdate();
       emitCityOwnershipUpdate(true);
+      emitCitySupplyUpdate(true);
 
       const supplyLineListenerDetachersByUnitId = new Map<
         string,
@@ -976,6 +1008,35 @@ export class NetworkManager {
         (owner): owner is string => typeof owner === 'string',
       ),
     });
+  }
+
+  private buildCitySupplyUpdate(rawCitySupplyBySourceId: unknown): NetworkCitySupplyUpdate {
+    const citySupplyBySourceId: Record<string, number> = {};
+    if (
+      rawCitySupplyBySourceId &&
+      typeof rawCitySupplyBySourceId === 'object' &&
+      'forEach' in rawCitySupplyBySourceId &&
+      typeof rawCitySupplyBySourceId.forEach === 'function'
+    ) {
+      (
+        rawCitySupplyBySourceId as {
+          forEach: (callback: (value: unknown, key: unknown) => void) => void;
+        }
+      ).forEach((value, key) => {
+        if (typeof key !== 'string' || typeof value !== 'number' || !Number.isFinite(value)) {
+          return;
+        }
+        citySupplyBySourceId[key] = Math.max(0, Math.floor(value));
+      });
+    }
+    return { citySupplyBySourceId };
+  }
+
+  private getCitySupplySignature(update: NetworkCitySupplyUpdate): string {
+    return Object.entries(update.citySupplyBySourceId)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([sourceId, supplyAmount]) => `${sourceId}:${supplyAmount}`)
+      .join('|');
   }
 
   private normalizeBattleEndedUpdate(

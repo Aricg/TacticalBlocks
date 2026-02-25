@@ -10,6 +10,7 @@ export class BattleState extends Schema {
   @type({ map: SupplyLineState }) supplyLines = new MapSchema<SupplyLineState>();
   @type({ map: FarmCitySupplyLineState })
   farmCitySupplyLines = new MapSchema<FarmCitySupplyLineState>();
+  @type({ map: "number" }) citySupplyBySourceId = new MapSchema<number>();
   @type(InfluenceGridState) influenceGrid = new InfluenceGridState();
   @type("number") simulationFrame = 0;
   @type("string") mapId: string = GAMEPLAY_CONFIG.map.activeMapId;
