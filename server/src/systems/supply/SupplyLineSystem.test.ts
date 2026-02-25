@@ -3,6 +3,7 @@ import {
   computeFarmToCitySupplyStatus,
   computeSupplyLinesForUnits,
 } from './SupplyLineSystem.js';
+import { traceGridLine } from '../movement/gridPathing.js';
 
 function runFarmSupplyFallbackForLegacyMapsTest(): void {
   const result = computeFarmToCitySupplyStatus({
@@ -175,7 +176,35 @@ function runFarmSupplySeversWhenEnemyOccupiesLinkCellTest(): void {
   assert.equal(supplyStatus.linkStates[0]?.severIndex, 1);
 }
 
+function runTraceGridLineDirectionInvarianceTest(): void {
+  const pairs = [
+    {
+      start: { col: 0, row: 0 },
+      end: { col: 1, row: 2 },
+    },
+    {
+      start: { col: 13, row: 22 },
+      end: { col: 34, row: 17 },
+    },
+    {
+      start: { col: 67, row: 22 },
+      end: { col: 42, row: 31 },
+    },
+    {
+      start: { col: 40, row: 8 },
+      end: { col: 19, row: 37 },
+    },
+  ];
+
+  for (const { start, end } of pairs) {
+    const forward = traceGridLine(start, end);
+    const reverse = traceGridLine(end, start).reverse();
+    assert.deepEqual(forward, reverse);
+  }
+}
+
 runFarmSupplyFallbackForLegacyMapsTest();
 runUnsuppliedCityCannotSupplyUnitsTest();
 runSuppliedCityCanSupplyUnitsTest();
 runFarmSupplySeversWhenEnemyOccupiesLinkCellTest();
+runTraceGridLineDirectionInvarianceTest();

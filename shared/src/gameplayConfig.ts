@@ -1,5 +1,5 @@
 const MAP_IDS = [
-  'runtime-generated-lobby',
+  'tmp-debug-grass',
 ] as const;
 
 const UNIT_BASE_MOVE_SPEED = 40;
@@ -27,7 +27,7 @@ export const GAMEPLAY_CONFIG = {
   map: {
     width: 1920,
     height: 1080,
-    activeMapId: 'runtime-generated-lobby',
+    activeMapId: 'tmp-debug-grass',
     availableMapIds: MAP_IDS,
   },
   network: {

@@ -44,11 +44,15 @@ export function traceGridLine(
   start: GridCoordinate,
   end: GridCoordinate,
 ): GridCoordinate[] {
+  const shouldSwapEndpoints =
+    start.col > end.col || (start.col === end.col && start.row > end.row);
+  const startCell = shouldSwapEndpoints ? end : start;
+  const endCell = shouldSwapEndpoints ? start : end;
   const points: GridCoordinate[] = [];
-  let x0 = start.col;
-  let y0 = start.row;
-  const x1 = end.col;
-  const y1 = end.row;
+  let x0 = startCell.col;
+  let y0 = startCell.row;
+  const x1 = endCell.col;
+  const y1 = endCell.row;
 
   const dx = Math.abs(x1 - x0);
   const sx = x0 < x1 ? 1 : -1;
@@ -73,6 +77,9 @@ export function traceGridLine(
     }
   }
 
+  if (shouldSwapEndpoints) {
+    points.reverse();
+  }
   return points;
 }
 
