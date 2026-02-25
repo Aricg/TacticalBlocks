@@ -32,6 +32,8 @@ export type ComputeInitialSpawnsArgs = {
   cityAnchors: MapBundle["cityAnchors"];
   blockedSpawnCellIndexSet: ReadonlySet<number>;
   lineUnitCountPerTeam?: number | null;
+  friendlyCitySpawnCellsByTeam?: Record<PlayerTeam, readonly GridCoordinate[]>;
+  friendlyFarmSpawnCellsByTeam?: Record<PlayerTeam, readonly GridCoordinate[]>;
   baseUnitHealth: number;
   unitForwardOffset: number;
   mapWidth: number;
@@ -43,6 +45,9 @@ export type ComputeInitialSpawnsArgs = {
 
 export class StartingForcePlanner {
   computeInitialSpawns(args: ComputeInitialSpawnsArgs): StartingForcePlan {
+    if (args.strategy === "friendly-zones") {
+      return this.computeFriendlyZoneSpawns(args);
+    }
     if (args.strategy === "battle-line") {
       return this.computeBattleLineSpawns(args);
     }
@@ -475,6 +480,91 @@ export class StartingForcePlanner {
       cellWidth,
       cellHeight,
     });
+  }
+
+  private computeFriendlyZoneSpawns(args: ComputeInitialSpawnsArgs): StartingForcePlan {
+    const cellWidth = args.mapWidth / args.gridWidth;
+    const cellHeight = args.mapHeight / args.gridHeight;
+    const redSpawn = this.gridToWorldCenter(args.cityAnchors.RED, cellWidth, cellHeight);
+    const blueSpawn = this.gridToWorldCenter(
+      args.cityAnchors.BLUE,
+      cellWidth,
+      cellHeight,
+    );
+    const axisX = blueSpawn.x - redSpawn.x;
+    const axisY = blueSpawn.y - redSpawn.y;
+    const axisLength = Math.hypot(axisX, axisY);
+    const redForwardX = axisLength > 0.0001 ? axisX / axisLength : 1;
+    const redForwardY = axisLength > 0.0001 ? axisY / axisLength : 0;
+    const blueForwardX = -redForwardX;
+    const blueForwardY = -redForwardY;
+    const redRotation = Math.atan2(redForwardY, redForwardX) - args.unitForwardOffset;
+    const blueRotation =
+      Math.atan2(blueForwardY, blueForwardX) - args.unitForwardOffset;
+    const redSpawnCandidates = this.collectFriendlyZoneSpawnCandidates({
+      cityCells: args.friendlyCitySpawnCellsByTeam?.RED ?? [],
+      farmCells: args.friendlyFarmSpawnCellsByTeam?.RED ?? [],
+      gridWidth: args.gridWidth,
+      blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
+      cellWidth,
+      cellHeight,
+    });
+    const blueSpawnCandidates = this.collectFriendlyZoneSpawnCandidates({
+      cityCells: args.friendlyCitySpawnCellsByTeam?.BLUE ?? [],
+      farmCells: args.friendlyFarmSpawnCellsByTeam?.BLUE ?? [],
+      gridWidth: args.gridWidth,
+      blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
+      cellWidth,
+      cellHeight,
+    });
+    if (redSpawnCandidates.length === 0 || blueSpawnCandidates.length === 0) {
+      return this.computeBlockSpawns(args);
+    }
+
+    return this.buildPlannedUnitsFromCandidates({
+      computeArgs: args,
+      redRotation,
+      blueRotation,
+      redSpawnCandidates,
+      blueSpawnCandidates,
+      cellWidth,
+      cellHeight,
+    });
+  }
+
+  private collectFriendlyZoneSpawnCandidates(args: {
+    cityCells: readonly GridCoordinate[];
+    farmCells: readonly GridCoordinate[];
+    gridWidth: number;
+    blockedSpawnCellIndexSet: ReadonlySet<number>;
+    cellWidth: number;
+    cellHeight: number;
+  }): Vector2[] {
+    const candidates: Vector2[] = [];
+    const seenCellKeys = new Set<string>();
+    for (const cell of args.cityCells) {
+      this.addSpawnCandidateIfOpen({
+        candidateCell: cell,
+        candidates,
+        seenCellKeys,
+        gridWidth: args.gridWidth,
+        blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
+        cellWidth: args.cellWidth,
+        cellHeight: args.cellHeight,
+      });
+    }
+    for (const cell of args.farmCells) {
+      this.addSpawnCandidateIfOpen({
+        candidateCell: cell,
+        candidates,
+        seenCellKeys,
+        gridWidth: args.gridWidth,
+        blockedSpawnCellIndexSet: args.blockedSpawnCellIndexSet,
+        cellWidth: args.cellWidth,
+        cellHeight: args.cellHeight,
+      });
+    }
+    return candidates;
   }
 
   private collectCityBlockCandidates(args: {

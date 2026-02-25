@@ -4,6 +4,7 @@ export const GENERATION_WATER_MODES = ["auto", "none", "lake", "river"] as const
 export type GenerationWaterMode = (typeof GENERATION_WATER_MODES)[number];
 
 export const STARTING_FORCE_LAYOUT_STRATEGIES = [
+  "friendly-zones",
   "battle-line",
   "city-front",
   "mirrored-grid",
@@ -73,7 +74,7 @@ export const DEFAULT_GENERATION_PROFILE: GenerationProfile = {
   startingForces: {
     unitCountPerTeam: 48,
     commanderCount: 1,
-    layoutStrategy: "battle-line",
+    layoutStrategy: "friendly-zones",
   },
 };
 
@@ -306,7 +307,7 @@ export function resolveGenerationProfile(
           )
         ) {
           errors.push(
-            "profile.startingForces.layoutStrategy must be one of: battle-line, city-front, mirrored-grid, block.",
+            "profile.startingForces.layoutStrategy must be one of: friendly-zones, battle-line, city-front, mirrored-grid, block.",
           );
         } else {
           profile.startingForces.layoutStrategy =

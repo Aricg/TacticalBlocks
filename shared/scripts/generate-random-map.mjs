@@ -2016,6 +2016,9 @@ function placeSettlementAnchors(
       RED: redAnchor,
       BLUE: blueAnchor,
     },
+    redFriendlyCityAnchors,
+    centralNeutralCityAnchors: neutralCityAnchors,
+    blueFriendlyCityAnchors,
     neutralCityAnchors: allNonHomeCityAnchors,
   };
 }
@@ -2059,8 +2062,22 @@ function buildSettlementOverlays({
       minCells: 16,
       maxCells: 30,
     },
-    ...anchorLayout.neutralCityAnchors.map((anchor, index) => ({
+    ...anchorLayout.redFriendlyCityAnchors.map((anchor, index) => ({
+      cityZoneId: `friendly-red-${index}`,
+      homeTeam: 'NEUTRAL',
+      anchor,
+      minCells: 8,
+      maxCells: 18,
+    })),
+    ...anchorLayout.centralNeutralCityAnchors.map((anchor, index) => ({
       cityZoneId: `neutral-${index}`,
+      homeTeam: 'NEUTRAL',
+      anchor,
+      minCells: 8,
+      maxCells: 18,
+    })),
+    ...anchorLayout.blueFriendlyCityAnchors.map((anchor, index) => ({
+      cityZoneId: `friendly-blue-${index}`,
       homeTeam: 'NEUTRAL',
       anchor,
       minCells: 8,

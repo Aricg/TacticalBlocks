@@ -60,6 +60,7 @@ import {
   type LoadActiveMapBundleResult,
 } from "./services/MapRuntimeService.js";
 import { StartingForcePlanner } from "./services/StartingForcePlanner.js";
+import { StartingZoneResolver } from "./services/StartingZoneResolver.js";
 import { NETWORK_MESSAGE_TYPES } from "../../../shared/src/networkContracts.js";
 import {
   DEFAULT_GENERATION_PROFILE,
@@ -127,6 +128,7 @@ export class BattleRoom extends Room<BattleState> {
   private readonly lobbyMapGenerationService = new LobbyMapGenerationService();
   private readonly mapRuntimeService = new MapRuntimeService();
   private readonly startingForcePlanner = new StartingForcePlanner();
+  private readonly startingZoneResolver = new StartingZoneResolver();
   private readonly movementStateByUnitId = new Map<string, UnitMovementState>();
   private readonly lastBroadcastPathSignatureByUnitId = new Map<string, string>();
   private readonly supplySignatureByUnitId = new Map<string, string>();
@@ -162,6 +164,17 @@ export class BattleRoom extends Room<BattleState> {
   private readonly neutralCityZoneCellSets: Set<string>[] = [];
   private readonly neutralCityZoneCells: GridCoordinate[][] = [];
   private readonly neutralCityZoneIds: string[] = [];
+  private readonly neutralCityInitialOwnerByIndex: CityOwner[] = [];
+  private readonly friendlySpawnCityCellsByTeam: Record<PlayerTeam, GridCoordinate[]> =
+    {
+      BLUE: [],
+      RED: [],
+    };
+  private readonly friendlySpawnFarmCellsByTeam: Record<PlayerTeam, GridCoordinate[]> =
+    {
+      BLUE: [],
+      RED: [],
+    };
   private readonly farmZoneAnchorById = new Map<string, GridCoordinate>();
   private farmToCityLinks: Array<{
     farmZoneId: string;
@@ -296,6 +309,7 @@ export class BattleRoom extends Room<BattleState> {
       this.state.neutralCityOwners,
       this.neutralCityCells.length,
     );
+    this.applyInitialNeutralCityOwnership();
     this.resetCityUnitGenerationState();
     this.influenceGridSystem.setRuntimeTuning(this.runtimeTuning);
     this.supplyInfluenceGridSystem.setRuntimeTuning(this.runtimeTuning);
@@ -788,6 +802,27 @@ export class BattleRoom extends Room<BattleState> {
     return this.buildCityZoneFallback(fallbackZoneId, "NEUTRAL", anchor);
   }
 
+  private resolveFriendlyCityCountForMap(mapId: string): number {
+    const configuredFriendlyCityCount =
+      this.generationProfileByMapId.get(mapId)?.cities.friendlyCityCount;
+    if (
+      typeof configuredFriendlyCityCount === "number" &&
+      Number.isInteger(configuredFriendlyCityCount) &&
+      configuredFriendlyCityCount > 0
+    ) {
+      return configuredFriendlyCityCount;
+    }
+    return 0;
+  }
+
+  private applyInitialNeutralCityOwnership(): void {
+    const neutralCityCount = this.state.neutralCityOwners.length;
+    for (let index = 0; index < neutralCityCount; index += 1) {
+      this.state.neutralCityOwners[index] =
+        this.neutralCityInitialOwnerByIndex[index] ?? "NEUTRAL";
+    }
+  }
+
   private syncMapFeatureMetadataFromBundle(): void {
     this.roadCellIndexSet.clear();
     this.cityZoneCellSetByHomeTeam.RED.clear();
@@ -799,6 +834,11 @@ export class BattleRoom extends Room<BattleState> {
     this.neutralCityZoneCellSets.length = 0;
     this.neutralCityZoneCells.length = 0;
     this.neutralCityZoneIds.length = 0;
+    this.neutralCityInitialOwnerByIndex.length = 0;
+    this.friendlySpawnCityCellsByTeam.RED = [];
+    this.friendlySpawnCityCellsByTeam.BLUE = [];
+    this.friendlySpawnFarmCellsByTeam.RED = [];
+    this.friendlySpawnFarmCellsByTeam.BLUE = [];
     this.farmZoneAnchorById.clear();
     this.farmToCityLinks = [];
 
@@ -850,6 +890,30 @@ export class BattleRoom extends Room<BattleState> {
       farmZoneId: link.farmZoneId,
       cityZoneId: link.cityZoneId,
     }));
+    const resolvedStartingZoneState = this.startingZoneResolver.resolve({
+      cityZones: this.activeMapBundle.cityZones,
+      farmZones: this.activeMapBundle.farmZones,
+      farmToCityLinks: this.farmToCityLinks,
+      homeCityZoneIdsByTeam: {
+        RED: redZone.cityZoneId,
+        BLUE: blueZone.cityZoneId,
+      },
+      neutralCityZoneIds: this.neutralCityZoneIds,
+      configuredFriendlyCityCount: this.resolveFriendlyCityCountForMap(
+        this.state.mapId,
+      ),
+    });
+    this.neutralCityInitialOwnerByIndex.push(
+      ...resolvedStartingZoneState.neutralCityInitialOwnerByIndex,
+    );
+    this.friendlySpawnCityCellsByTeam.RED =
+      resolvedStartingZoneState.friendlySpawnCityCellsByTeam.RED;
+    this.friendlySpawnCityCellsByTeam.BLUE =
+      resolvedStartingZoneState.friendlySpawnCityCellsByTeam.BLUE;
+    this.friendlySpawnFarmCellsByTeam.RED =
+      resolvedStartingZoneState.friendlySpawnFarmCellsByTeam.RED;
+    this.friendlySpawnFarmCellsByTeam.BLUE =
+      resolvedStartingZoneState.friendlySpawnFarmCellsByTeam.BLUE;
   }
 
   private getMapBundleTerrainTypeAtCell(
@@ -1669,6 +1733,7 @@ export class BattleRoom extends Room<BattleState> {
       this.state.neutralCityOwners,
       this.neutralCityCells.length,
     );
+    this.applyInitialNeutralCityOwnership();
     this.resetCityUnitGenerationState();
     if (resetReadyStates) {
       this.lobbyService.resetLobbyReadyStates();
@@ -1701,6 +1766,8 @@ export class BattleRoom extends Room<BattleState> {
       blockedSpawnCellIndexSet:
         this.activeMapBundle?.blockedSpawnCellIndexSet ?? new Set<number>(),
       lineUnitCountPerTeam: this.startingForceLineUnitCountPerTeam,
+      friendlyCitySpawnCellsByTeam: this.friendlySpawnCityCellsByTeam,
+      friendlyFarmSpawnCellsByTeam: this.friendlySpawnFarmCellsByTeam,
       baseUnitHealth: this.runtimeTuning.baseUnitHealth,
       unitForwardOffset: BattleRoom.UNIT_FORWARD_OFFSET,
       mapWidth: GAMEPLAY_CONFIG.map.width,
