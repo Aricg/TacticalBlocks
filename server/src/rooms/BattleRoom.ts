@@ -34,6 +34,7 @@ import {
   updateCityOwnershipFromOccupancy as updateCityOwnershipFromOccupancySystem,
 } from "../systems/cities/CityControlSystem.js";
 import {
+  buildDirectRoute,
   buildTerrainAwareRoute,
   normalizePathWaypoints,
 } from "../systems/movement/MovementCommandRouter.js";
@@ -670,6 +671,12 @@ export class BattleRoom extends Room<BattleState> {
       return movementCommandMode.preferRoads;
     }
     return true;
+  }
+
+  private shouldUseDirectPathing(
+    movementCommandMode?: Partial<MovementCommandModeInput>,
+  ): boolean {
+    return movementCommandMode?.directPathing === true;
   }
 
   private faceCurrentDestination(unit: Unit, movementState: UnitMovementState): void {
@@ -1895,19 +1902,29 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     const unitCell = this.worldToGridCoordinate(unit.x, unit.y);
-    const preferRoads = this.resolvePathRoadPreference(message.movementCommandMode);
-    const route = buildTerrainAwareRoute(
-      unitCell,
-      normalizedPath,
-      (x, y) => this.worldToGridCoordinate(x, y),
-      (_fromCell, toCell) => this.getPathfindingStepCostAtCell(toCell, preferRoads),
-      (cell) => this.isCellImpassable(cell),
-      {
-        maxExpansionsPerSegment:
-          BattleRoom.PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT,
-        heuristicMinStepCost: BattleRoom.PATHFINDING_HEURISTIC_MIN_STEP_COST,
-      },
-    );
+    const route = this.shouldUseDirectPathing(message.movementCommandMode)
+      ? buildDirectRoute(
+        unitCell,
+        normalizedPath,
+        (x, y) => this.worldToGridCoordinate(x, y),
+        (cell) => this.isCellImpassable(cell),
+      )
+      : buildTerrainAwareRoute(
+        unitCell,
+        normalizedPath,
+        (x, y) => this.worldToGridCoordinate(x, y),
+        (_fromCell, toCell) =>
+          this.getPathfindingStepCostAtCell(
+            toCell,
+            this.resolvePathRoadPreference(message.movementCommandMode),
+          ),
+        (cell) => this.isCellImpassable(cell),
+        {
+          maxExpansionsPerSegment:
+            BattleRoom.PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT,
+          heuristicMinStepCost: BattleRoom.PATHFINDING_HEURISTIC_MIN_STEP_COST,
+        },
+      );
 
     if (route.length === 0) {
       this.clearMovementForUnit(unit.unitId);

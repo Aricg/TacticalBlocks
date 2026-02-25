@@ -65,10 +65,12 @@ export function buildMovementCommandMode(
   shiftHeld: boolean,
   options?: {
     preferRoads?: boolean;
+    directPathing?: boolean;
   },
 ): NetworkUnitPathCommand['movementCommandMode'] {
   const preferRoads = options?.preferRoads ?? true;
-  if (!shiftHeld && preferRoads) {
+  const directPathing = options?.directPathing ?? false;
+  if (!shiftHeld && preferRoads && !directPathing) {
     return undefined;
   }
 
@@ -80,6 +82,9 @@ export function buildMovementCommandMode(
   }
   if (!preferRoads) {
     movementCommandMode.preferRoads = false;
+  }
+  if (directPathing) {
+    movementCommandMode.directPathing = true;
   }
   return movementCommandMode;
 }

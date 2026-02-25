@@ -35,6 +35,7 @@ export type MovementCommandMode = {
 export type MovementCommandModeInput = {
   rotateToFace: boolean;
   preferRoads: boolean;
+  directPathing: boolean;
 };
 
 export type UnitPathMessage = {

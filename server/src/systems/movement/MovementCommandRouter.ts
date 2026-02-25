@@ -2,6 +2,7 @@ import type { GridCoordinate, Vector2 } from "../../rooms/BattleRoomTypes.js";
 import {
   compactGridCoordinates,
   findWeightedRoute,
+  traceGridLine,
   type StepCostResolver,
 } from "./gridPathing.js";
 
@@ -80,6 +81,47 @@ export function buildTerrainAwareRoute(
     pathCursor = segmentResult.path[segmentResult.path.length - 1] ?? pathCursor;
 
     if (!segmentResult.reachedGoal) {
+      break;
+    }
+  }
+
+  return compactRouteForExecution(route);
+}
+
+export function buildDirectRoute(
+  startCell: GridCoordinate,
+  normalizedPath: Vector2[],
+  worldToGridCoordinate: WorldToGridCoordinate,
+  isCellImpassable: IsCellImpassable,
+): GridCoordinate[] {
+  const snappedTargetCells = compactGridCoordinates(
+    normalizedPath.map((waypoint) =>
+      worldToGridCoordinate(waypoint.x, waypoint.y),
+    ),
+  );
+
+  let pathCursor = { col: startCell.col, row: startCell.row };
+  const route: GridCoordinate[] = [];
+
+  for (const targetCell of snappedTargetCells) {
+    const segment = traceGridLine(pathCursor, targetCell);
+    if (segment.length <= 1) {
+      pathCursor = targetCell;
+      continue;
+    }
+
+    let reachedTarget = true;
+    for (let index = 1; index < segment.length; index += 1) {
+      const step = segment[index];
+      if (isCellImpassable(step)) {
+        reachedTarget = false;
+        break;
+      }
+      route.push(step);
+      pathCursor = step;
+    }
+
+    if (!reachedTarget) {
       break;
     }
   }

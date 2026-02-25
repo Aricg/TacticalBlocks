@@ -2520,6 +2520,7 @@ class BattleScene extends Phaser.Scene {
 
     const movementCommandMode = buildMovementCommandMode(shiftHeld, {
       preferRoads: this.selectedUnits.size <= 1,
+      directPathing: true,
     });
 
     for (const assignment of assignments) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildDirectRoute,
   buildTerrainAwareRoute,
   type GetStepCost,
 } from "./MovementCommandRouter.js";
@@ -139,8 +140,40 @@ function runSkipsStationaryLeadingWaypointTest(): void {
   assert.equal(finalCell.row, 2);
 }
 
+function runDirectRouteIgnoresTerrainCostBiasTest(): void {
+  const waterCells = new Set<string>(["1:1", "2:1", "3:1"]);
+  const route = buildDirectRoute(
+    { col: 0, row: 1 },
+    [{ x: 4, y: 1 }],
+    (x, y) => ({ col: Math.round(x), row: Math.round(y) }),
+    () => false,
+  );
+
+  assert.equal(route[route.length - 1]?.col, 4);
+  assert.equal(route[route.length - 1]?.row, 1);
+  assert.ok(route.some((cell) => waterCells.has(toCellKey(cell))));
+}
+
+function runDirectRouteStopsAtImpassableCellTest(): void {
+  const mountainCells = new Set<string>(["2:1"]);
+  const route = buildDirectRoute(
+    { col: 0, row: 1 },
+    [{ x: 4, y: 1 }],
+    (x, y) => ({ col: Math.round(x), row: Math.round(y) }),
+    (cell) => mountainCells.has(toCellKey(cell)),
+  );
+
+  assert.ok(route.length > 0);
+  const finalCell = route[route.length - 1];
+  assert.equal(finalCell.col, 1);
+  assert.equal(finalCell.row, 1);
+  assert.ok(!route.some((cell) => mountainCells.has(toCellKey(cell))));
+}
+
 runPrefersRoadCorridorTest();
 runAvoidsWaterWhenDryDetourReasonableTest();
 runNavigatesMountainBarrierWithGapTest();
 runReturnsPartialPathWhenBlockedTest();
 runSkipsStationaryLeadingWaypointTest();
+runDirectRouteIgnoresTerrainCostBiasTest();
+runDirectRouteStopsAtImpassableCellTest();
