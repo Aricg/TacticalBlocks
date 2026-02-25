@@ -8,6 +8,7 @@ export type MoraleBreakdownOverlayData = {
   terrainBonus: number;
   commanderAuraBonus: number;
   slopeDelta: number;
+  cityBonus: number;
 };
 
 function formatSigned(value: number, decimals = 2): string {
@@ -101,7 +102,8 @@ export class MoraleBreakdownOverlay {
       `Influence base: ${formatValue(data.influenceBaseScore, 2)}\n` +
       `Terrain (${data.terrainType}): ${formatSigned(data.terrainBonus, 2)}\n` +
       `Commander aura: ${formatSigned(data.commanderAuraBonus, 2)}\n` +
-      `Slope delta: ${formatSigned(data.slopeDelta, 2)}`;
+      `Slope delta: ${formatSigned(data.slopeDelta, 2)}\n` +
+      `City zone: ${formatSigned(data.cityBonus, 2)}`;
   }
 
   public destroy(): void {
