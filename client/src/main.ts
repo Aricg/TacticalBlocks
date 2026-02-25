@@ -368,6 +368,8 @@ class BattleScene extends Phaser.Scene {
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly ENEMY_VISIBILITY_PADDING =
     GAMEPLAY_CONFIG.visibility.enemyVisibilityPadding;
+  private static readonly FOREST_ENEMY_REVEAL_DISTANCE_SQUARES =
+    GAMEPLAY_CONFIG.visibility.forestEnemyRevealDistanceSquares;
   private static readonly FOG_DEPTH = GAMEPLAY_CONFIG.visibility.fogDepth;
   private static readonly DRAG_THRESHOLD = GAMEPLAY_CONFIG.input.dragThreshold;
   private static readonly PREVIEW_PATH_POINT_SPACING =
@@ -467,6 +469,8 @@ class BattleScene extends Phaser.Scene {
       shroudColor: BattleScene.SHROUD_COLOR,
       shroudAlpha: BattleScene.SHROUD_ALPHA,
       enemyVisibilityPadding: BattleScene.ENEMY_VISIBILITY_PADDING,
+      forestEnemyRevealDistanceSquares:
+        BattleScene.FOREST_ENEMY_REVEAL_DISTANCE_SQUARES,
       supplyCellWidth: BattleScene.GRID_CELL_WIDTH,
       supplyCellHeight: BattleScene.GRID_CELL_HEIGHT,
     });

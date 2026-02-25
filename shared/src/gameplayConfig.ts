@@ -44,6 +44,7 @@ export const GAMEPLAY_CONFIG = {
     visionRadius: 178,
     cityVisionRadius: 240,
     enemyVisibilityPadding: 24,
+    forestEnemyRevealDistanceSquares: 2,
   },
   influence: {
     // Influence-grid resolution in cells (higher = smoother line, more CPU/network cost).

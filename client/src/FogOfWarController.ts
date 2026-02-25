@@ -9,6 +9,7 @@ type FogOfWarConfig = {
   shroudColor: number;
   shroudAlpha: number;
   enemyVisibilityPadding: number;
+  forestEnemyRevealDistanceSquares: number;
   supplyCellWidth: number;
   supplyCellHeight: number;
 };
@@ -68,6 +69,9 @@ export class FogOfWarController {
     const allyVisionSources = units.filter(
       (unit) => unit.team === localPlayerTeam && unit.isAlive(),
     );
+    const allyUnitVisionCells = allyVisionSources.map((unit) =>
+      this.resolveGridCell(unit.x, unit.y),
+    );
 
     for (const unit of allyVisionSources) {
       this.layer.erase(this.unitVisionBrush, unit.x, unit.y);
@@ -83,27 +87,53 @@ export class FogOfWarController {
 
     const supplyRevealRadius =
       Math.max(this.config.supplyCellWidth, this.config.supplyCellHeight) * 0.5;
-    const visibilitySources: Array<{ x: number; y: number; radius: number }> = [
+    const visibilitySources: Array<{
+      x: number;
+      y: number;
+      radius: number;
+      cellCol: number;
+      cellRow: number;
+    }> = [
       ...allyVisionSources.map((unit) => ({
         x: unit.x,
         y: unit.y,
         radius: this.unitVisionRadius,
+        ...this.resolveGridCell(unit.x, unit.y),
       })),
       ...allyCityPositions.map((cityPosition) => ({
         x: cityPosition.x,
         y: cityPosition.y,
         radius: this.cityVisionRadius,
+        ...this.resolveGridCell(cityPosition.x, cityPosition.y),
       })),
       ...supplyVisionPositions.map((supplyPosition) => ({
         x: supplyPosition.x,
         y: supplyPosition.y,
         radius: supplyRevealRadius,
+        ...this.resolveGridCell(supplyPosition.x, supplyPosition.y),
       })),
     ];
+    const forestRevealDistanceSquares = Math.max(
+      0,
+      this.config.forestEnemyRevealDistanceSquares,
+    );
 
     for (const unit of units) {
       if (unit.team === localPlayerTeam) {
         unit.setVisible(true);
+        continue;
+      }
+
+      if (unit.getTerrainType() === 'forest') {
+        const { cellCol, cellRow } = this.resolveGridCell(unit.x, unit.y);
+        const canRevealForestedUnit = allyUnitVisionCells.some((sourceCell) => {
+          const colDistance = Math.abs(sourceCell.cellCol - cellCol);
+          const rowDistance = Math.abs(sourceCell.cellRow - cellRow);
+          return (
+            Math.max(colDistance, rowDistance) <= forestRevealDistanceSquares
+          );
+        });
+        unit.setVisible(canRevealForestedUnit);
         continue;
       }
 
@@ -119,6 +149,33 @@ export class FogOfWarController {
       }
       unit.setVisible(isVisibleToPlayer);
     }
+  }
+
+  private resolveGridCell(
+    worldX: number,
+    worldY: number,
+  ): { cellCol: number; cellRow: number } {
+    const safeCellWidth = Math.max(1, this.config.supplyCellWidth);
+    const safeCellHeight = Math.max(1, this.config.supplyCellHeight);
+    const maxCol = Math.max(
+      0,
+      Math.round(this.config.mapWidth / safeCellWidth) - 1,
+    );
+    const maxRow = Math.max(
+      0,
+      Math.round(this.config.mapHeight / safeCellHeight) - 1,
+    );
+    const cellCol = Phaser.Math.Clamp(
+      Math.floor(worldX / safeCellWidth),
+      0,
+      maxCol,
+    );
+    const cellRow = Phaser.Math.Clamp(
+      Math.floor(worldY / safeCellHeight),
+      0,
+      maxRow,
+    );
+    return { cellCol, cellRow };
   }
 
   public destroy(): void {
