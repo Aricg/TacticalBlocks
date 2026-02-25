@@ -1470,6 +1470,9 @@ class BattleScene extends Phaser.Scene {
       neutralCities: this.neutralCities,
       refreshFogOfWar: () => this.refreshFogOfWar(),
     });
+    this.autoAdvanceCityCycleSignature = null;
+    this.autoAdvanceCityCycleOrderedTargets = [];
+    this.autoAdvanceCityCycleNextIndex = 0;
   }
 
   private applySupplyLineUpdate(supplyLineUpdate: NetworkSupplyLineUpdate): void {

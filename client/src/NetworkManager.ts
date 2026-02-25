@@ -383,6 +383,20 @@ export class NetworkManager {
 
     const $ = getStateCallbacks(room);
     room.onStateChange.once((state) => {
+      const buildCityOwnershipUpdate = (): NetworkCityOwnershipUpdate => ({
+        redCityOwner: state.redCityOwner,
+        blueCityOwner: state.blueCityOwner,
+        neutralCityOwners: Array.from(
+          state.neutralCityOwners,
+          (owner) => owner ?? 'NEUTRAL',
+        ),
+      });
+      const getCityOwnershipSignature = (
+        update: NetworkCityOwnershipUpdate,
+      ): string =>
+        `${update.redCityOwner}|${update.blueCityOwner}|${update.neutralCityOwners.join(',')}`;
+      let lastCityOwnershipSignature: string | null = null;
+
       const emitSimulationFrameUpdate = () => {
         const simulationFrame =
           typeof state.simulationFrame === 'number' &&
@@ -405,15 +419,14 @@ export class NetworkManager {
           ),
         });
       };
-      const emitCityOwnershipUpdate = () => {
-        this.onCityOwnershipChanged({
-          redCityOwner: state.redCityOwner,
-          blueCityOwner: state.blueCityOwner,
-          neutralCityOwners: Array.from(
-            state.neutralCityOwners,
-            (owner) => owner ?? 'NEUTRAL',
-          ),
-        });
+      const emitCityOwnershipUpdate = (force = false) => {
+        const update = buildCityOwnershipUpdate();
+        const signature = getCityOwnershipSignature(update);
+        if (!force && signature === lastCityOwnershipSignature) {
+          return;
+        }
+        lastCityOwnershipSignature = signature;
+        this.onCityOwnershipChanged(update);
       };
 
       const detachInfluenceGridRevision = $(state.influenceGrid).listen(
@@ -435,6 +448,7 @@ export class NetworkManager {
       );
       const detachSimulationFrame = $(state).listen('simulationFrame', () => {
         emitSimulationFrameUpdate();
+        emitCityOwnershipUpdate();
       });
       this.detachCallbacks.push(
         detachInfluenceGridRevision,
@@ -445,7 +459,7 @@ export class NetworkManager {
       );
       emitSimulationFrameUpdate();
       emitInfluenceGridUpdate();
-      emitCityOwnershipUpdate();
+      emitCityOwnershipUpdate(true);
 
       const supplyLineListenerDetachersByUnitId = new Map<
         string,
