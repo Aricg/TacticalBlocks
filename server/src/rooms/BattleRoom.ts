@@ -21,10 +21,14 @@ import {
   collectCitySpawnSources,
   createSpawnedCityUnit,
   findOpenSpawnCellNearCity as findOpenSpawnCellNearCitySystem,
-  getHomeCitySpawnSourceId,
-  getNeutralCitySpawnSourceId,
   getSpawnRotationForTeam as getSpawnRotationForTeamSystem,
 } from "../systems/cities/CitySpawnSystem.js";
+import {
+  buildCitySupplySourceIdByCityZoneId as buildCitySupplySourceIdByCityZoneIdSystem,
+  resetCitySupplyForSources as resetCitySupplyForSourcesSystem,
+  syncCitySupplyState as syncCitySupplyStateSystem,
+  updateCitySupplyAndGenerateUnits as updateCitySupplyAndGenerateUnitsSystem,
+} from "../systems/cities/CitySupplySystem.js";
 import { buildCityInfluenceSources } from "../systems/cities/CityInfluenceSourceSync.js";
 import {
   updateCityOwnershipFromOccupancy as updateCityOwnershipFromOccupancySystem,
@@ -1388,7 +1392,7 @@ export class BattleRoom extends Room<BattleState> {
     this.citySupplyTripProgressBySourceId.clear();
     this.citySupplyDecayProgressBySourceId.clear();
     this.citySupplyOwnerBySourceId.clear();
-    this.syncCitySupplyState();
+    this.syncCitySupplyState(this.getCitySpawnSources());
     this.generatedUnitSequenceByTeam = {
       BLUE: 1,
       RED: 1,
@@ -1397,13 +1401,13 @@ export class BattleRoom extends Room<BattleState> {
 
   private resetCityGenerationTimersForAllSources(): void {
     const spawnSources = this.getCitySpawnSources();
-    this.syncCitySupplyState(spawnSources);
-    for (const source of spawnSources) {
-      this.state.citySupplyBySourceId.set(source.sourceId, 0);
-      this.citySupplyTripProgressBySourceId.set(source.sourceId, 0);
-      this.citySupplyDecayProgressBySourceId.set(source.sourceId, 0);
-      this.citySupplyOwnerBySourceId.set(source.sourceId, source.owner);
-    }
+    resetCitySupplyForSourcesSystem({
+      spawnSources,
+      citySupplyBySourceId: this.state.citySupplyBySourceId,
+      citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
+      citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
+      citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
+    });
   }
 
   private getCitySpawnSources(): CitySpawnSource[] {
@@ -1416,72 +1420,21 @@ export class BattleRoom extends Room<BattleState> {
     });
   }
 
-  private syncCitySupplyState(spawnSources = this.getCitySpawnSources()): void {
-    const validSourceIds = new Set<string>();
-    for (const source of spawnSources) {
-      validSourceIds.add(source.sourceId);
-      if (!this.state.citySupplyBySourceId.has(source.sourceId)) {
-        this.state.citySupplyBySourceId.set(source.sourceId, 0);
-      }
-      if (!this.citySupplyTripProgressBySourceId.has(source.sourceId)) {
-        this.citySupplyTripProgressBySourceId.set(source.sourceId, 0);
-      }
-      if (!this.citySupplyDecayProgressBySourceId.has(source.sourceId)) {
-        this.citySupplyDecayProgressBySourceId.set(source.sourceId, 0);
-      }
-      if (!this.citySupplyOwnerBySourceId.has(source.sourceId)) {
-        this.citySupplyOwnerBySourceId.set(source.sourceId, source.owner);
-      }
-    }
-
-    for (const sourceId of Array.from(this.state.citySupplyBySourceId.keys())) {
-      if (validSourceIds.has(sourceId)) {
-        continue;
-      }
-      this.state.citySupplyBySourceId.delete(sourceId);
-    }
-    for (const sourceId of Array.from(this.citySupplyTripProgressBySourceId.keys())) {
-      if (validSourceIds.has(sourceId)) {
-        continue;
-      }
-      this.citySupplyTripProgressBySourceId.delete(sourceId);
-    }
-    for (const sourceId of Array.from(this.citySupplyDecayProgressBySourceId.keys())) {
-      if (validSourceIds.has(sourceId)) {
-        continue;
-      }
-      this.citySupplyDecayProgressBySourceId.delete(sourceId);
-    }
-    for (const sourceId of Array.from(this.citySupplyOwnerBySourceId.keys())) {
-      if (validSourceIds.has(sourceId)) {
-        continue;
-      }
-      this.citySupplyOwnerBySourceId.delete(sourceId);
-    }
+  private syncCitySupplyState(spawnSources: CitySpawnSource[]): void {
+    syncCitySupplyStateSystem({
+      spawnSources,
+      citySupplyBySourceId: this.state.citySupplyBySourceId,
+      citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
+      citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
+      citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
+    });
   }
 
   private getCitySupplySourceIdByCityZoneId(): Map<string, string> {
-    const sourceIdByCityZoneId = new Map<string, string>();
-    sourceIdByCityZoneId.set(this.cityZoneIdByHomeTeam.RED, getHomeCitySpawnSourceId("RED"));
-    sourceIdByCityZoneId.set(
-      this.cityZoneIdByHomeTeam.BLUE,
-      getHomeCitySpawnSourceId("BLUE"),
-    );
-    for (let index = 0; index < this.neutralCityCells.length; index += 1) {
-      sourceIdByCityZoneId.set(
-        this.neutralCityZoneIds[index] ?? `neutral-${index}`,
-        getNeutralCitySpawnSourceId(index),
-      );
-    }
-    return sourceIdByCityZoneId;
-  }
-
-  private getCitySupplyAmount(sourceId: string): number {
-    const value = this.state.citySupplyBySourceId.get(sourceId);
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return 0;
-    }
-    return Math.max(0, Math.floor(value));
+    return buildCitySupplySourceIdByCityZoneIdSystem({
+      homeCityZoneIdByTeam: this.cityZoneIdByHomeTeam,
+      neutralCityZoneIds: this.neutralCityZoneIds,
+    });
   }
 
   private isCellOccupiedByActiveUnit(targetCell: GridCoordinate): boolean {
@@ -1559,107 +1512,22 @@ export class BattleRoom extends Room<BattleState> {
       1,
       this.runtimeTuning.cityUnitGenerationIntervalSeconds,
     );
-    const supplyTripDurationSeconds =
-      generationIntervalSeconds / BattleRoom.CITY_SUPPLY_PER_UNIT_THRESHOLD;
-    if (supplyTripDurationSeconds <= 0) {
-      return 0;
-    }
-
-    const tripProgressPerSecond = 1 / supplyTripDurationSeconds;
     const spawnSources = this.getCitySpawnSources();
-    this.syncCitySupplyState(spawnSources);
-
-    const connectedLinkCountBySourceId = new Map<string, number>();
-    if (this.state.farmCitySupplyLines.size === 0) {
-      for (const source of spawnSources) {
-        if (source.owner === "NEUTRAL") {
-          continue;
-        }
-        connectedLinkCountBySourceId.set(source.sourceId, 1);
-      }
-    } else {
-      const sourceIdByCityZoneId = this.getCitySupplySourceIdByCityZoneId();
-      for (const supplyLine of this.state.farmCitySupplyLines.values()) {
-        if (!supplyLine.connected) {
-          continue;
-        }
-        const sourceId = sourceIdByCityZoneId.get(supplyLine.cityZoneId);
-        if (!sourceId) {
-          continue;
-        }
-        connectedLinkCountBySourceId.set(
-          sourceId,
-          (connectedLinkCountBySourceId.get(sourceId) ?? 0) + 1,
-        );
-      }
-    }
-
-    let totalSpawnedUnits = 0;
-    for (const source of spawnSources) {
-      const sourceId = source.sourceId;
-      const lastOwner = this.citySupplyOwnerBySourceId.get(sourceId);
-      if (lastOwner !== source.owner) {
-        this.state.citySupplyBySourceId.set(sourceId, 0);
-        this.citySupplyTripProgressBySourceId.set(sourceId, 0);
-        this.citySupplyDecayProgressBySourceId.set(sourceId, 0);
-      }
-      this.citySupplyOwnerBySourceId.set(sourceId, source.owner);
-
-      if (source.owner === "NEUTRAL") {
-        this.state.citySupplyBySourceId.set(sourceId, 0);
-        this.citySupplyTripProgressBySourceId.set(sourceId, 0);
-        this.citySupplyDecayProgressBySourceId.set(sourceId, 0);
-        continue;
-      }
-
-      let supplyAmount = this.getCitySupplyAmount(sourceId);
-      const connectedLinkCount = connectedLinkCountBySourceId.get(sourceId) ?? 0;
-
-      if (connectedLinkCount > 0) {
-        const tripProgress =
-          (this.citySupplyTripProgressBySourceId.get(sourceId) ?? 0) +
-          deltaSeconds * tripProgressPerSecond * connectedLinkCount;
-        const completedTrips = Math.floor(tripProgress);
-        this.citySupplyTripProgressBySourceId.set(
-          sourceId,
-          tripProgress - completedTrips,
-        );
-        this.citySupplyDecayProgressBySourceId.set(sourceId, 0);
-        if (completedTrips > 0) {
-          supplyAmount += completedTrips;
-        }
-      } else {
-        const decayProgress =
-          (this.citySupplyDecayProgressBySourceId.get(sourceId) ?? 0) +
-          deltaSeconds * tripProgressPerSecond;
-        const completedDecaySteps = Math.floor(decayProgress);
-        this.citySupplyDecayProgressBySourceId.set(
-          sourceId,
-          decayProgress - completedDecaySteps,
-        );
-        this.citySupplyTripProgressBySourceId.set(sourceId, 0);
-        if (completedDecaySteps > 0) {
-          supplyAmount = Math.max(0, supplyAmount - completedDecaySteps);
-        }
-      }
-
-      while (supplyAmount >= BattleRoom.CITY_SUPPLY_PER_UNIT_THRESHOLD) {
-        const spawnCell = this.findOpenSpawnCellNearCity(source.cityCell);
-        if (!spawnCell) {
-          break;
-        }
-        this.spawnCityUnit(source.owner, spawnCell);
-        totalSpawnedUnits += 1;
-        supplyAmount -= BattleRoom.CITY_SUPPLY_PER_UNIT_THRESHOLD;
-      }
-
-      const normalizedSupplyAmount = Math.max(0, supplyAmount);
-      if (this.getCitySupplyAmount(sourceId) !== normalizedSupplyAmount) {
-        this.state.citySupplyBySourceId.set(sourceId, normalizedSupplyAmount);
-      }
-    }
-
-    return totalSpawnedUnits;
+    return updateCitySupplyAndGenerateUnitsSystem({
+      deltaSeconds,
+      generationIntervalSeconds,
+      supplyPerUnitThreshold: BattleRoom.CITY_SUPPLY_PER_UNIT_THRESHOLD,
+      spawnSources,
+      farmCitySupplyLines: this.state.farmCitySupplyLines.values(),
+      sourceIdByCityZoneId: this.getCitySupplySourceIdByCityZoneId(),
+      citySupplyBySourceId: this.state.citySupplyBySourceId,
+      citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
+      citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
+      citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
+      findOpenSpawnCellNearCity: (cityCell) =>
+        this.findOpenSpawnCellNearCity(cityCell),
+      spawnCityUnit: (team, spawnCell) => this.spawnCityUnit(team, spawnCell),
+    });
   }
 
   private syncCityInfluenceSources(): void {
