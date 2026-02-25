@@ -21,6 +21,10 @@ const CONTROL_SECTIONS: ControlSection[] = [
         effect: 'Deselect all currently selected units.',
       },
       {
+        input: 'Left Drag (with units selected)',
+        effect: 'Draw a formation area box; release to stage unit slots.',
+      },
+      {
         input: 'Right Drag (from selected unit or while units selected)',
         effect: 'Draw a movement path; release to stage that path.',
       },
@@ -35,10 +39,6 @@ const CONTROL_SECTIONS: ControlSection[] = [
       {
         input: 'Shift + Right Click or Shift + path release',
         effect: 'Queue the movement command instead of replacing.',
-      },
-      {
-        input: 'F then Right Drag (with units selected)',
-        effect: 'Draw a one-shot formation area box; release to stage unit slots.',
       },
       {
         input: 'Space',

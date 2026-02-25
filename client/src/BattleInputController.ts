@@ -60,13 +60,10 @@ export class BattleInputController {
   private suppressCommandOnPointerUp = false;
   private dragStart: Phaser.Math.Vector2 | null = null;
   private pathDragStart: Phaser.Math.Vector2 | null = null;
-  private formationAreaDragStart: Phaser.Math.Vector2 | null = null;
   private boxSelecting = false;
   private leftDragStartedWithSelection = false;
-  private formationAreaDragging = false;
   private pathDrawing = false;
   private draggedPath: Phaser.Math.Vector2[] = [];
-  private isFormationAreaArmed = false;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -81,7 +78,6 @@ export class BattleInputController {
     this.scene.input.keyboard?.on('keydown-H', this.handleKeyDownH);
     this.scene.input.keyboard?.on('keydown-ESC', this.handleKeyDownEsc);
     this.scene.input.keyboard?.on('keydown-D', this.handleKeyDownD);
-    this.scene.input.keyboard?.on('keydown-F', this.handleKeyDownF);
     this.scene.input.keyboard?.on('keydown-S', this.handleKeyDownS);
     this.scene.input.keyboard?.on('keydown-A', this.handleKeyDownA);
     this.scene.input.keyboard?.on('keydown-Q', this.handleKeyDownQ);
@@ -91,13 +87,10 @@ export class BattleInputController {
     this.suppressCommandOnPointerUp = false;
     this.dragStart = null;
     this.pathDragStart = null;
-    this.formationAreaDragStart = null;
     this.boxSelecting = false;
     this.leftDragStartedWithSelection = false;
-    this.formationAreaDragging = false;
     this.pathDrawing = false;
     this.draggedPath = [];
-    this.isFormationAreaArmed = false;
     this.callbacks.clearSelectionBox();
     this.callbacks.clearPathPreview();
   }
@@ -111,7 +104,6 @@ export class BattleInputController {
     this.scene.input.keyboard?.off('keydown-H', this.handleKeyDownH);
     this.scene.input.keyboard?.off('keydown-ESC', this.handleKeyDownEsc);
     this.scene.input.keyboard?.off('keydown-D', this.handleKeyDownD);
-    this.scene.input.keyboard?.off('keydown-F', this.handleKeyDownF);
     this.scene.input.keyboard?.off('keydown-S', this.handleKeyDownS);
     this.scene.input.keyboard?.off('keydown-A', this.handleKeyDownA);
     this.scene.input.keyboard?.off('keydown-Q', this.handleKeyDownQ);
@@ -142,11 +134,7 @@ export class BattleInputController {
     }
 
     if (pointer.button === 2 && this.callbacks.isUnitSelected(clickedUnit)) {
-      if (this.isFormationAreaArmed) {
-        this.beginFormationAreaDrag(pointer);
-      } else {
-        this.beginPathDrag(pointer);
-      }
+      this.beginPathDrag(pointer);
       event.stopPropagation();
     }
   };
@@ -158,11 +146,7 @@ export class BattleInputController {
 
     if (pointer.button === 2) {
       if (this.callbacks.hasSelectedUnits()) {
-        if (this.isFormationAreaArmed) {
-          this.beginFormationAreaDrag(pointer);
-        } else {
-          this.beginPathDrag(pointer);
-        }
+        this.beginPathDrag(pointer);
       }
       return;
     }
@@ -215,37 +199,7 @@ export class BattleInputController {
       return;
     }
 
-    if (this.formationAreaDragStart) {
-      if (!pointer.rightButtonDown()) {
-        return;
-      }
-
-      const dragDistance = Phaser.Math.Distance.Between(
-        this.formationAreaDragStart.x,
-        this.formationAreaDragStart.y,
-        pointer.worldX,
-        pointer.worldY,
-      );
-      if (!this.formationAreaDragging && dragDistance >= this.config.dragThreshold) {
-        this.formationAreaDragging = true;
-      }
-
-      if (this.formationAreaDragging) {
-        this.callbacks.drawSelectionBox(
-          this.formationAreaDragStart.x,
-          this.formationAreaDragStart.y,
-          pointer.worldX,
-          pointer.worldY,
-        );
-      }
-      return;
-    }
-
-    if (
-      this.dragStart &&
-      pointer.leftButtonDown() &&
-      !this.leftDragStartedWithSelection
-    ) {
+    if (this.dragStart && pointer.leftButtonDown()) {
       const dragDistance = Phaser.Math.Distance.Between(
         this.dragStart.x,
         this.dragStart.y,
@@ -297,29 +251,6 @@ export class BattleInputController {
       return;
     }
 
-    if (pointer.button === 2 && this.formationAreaDragStart) {
-      const start = this.formationAreaDragStart;
-      this.formationAreaDragStart = null;
-      if (this.formationAreaDragging) {
-        this.callbacks.commandSelectedUnitsIntoFormationArea(
-          start.x,
-          start.y,
-          pointer.worldX,
-          pointer.worldY,
-          this.callbacks.isShiftHeld(pointer),
-        );
-      } else {
-        this.callbacks.commandSelectedUnits(
-          pointer.worldX,
-          pointer.worldY,
-          this.callbacks.isShiftHeld(pointer),
-        );
-      }
-      this.formationAreaDragging = false;
-      this.callbacks.clearSelectionBox();
-      return;
-    }
-
     if (pointer.button !== 0) {
       return;
     }
@@ -330,12 +261,22 @@ export class BattleInputController {
     }
 
     if (this.boxSelecting && this.dragStart) {
-      this.callbacks.selectUnitsInBox(
-        this.dragStart.x,
-        this.dragStart.y,
-        pointer.worldX,
-        pointer.worldY,
-      );
+      if (this.leftDragStartedWithSelection) {
+        this.callbacks.commandSelectedUnitsIntoFormationArea(
+          this.dragStart.x,
+          this.dragStart.y,
+          pointer.worldX,
+          pointer.worldY,
+          this.callbacks.isShiftHeld(pointer),
+        );
+      } else {
+        this.callbacks.selectUnitsInBox(
+          this.dragStart.x,
+          this.dragStart.y,
+          pointer.worldX,
+          pointer.worldY,
+        );
+      }
       this.callbacks.clearSelectionBox();
       this.dragStart = null;
       this.boxSelecting = false;
@@ -380,23 +321,13 @@ export class BattleInputController {
     this.suppressCommandOnPointerUp = false;
     this.dragStart = null;
     this.pathDragStart = null;
-    this.formationAreaDragStart = null;
     this.boxSelecting = false;
     this.leftDragStartedWithSelection = false;
-    this.formationAreaDragging = false;
     this.pathDrawing = false;
     this.draggedPath = [];
-    this.isFormationAreaArmed = false;
     this.callbacks.clearSelectionBox();
     this.callbacks.clearPathPreview();
     this.callbacks.clearSelection();
-  };
-
-  private readonly handleKeyDownF = (): void => {
-    if (!this.callbacks.isBattleActive()) {
-      return;
-    }
-    this.isFormationAreaArmed = true;
   };
 
   private readonly handleKeyDownS = (): void => {
@@ -426,25 +357,9 @@ export class BattleInputController {
 
   private beginPathDrag(pointer: Phaser.Input.Pointer): void {
     this.pathDragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-    this.formationAreaDragStart = null;
-    this.formationAreaDragging = false;
     this.pathDrawing = false;
     this.draggedPath = [this.pathDragStart.clone()];
     this.callbacks.clearSelectionBox();
     this.callbacks.clearPathPreview();
-  }
-
-  private beginFormationAreaDrag(pointer: Phaser.Input.Pointer): void {
-    this.formationAreaDragStart = new Phaser.Math.Vector2(
-      pointer.worldX,
-      pointer.worldY,
-    );
-    this.pathDragStart = null;
-    this.pathDrawing = false;
-    this.draggedPath = [];
-    this.formationAreaDragging = false;
-    this.isFormationAreaArmed = false;
-    this.callbacks.clearPathPreview();
-    this.callbacks.clearSelectionBox();
   }
 }

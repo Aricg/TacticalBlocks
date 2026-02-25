@@ -29,6 +29,7 @@
     Control Scheme:
    * Left Click (on unit): Select Unit.
    * Left Click (on empty map): Deselect All.
+   * Left Drag (with units selected): Draw Formation Area.
    * Right Click (on map with selection): Move Command.
    * Right Drag (from unit/map with selection): Draw Path.
    * Left Drag (from map with no selection): Box Select.
