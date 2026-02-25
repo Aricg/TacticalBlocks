@@ -18,6 +18,7 @@ type BattleInputCallbacks = {
     path: Phaser.Math.Vector2[],
     shiftHeld: boolean,
   ) => void;
+  commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) => void;
   selectUnitsInBox: (
     startX: number,
     startY: number,
@@ -77,6 +78,7 @@ export class BattleInputController {
     this.scene.input.keyboard?.on('keydown-D', this.handleKeyDownD);
     this.scene.input.keyboard?.on('keydown-F', this.handleKeyDownF);
     this.scene.input.keyboard?.on('keydown-S', this.handleKeyDownS);
+    this.scene.input.keyboard?.on('keydown-A', this.handleKeyDownA);
   }
 
   public reset(): void {
@@ -104,6 +106,7 @@ export class BattleInputController {
     this.scene.input.keyboard?.off('keydown-D', this.handleKeyDownD);
     this.scene.input.keyboard?.off('keydown-F', this.handleKeyDownF);
     this.scene.input.keyboard?.off('keydown-S', this.handleKeyDownS);
+    this.scene.input.keyboard?.off('keydown-A', this.handleKeyDownA);
     this.reset();
   }
 
@@ -354,5 +357,14 @@ export class BattleInputController {
       return;
     }
     this.callbacks.selectAllOwnedUnits();
+  };
+
+  private readonly handleKeyDownA = (event: KeyboardEvent): void => {
+    if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    this.callbacks.commandSelectedUnitsTowardEnemyInfluenceLine(
+      Boolean(event?.shiftKey),
+    );
   };
 }

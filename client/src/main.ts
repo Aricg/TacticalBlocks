@@ -555,6 +555,8 @@ class BattleScene extends Phaser.Scene {
           path: Phaser.Math.Vector2[],
           shiftHeld: boolean,
         ) => this.commandSelectedUnitsIntoLine(path, shiftHeld),
+        commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) =>
+          this.commandSelectedUnitsTowardEnemyInfluenceLine(shiftHeld),
         selectUnitsInBox: (
           startX: number,
           startY: number,
@@ -2246,6 +2248,41 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private commandSelectedUnitsTowardEnemyInfluenceLine(shiftHeld = false): void {
+    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
+      return;
+    }
+
+    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
+      preferRoads: false,
+    });
+
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+
+      const unitCell = worldToGridCoordinate(
+        unit.x,
+        unit.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      );
+      const autoAdvanceCells = this.buildAutoAdvanceCellsToContestedInfluence(
+        unitCell,
+        unit.team,
+      );
+      if (autoAdvanceCells.length === 0) {
+        continue;
+      }
+
+      const targetCell = autoAdvanceCells[autoAdvanceCells.length - 1];
+      const unitPath = [
+        gridToWorldCenter(targetCell, BattleScene.UNIT_COMMAND_GRID_METRICS),
+      ];
+      this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
+    }
+  }
+
   private isShiftHeld(pointer: Phaser.Input.Pointer): boolean {
     const pointerEvent = pointer.event as
       | MouseEvent
@@ -2838,6 +2875,118 @@ class BattleScene extends Phaser.Scene {
     const index = clampedRow * grid.width + clampedCol;
     const value = grid.cells[index];
     return Number.isFinite(value) ? value : 0;
+  }
+
+  private getAlignedInfluenceScoreAtGridCell(
+    col: number,
+    row: number,
+    team: Team,
+  ): number {
+    const score = this.getInfluenceScoreAtGridCell(col, row);
+    if (team === Team.BLUE) {
+      return score;
+    }
+    return -score;
+  }
+
+  private buildAutoAdvanceCellsToContestedInfluence(
+    startCell: GridCoordinate,
+    team: Team,
+  ): GridCoordinate[] {
+    const targetCell = this.getEnemyAdvanceTargetCell(startCell, team);
+    const directLine = this.traceGridLine(startCell, targetCell);
+    if (directLine.length <= 1) {
+      return [];
+    }
+
+    const contestedAlignedScore = this.runtimeTuning.influenceContestedThreshold;
+    const startAlignedScore = this.getAlignedInfluenceScoreAtGridCell(
+      startCell.col,
+      startCell.row,
+      team,
+    );
+    if (startAlignedScore <= contestedAlignedScore) {
+      return [];
+    }
+
+    const pathCells: GridCoordinate[] = [];
+    for (let i = 1; i < directLine.length; i += 1) {
+      const cell = directLine[i];
+      pathCells.push(cell);
+      const alignedScore = this.getAlignedInfluenceScoreAtGridCell(
+        cell.col,
+        cell.row,
+        team,
+      );
+      if (alignedScore <= contestedAlignedScore) {
+        break;
+      }
+    }
+
+    return pathCells;
+  }
+
+  private getEnemyAdvanceTargetCell(
+    startCell: GridCoordinate,
+    team: Team,
+  ): GridCoordinate {
+    const enemyTeam = team === Team.BLUE ? Team.RED : Team.BLUE;
+    const enemyCityCell =
+      this.cityGridCoordinatesByTeam?.[enemyTeam] ?? getTeamCityGridCoordinate(enemyTeam);
+    if (
+      enemyCityCell.col !== startCell.col ||
+      enemyCityCell.row !== startCell.row
+    ) {
+      return enemyCityCell;
+    }
+
+    const defaultTargetCol =
+      team === Team.BLUE ? 0 : BattleScene.GRID_WIDTH - 1;
+    if (defaultTargetCol === startCell.col) {
+      return {
+        col: defaultTargetCol,
+        row: Math.max(0, BattleScene.GRID_HEIGHT - 1 - startCell.row),
+      };
+    }
+    return {
+      col: defaultTargetCol,
+      row: startCell.row,
+    };
+  }
+
+  private traceGridLine(
+    start: GridCoordinate,
+    end: GridCoordinate,
+  ): GridCoordinate[] {
+    const points: GridCoordinate[] = [];
+    let x0 = start.col;
+    let y0 = start.row;
+    const x1 = end.col;
+    const y1 = end.row;
+    const dx = Math.abs(x1 - x0);
+    const sx = x0 < x1 ? 1 : -1;
+    const dy = -Math.abs(y1 - y0);
+    const sy = y0 < y1 ? 1 : -1;
+    let error = dx + dy;
+
+    while (true) {
+      points.push({ col: x0, row: y0 });
+      if (x0 === x1 && y0 === y1) {
+        break;
+      }
+
+      const e2 = 2 * error;
+      if (e2 >= dy) {
+        error += dy;
+        x0 += sx;
+      }
+      if (e2 <= dx) {
+        error += dx;
+        y0 += sy;
+      }
+    }
+
+    return points;
   }
 
   private hasMoraleDebugRuntimeMapGrid(): boolean {

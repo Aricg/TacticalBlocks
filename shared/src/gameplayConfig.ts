@@ -196,6 +196,8 @@ export const GAMEPLAY_CONFIG = {
       influenceCoreMinInfluenceFactor: 0.13,
       // Slider: Extra Decay @ Zero
       influenceMaxExtraDecayAtZero: 0.99,
+      // Slider: A-Key contested influence threshold
+      influenceContestedThreshold: 0,
       // Slider: Vision Radius
       fogVisionRadius: 178,
       // Slider: City Vision Radius
@@ -229,6 +231,7 @@ export const GAMEPLAY_CONFIG = {
       influenceEnemyPressureDebuffFloor: { min: 0, max: 1, step: 0.01 },
       influenceCoreMinInfluenceFactor: { min: 0, max: 1, step: 0.01 },
       influenceMaxExtraDecayAtZero: { min: 0, max: 0.9, step: 0.01 },
+      influenceContestedThreshold: { min: -3, max: 3, step: 0.05 },
       fogVisionRadius: { min: 40, max: 600, step: 1 },
       cityVisionRadius: { min: 40, max: 600, step: 1 },
       lineThickness: { min: 1, max: 24, step: 1 },

@@ -51,6 +51,11 @@ const SLIDERS: SliderDescriptor[] = [
     label: 'City Enemy Gate',
     group: 'Influence',
   },
+  {
+    key: 'influenceContestedThreshold',
+    label: 'A-Path Contested Threshold',
+    group: 'Influence',
+  },
   { key: 'fogVisionRadius', label: 'Vision Radius', group: 'Fog' },
   { key: 'cityVisionRadius', label: 'City Vision Radius', group: 'Cities' },
   { key: 'lineThickness', label: 'Line Thickness', group: 'Line' },

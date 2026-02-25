@@ -61,6 +61,11 @@ const CONTROL_SECTIONS: ControlSection[] = [
         input: 'S',
         effect: 'Select all friendly units.',
       },
+      {
+        input: 'A',
+        effect:
+          'Stage per-unit direct paths to the contested influence border; press Space to send.',
+      },
     ],
   },
   {

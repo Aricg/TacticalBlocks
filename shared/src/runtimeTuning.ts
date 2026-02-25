@@ -20,6 +20,7 @@ export type RuntimeTuning = {
   influenceEnemyPressureDebuffFloor: number;
   influenceCoreMinInfluenceFactor: number;
   influenceMaxExtraDecayAtZero: number;
+  influenceContestedThreshold: number;
   fogVisionRadius: number;
   cityVisionRadius: number;
   lineThickness: number;
@@ -66,6 +67,8 @@ export const DEFAULT_RUNTIME_TUNING: RuntimeTuning = {
     GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceCoreMinInfluenceFactor,
   influenceMaxExtraDecayAtZero:
     GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceMaxExtraDecayAtZero,
+  influenceContestedThreshold:
+    GAMEPLAY_CONFIG.runtimeTuning.defaults.influenceContestedThreshold,
   fogVisionRadius: GAMEPLAY_CONFIG.runtimeTuning.defaults.fogVisionRadius,
   cityVisionRadius: GAMEPLAY_CONFIG.runtimeTuning.defaults.cityVisionRadius,
   lineThickness: GAMEPLAY_CONFIG.runtimeTuning.defaults.lineThickness,
@@ -117,6 +120,9 @@ export const RUNTIME_TUNING_BOUNDS: Record<RuntimeTuningKey, RuntimeTuningBound>
   },
   influenceMaxExtraDecayAtZero: {
     ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceMaxExtraDecayAtZero,
+  },
+  influenceContestedThreshold: {
+    ...GAMEPLAY_CONFIG.runtimeTuning.bounds.influenceContestedThreshold,
   },
   fogVisionRadius: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.fogVisionRadius },
   cityVisionRadius: { ...GAMEPLAY_CONFIG.runtimeTuning.bounds.cityVisionRadius },
