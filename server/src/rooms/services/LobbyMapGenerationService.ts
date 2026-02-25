@@ -2,6 +2,7 @@ import {
   resolveGenerationProfile,
   type GenerationProfile,
 } from "../../../../shared/src/generationProfile.js";
+import { GAMEPLAY_CONFIG } from "../../../../shared/src/gameplayConfig.js";
 import type { LobbyGenerateMapMessage } from "../../../../shared/src/networkContracts.js";
 import {
   MapGenerationService,
@@ -123,6 +124,10 @@ export class LobbyMapGenerationService {
         profile.terrain.mountainDensity,
       ),
       forestBias: this.resolveForestBiasFromDensity(profile.terrain.forestDensity),
+      gridWidth: GAMEPLAY_CONFIG.influence.gridWidth,
+      gridHeight: GAMEPLAY_CONFIG.influence.gridHeight,
+      mapWidth: GAMEPLAY_CONFIG.map.width,
+      mapHeight: GAMEPLAY_CONFIG.map.height,
       contextLabel: "lobby",
       roomModuleUrl: args.roomModuleUrl,
     });
@@ -155,6 +160,10 @@ export class LobbyMapGenerationService {
       mapId,
       method: "auto",
       seed,
+      gridWidth: GAMEPLAY_CONFIG.influence.gridWidth,
+      gridHeight: GAMEPLAY_CONFIG.influence.gridHeight,
+      mapWidth: GAMEPLAY_CONFIG.map.width,
+      mapHeight: GAMEPLAY_CONFIG.map.height,
       contextLabel: "startup",
       roomModuleUrl,
     });

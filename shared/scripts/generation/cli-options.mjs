@@ -1,9 +1,11 @@
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { resolveGridSizePreset } from './grid-size-profile.mjs';
 
-export const DEFAULT_GRID_WIDTH = 80;
-export const DEFAULT_GRID_HEIGHT = 44;
+const GRID_SIZE_PRESET = resolveGridSizePreset('large');
+export const DEFAULT_GRID_WIDTH = GRID_SIZE_PRESET.gridWidth;
+export const DEFAULT_GRID_HEIGHT = GRID_SIZE_PRESET.gridHeight;
 export const DEFAULT_OUTPUT_WIDTH = 1920;
 export const DEFAULT_OUTPUT_HEIGHT = 1080;
 export const DEFAULT_WATER_BIAS = 0.05;
@@ -30,8 +32,12 @@ export function printUsage() {
   console.log('Options:');
   console.log('  --map-id <id>          Use a specific map ID/file prefix');
   console.log('  --seed <seed>          Seed for reproducible generation');
-  console.log(`  --grid-width <n>       Default: ${DEFAULT_GRID_WIDTH}`);
-  console.log(`  --grid-height <n>      Default: ${DEFAULT_GRID_HEIGHT}`);
+  console.log(
+    `  --grid-width <n>       Default: ${DEFAULT_GRID_WIDTH} (profile: ${GRID_SIZE_PRESET.profile})`,
+  );
+  console.log(
+    `  --grid-height <n>      Default: ${DEFAULT_GRID_HEIGHT} (profile: ${GRID_SIZE_PRESET.profile})`,
+  );
   console.log(`  --width <pixels>       Default: ${DEFAULT_OUTPUT_WIDTH}`);
   console.log(`  --height <pixels>      Default: ${DEFAULT_OUTPUT_HEIGHT}`);
   console.log(`  --water-bias <value>   Default: ${DEFAULT_WATER_BIAS}`);

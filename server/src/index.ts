@@ -3,6 +3,7 @@ import { Server } from "colyseus";
 import { Encoder } from "@colyseus/schema";
 import { BattleRoom } from "./rooms/BattleRoom.js";
 import { attachRuntimeMapAssetHandler } from "./runtimeMapAssetServer.js";
+import { GAMEPLAY_CONFIG } from "../../shared/src/gameplayConfig.js";
 
 const PORT = Number(process.env.PORT ?? 2567);
 const DEFAULT_SCHEMA_BUFFER_SIZE_BYTES = 128 * 1024;
@@ -24,3 +25,6 @@ gameServer.define("battle", BattleRoom);
 gameServer.listen(PORT);
 console.log(`Colyseus listening on ws://localhost:${PORT}`);
 console.log(`@colyseus/schema Encoder.BUFFER_SIZE=${Encoder.BUFFER_SIZE}`);
+console.log(
+  `[startup] grid profile=${GAMEPLAY_CONFIG.startup.gridSizeProfile} grid=${GAMEPLAY_CONFIG.influence.gridWidth}x${GAMEPLAY_CONFIG.influence.gridHeight} world=${GAMEPLAY_CONFIG.map.width}x${GAMEPLAY_CONFIG.map.height}`,
+);

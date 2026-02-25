@@ -869,9 +869,15 @@ export function loadMapBundle(args: LoadMapBundleArgs): MapBundle {
     fileGridWidth !== args.gridWidth ||
     fileGridHeight !== args.gridHeight
   ) {
+    const reportedGridWidth = Number.isFinite(fileGridWidth)
+      ? `${fileGridWidth}`
+      : "unknown";
+    const reportedGridHeight = Number.isFinite(fileGridHeight)
+      ? `${fileGridHeight}`
+      : "unknown";
     args.logWarning?.({
       code: "sidecar-grid-mismatch",
-      message: `Ignoring runtime map sidecar with mismatched grid size: ${sidecarPath}`,
+      message: `Ignoring runtime map sidecar with mismatched grid size at ${sidecarPath}. Expected ${args.gridWidth}x${args.gridHeight}, received ${reportedGridWidth}x${reportedGridHeight}.`,
     });
     return fallbackBundle;
   }

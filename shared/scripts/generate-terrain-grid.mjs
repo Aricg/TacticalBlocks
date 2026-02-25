@@ -22,11 +22,13 @@ import {
   getTerrainPaletteElevationByte,
   getTerrainTypeForColor,
 } from './terrain-semantics.mjs';
+import { resolveGridSizePreset } from './generation/grid-size-profile.mjs';
 
 const DEFAULT_INPUT_DIR = process.cwd();
 const DEFAULT_OUTPUT = path.resolve(process.cwd(), 'src/terrainGrid.ts');
-const DEFAULT_GRID_WIDTH = 80;
-const DEFAULT_GRID_HEIGHT = 44;
+const GRID_SIZE_PRESET = resolveGridSizePreset('large');
+const DEFAULT_GRID_WIDTH = GRID_SIZE_PRESET.gridWidth;
+const DEFAULT_GRID_HEIGHT = GRID_SIZE_PRESET.gridHeight;
 const QUANTIZED_MAP_SUFFIX = '-16c.png';
 const ELEVATION_GRID_SUFFIX = '.elevation-grid.json';
 const SOURCE_IMAGE_EXTENSIONS = ['.jpeg', '.jpg', '.png'];
@@ -68,8 +70,12 @@ function printUsage() {
   );
   console.log(`Defaults: inputDir=${DEFAULT_INPUT_DIR}`);
   console.log(`          output=${DEFAULT_OUTPUT}`);
-  console.log(`          gridWidth=${DEFAULT_GRID_WIDTH}`);
-  console.log(`          gridHeight=${DEFAULT_GRID_HEIGHT}`);
+  console.log(
+    `          gridWidth=${DEFAULT_GRID_WIDTH} (profile: ${GRID_SIZE_PRESET.profile})`,
+  );
+  console.log(
+    `          gridHeight=${DEFAULT_GRID_HEIGHT} (profile: ${GRID_SIZE_PRESET.profile})`,
+  );
 }
 
 function runMagickPixelDump(inputPath, gridWidth, gridHeight) {

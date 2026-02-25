@@ -932,11 +932,28 @@ class BattleScene extends Phaser.Scene {
     }
 
     const candidate = payload as {
+      gridWidth?: unknown;
+      gridHeight?: unknown;
       terrainCodeGrid?: unknown;
       hillGradeGrid?: unknown;
       elevation?: unknown;
       cityZones?: unknown;
     };
+    if (
+      typeof candidate.gridWidth === 'number'
+      && Number.isInteger(candidate.gridWidth)
+      && typeof candidate.gridHeight === 'number'
+      && Number.isInteger(candidate.gridHeight)
+      && (
+        candidate.gridWidth !== BattleScene.GRID_WIDTH
+        || candidate.gridHeight !== BattleScene.GRID_HEIGHT
+      )
+    ) {
+      console.warn(
+        `[map-sidecar][grid-mismatch] Ignoring sidecar with grid ${candidate.gridWidth}x${candidate.gridHeight}; expected ${BattleScene.GRID_WIDTH}x${BattleScene.GRID_HEIGHT}.`,
+      );
+      return null;
+    }
     const expectedLength = BattleScene.GRID_WIDTH * BattleScene.GRID_HEIGHT;
     if (
       typeof candidate.terrainCodeGrid !== 'string'

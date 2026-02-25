@@ -1,6 +1,7 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { GAMEPLAY_CONFIG } from "../../../../shared/src/gameplayConfig.js";
 import type { MapGenerationMethod } from "../../../../shared/src/networkContracts.js";
 import type { GenerationWaterMode } from "../../../../shared/src/generationProfile.js";
 import { resolveSharedDirectory } from "./resolveSharedDirectory.js";
@@ -15,6 +16,10 @@ type GenerateRuntimeMapArgs = {
   friendlyCityCount?: number;
   mountainBias?: number;
   forestBias?: number;
+  gridWidth?: number;
+  gridHeight?: number;
+  mapWidth?: number;
+  mapHeight?: number;
   contextLabel: string;
   roomModuleUrl: string;
 };
@@ -79,12 +84,44 @@ export class MapGenerationService {
     const runGenerator = (
       method: MapGenerationMethod,
     ): SpawnSyncReturns<string> => {
+      const gridWidth =
+        typeof args.gridWidth === "number" &&
+        Number.isInteger(args.gridWidth) &&
+        args.gridWidth > 0
+          ? args.gridWidth
+          : GAMEPLAY_CONFIG.influence.gridWidth;
+      const gridHeight =
+        typeof args.gridHeight === "number" &&
+        Number.isInteger(args.gridHeight) &&
+        args.gridHeight > 0
+          ? args.gridHeight
+          : GAMEPLAY_CONFIG.influence.gridHeight;
+      const mapWidth =
+        typeof args.mapWidth === "number" &&
+        Number.isInteger(args.mapWidth) &&
+        args.mapWidth > 0
+          ? args.mapWidth
+          : GAMEPLAY_CONFIG.map.width;
+      const mapHeight =
+        typeof args.mapHeight === "number" &&
+        Number.isInteger(args.mapHeight) &&
+        args.mapHeight > 0
+          ? args.mapHeight
+          : GAMEPLAY_CONFIG.map.height;
       const generatorArgs = [
         generatorScriptPath,
         "--map-id",
         args.mapId,
         "--seed",
         args.seed,
+        "--grid-width",
+        `${gridWidth}`,
+        "--grid-height",
+        `${gridHeight}`,
+        "--width",
+        `${mapWidth}`,
+        "--height",
+        `${mapHeight}`,
         "--method",
         method,
         "--output-dir",

@@ -1,7 +1,15 @@
+import {
+  GRID_SIZE_PROFILE_PRESETS,
+  createGridGeometry,
+  resolveGridSizeProfileName,
+} from './gridGeometry.js';
+
 const MAP_IDS = [
   'tmp-debug-grass',
 ] as const;
 
+const MAP_WIDTH = 1920;
+const MAP_HEIGHT = 1080;
 const UNIT_BASE_MOVE_SPEED = 40;
 const ROAD_MOVEMENT_MULTIPLIER = 2.0;
 const TERRAIN_MOVEMENT_MULTIPLIER_BY_TYPE = {
@@ -22,11 +30,32 @@ const TERRAIN_PATHFINDING_STEP_COST_BY_TYPE = {
 } as const;
 const PATHFINDING_ROAD_STEP_COST_MULTIPLIER = 1 / ROAD_MOVEMENT_MULTIPLIER;
 const PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT = 3500;
+const IMPORT_META_ENV = (
+  import.meta as ImportMeta & { env?: Record<string, unknown> }
+).env;
+const PROCESS_ENV = (
+  globalThis as { process?: { env?: Record<string, unknown> } }
+).process?.env;
+
+export const STARTUP_GRID_SIZE_PROFILE = resolveGridSizeProfileName({
+  importMetaEnv: IMPORT_META_ENV,
+  processEnv: PROCESS_ENV,
+  defaultProfile: 'large',
+});
+export const STARTUP_GRID_GEOMETRY = createGridGeometry(
+  STARTUP_GRID_SIZE_PROFILE,
+  MAP_WIDTH,
+  MAP_HEIGHT,
+);
 
 export const GAMEPLAY_CONFIG = {
+  startup: {
+    gridSizeProfile: STARTUP_GRID_SIZE_PROFILE,
+    gridSizePresets: GRID_SIZE_PROFILE_PRESETS,
+  },
   map: {
-    width: 1920,
-    height: 1080,
+    width: MAP_WIDTH,
+    height: MAP_HEIGHT,
     activeMapId: 'tmp-debug-grass',
     availableMapIds: MAP_IDS,
   },
@@ -48,8 +77,8 @@ export const GAMEPLAY_CONFIG = {
   },
   influence: {
     // Influence-grid resolution in cells (higher = smoother line, more CPU/network cost).
-    gridWidth: 80,
-    gridHeight: 44,
+    gridWidth: STARTUP_GRID_GEOMETRY.gridWidth,
+    gridHeight: STARTUP_GRID_GEOMETRY.gridHeight,
     // Server recomputes influence every N simulation frames.
     updateIntervalFrames: 6,
     // Base per-update decay multiplier applied to existing influence.
