@@ -77,6 +77,7 @@ export class RuntimeTuningPanel {
   private readonly content: HTMLDivElement;
   private readonly toggleButton: HTMLButtonElement;
   private readonly moraleBreakdownOverlayInput: HTMLInputElement;
+  private readonly serverRouteSyncInput: HTMLInputElement;
   private readonly inputByKey = new Map<RuntimeTuningKey, HTMLInputElement>();
   private readonly valueByKey = new Map<RuntimeTuningKey, HTMLSpanElement>();
   private isMinimized = false;
@@ -88,6 +89,8 @@ export class RuntimeTuningPanel {
     options?: {
       initialMoraleBreakdownOverlayVisible?: boolean;
       onMoraleBreakdownOverlayVisibilityChange?: (visible: boolean) => void;
+      initialServerRouteSyncEnabled?: boolean;
+      onServerRouteSyncEnabledChange?: (enabled: boolean) => void;
     },
   ) {
     const existingPanel = document.getElementById('runtime-tuning-panel');
@@ -172,6 +175,24 @@ export class RuntimeTuningPanel {
       );
     });
     moraleBreakdownOverlayRow.appendChild(this.moraleBreakdownOverlayInput);
+
+    const serverRouteSyncRow = document.createElement('label');
+    serverRouteSyncRow.style.display = 'flex';
+    serverRouteSyncRow.style.alignItems = 'center';
+    serverRouteSyncRow.style.justifyContent = 'space-between';
+    serverRouteSyncRow.style.gap = '8px';
+    serverRouteSyncRow.style.marginBottom = '10px';
+    serverRouteSyncRow.style.opacity = '0.92';
+    serverRouteSyncRow.textContent = 'Sync Planned Path To Server Route';
+    this.content.appendChild(serverRouteSyncRow);
+
+    this.serverRouteSyncInput = document.createElement('input');
+    this.serverRouteSyncInput.type = 'checkbox';
+    this.serverRouteSyncInput.checked = options?.initialServerRouteSyncEnabled ?? true;
+    this.serverRouteSyncInput.addEventListener('input', () => {
+      options?.onServerRouteSyncEnabledChange?.(this.serverRouteSyncInput.checked);
+    });
+    serverRouteSyncRow.appendChild(this.serverRouteSyncInput);
 
     const groupContainerByName = new Map<string, HTMLDivElement>();
     for (const slider of SLIDERS) {
