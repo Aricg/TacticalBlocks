@@ -26,8 +26,6 @@ export class Unit extends Phaser.GameObjects.Container {
   private readonly commanderChevron: Phaser.GameObjects.Graphics | null;
   private readonly healthBoxBg: Phaser.GameObjects.Rectangle;
   private readonly healthBoxFill: Phaser.GameObjects.Rectangle;
-  private readonly moraleBoxBg: Phaser.GameObjects.Rectangle;
-  private readonly moraleBoxFill: Phaser.GameObjects.Rectangle;
   private health: number;
   private healthMax: number;
   private moraleScore: number | null;
@@ -47,26 +45,26 @@ export class Unit extends Phaser.GameObjects.Container {
   private static readonly OUTLINE_SELECTED_ALPHA = 1;
   private static readonly OUTLINE_HELD_COLOR = 0xe04646;
   private static readonly OUTLINE_HELD_ALPHA = 1;
-  private static readonly HEALTH_BOX_WIDTH = Unit.BODY_WIDTH;
-  private static readonly HEALTH_BOX_HEIGHT = Math.max(
+  private static readonly HEALTH_BOX_WIDTH = Math.max(
     4,
-    Math.round(Unit.BODY_HEIGHT * 0.5),
+    Math.round(Unit.BODY_WIDTH * 0.22),
   );
-  private static readonly HEALTH_BOX_TOP_INSET = Unit.HEALTH_BOX_HEIGHT * 0.5;
-  private static readonly HEALTH_BOX_BASE_Y =
-    -(Unit.BODY_HEIGHT * 0.5) + Unit.HEALTH_BOX_TOP_INSET;
-  private static readonly MORALE_BOX_BASE_Y =
-    Unit.HEALTH_BOX_BASE_Y + Unit.HEALTH_BOX_HEIGHT;
+  private static readonly HEALTH_BOX_HEIGHT = Unit.BODY_HEIGHT;
+  private static readonly HEALTH_BOX_SIDE_INSET = Unit.HEALTH_BOX_WIDTH * 0.5;
+  private static readonly HEALTH_BOX_BASE_X =
+    -(Unit.BODY_WIDTH * 0.5) + Unit.HEALTH_BOX_SIDE_INSET;
+  private static readonly HEALTH_BOX_BASE_Y = 0;
   private static readonly HEALTH_MAX: number = GAMEPLAY_CONFIG.unit.healthMax;
   private static readonly HEALTH_RED_THRESHOLD: number =
     GAMEPLAY_CONFIG.unit.healthRedThreshold;
   private static readonly HEALTH_HIGH_COLOR = 0x63d471;
   private static readonly HEALTH_LOW_COLOR = 0xe5d85c;
-  private static readonly MORALE_MAX_SCORE = 9;
-  private static readonly MORALE_LOW_THRESHOLD = 0.35;
+  private static readonly MORALE_MAX_SCORE = 7.5;
+  private static readonly MORALE_BRIGHTNESS_MIN = 0.62;
+  private static readonly MORALE_BRIGHTNESS_MAX = 1.18;
   private static readonly HEALTH_BOX_INNER_WIDTH = Unit.HEALTH_BOX_WIDTH - 2;
   private static readonly HEALTH_BOX_INNER_HEIGHT = Unit.HEALTH_BOX_HEIGHT - 2;
-  private static readonly HEALTH_FILL_BASE_X = -(Unit.HEALTH_BOX_WIDTH * 0.5) + 1;
+  private static readonly HEALTH_FILL_BASE_Y = (Unit.HEALTH_BOX_HEIGHT * 0.5) - 1;
   private static readonly COMMANDER_CHEVRON_HALF_WIDTH = 7;
   private static readonly COMMANDER_CHEVRON_HEIGHT = 5;
   private static readonly COMMANDER_CHEVRON_BASE_Y =
@@ -78,16 +76,12 @@ export class Unit extends Phaser.GameObjects.Container {
   ] as const;
   private static readonly WATER_TRANSITION_FLASH_INTERVAL_MS = 120;
   private static readonly WATER_TRANSITION_FLASH_DIM_ALPHA = 0.28;
+  private static readonly UNIT_DEPTH = 990;
+  private static readonly DEFAULT_BODY_ALPHA = 1;
+  private static readonly COMMANDER_BODY_ALPHA = 0.78;
   private static readonly TEAM_FILL_COLORS: Record<Team, number> = {
     [Team.RED]: 0xa05555,
     [Team.BLUE]: 0x4e6f9e,
-  };
-  private static readonly TEAM_MORALE_FILL_COLORS: Record<
-    Team,
-    { high: number; low: number }
-  > = {
-    [Team.RED]: { high: 0xd44b4b, low: 0x8d2e2e },
-    [Team.BLUE]: { high: 0x6f9fff, low: 0x405f99 },
   };
 
   constructor(
@@ -118,6 +112,7 @@ export class Unit extends Phaser.GameObjects.Container {
     const bodyWidth = isCommander ? Unit.COMMANDER_BODY_SIZE : Unit.BODY_WIDTH;
     const bodyHeight = isCommander ? Unit.COMMANDER_BODY_SIZE : Unit.BODY_HEIGHT;
     const statusBarScaleX = bodyWidth / Unit.BODY_WIDTH;
+    const statusBarScaleY = bodyHeight / Unit.BODY_HEIGHT;
 
     // Rectangle source-of-truth: centered at local (0,0).
     this.unitBody = new Phaser.GameObjects.Rectangle(
@@ -129,7 +124,10 @@ export class Unit extends Phaser.GameObjects.Container {
       Unit.TEAM_FILL_COLORS[this.team],
     );
     if (isCommander) {
-      this.unitBody.setFillStyle(Unit.TEAM_FILL_COLORS[this.team], 0.78);
+      this.unitBody.setFillStyle(
+        Unit.TEAM_FILL_COLORS[this.team],
+        Unit.COMMANDER_BODY_ALPHA,
+      );
     }
     this.unitBody.setOrigin(0.5, 0.5);
     this.unitBody.setStrokeStyle(
@@ -202,7 +200,7 @@ export class Unit extends Phaser.GameObjects.Container {
 
     this.healthBoxBg = new Phaser.GameObjects.Rectangle(
       scene,
-      0,
+      Unit.HEALTH_BOX_BASE_X,
       Unit.HEALTH_BOX_BASE_Y,
       Unit.HEALTH_BOX_WIDTH,
       Unit.HEALTH_BOX_HEIGHT,
@@ -210,52 +208,24 @@ export class Unit extends Phaser.GameObjects.Container {
     );
     this.healthBoxBg.setOrigin(0.5, 0.5);
     this.healthBoxBg.setStrokeStyle(1, 0xffffff, 0.7);
-    this.healthBoxBg.setScale(statusBarScaleX, 1);
+    this.healthBoxBg.setScale(statusBarScaleX, statusBarScaleY);
 
     this.healthBoxFill = new Phaser.GameObjects.Rectangle(
       scene,
-      Unit.HEALTH_FILL_BASE_X,
-      Unit.HEALTH_BOX_BASE_Y,
+      Unit.HEALTH_BOX_BASE_X,
+      Unit.HEALTH_FILL_BASE_Y,
       Unit.HEALTH_BOX_INNER_WIDTH,
       Unit.HEALTH_BOX_INNER_HEIGHT,
       0x63d471,
     );
-    this.healthBoxFill.setOrigin(0, 0.5);
-    this.healthBoxFill.setScale(statusBarScaleX, 1);
-
-    this.moraleBoxBg = new Phaser.GameObjects.Rectangle(
-      scene,
-      0,
-      Unit.MORALE_BOX_BASE_Y,
-      Unit.HEALTH_BOX_WIDTH,
-      Unit.HEALTH_BOX_HEIGHT,
-      0x1a1a1a,
-    );
-    this.moraleBoxBg.setOrigin(0.5, 0.5);
-    this.moraleBoxBg.setStrokeStyle(1, 0xffffff, 0.7);
-    this.moraleBoxBg.setScale(statusBarScaleX, 1);
-
-    this.moraleBoxFill = new Phaser.GameObjects.Rectangle(
-      scene,
-      Unit.HEALTH_FILL_BASE_X,
-      Unit.MORALE_BOX_BASE_Y,
-      Unit.HEALTH_BOX_INNER_WIDTH,
-      Unit.HEALTH_BOX_INNER_HEIGHT,
-      Unit.TEAM_MORALE_FILL_COLORS[this.team].high,
-    );
-    this.moraleBoxFill.setOrigin(0, 0.5);
-    this.moraleBoxFill.setScale(statusBarScaleX, 1);
+    this.healthBoxFill.setOrigin(0.5, 1);
+    this.healthBoxFill.setScale(statusBarScaleX, statusBarScaleY);
 
     const containerChildren: Phaser.GameObjects.GameObject[] = [
       this.unitBody,
       this.facingArrow,
     ];
-    containerChildren.push(
-      this.healthBoxBg,
-      this.healthBoxFill,
-      this.moraleBoxBg,
-      this.moraleBoxFill,
-    );
+    containerChildren.push(this.healthBoxBg, this.healthBoxFill);
     if (this.commanderChevron) {
       containerChildren.push(this.commanderChevron);
     }
@@ -263,6 +233,7 @@ export class Unit extends Phaser.GameObjects.Container {
     this.add(containerChildren);
 
     scene.add.existing(this);
+    this.setDepth(Unit.UNIT_DEPTH);
     this.refreshOutlineStyle();
     this.refreshHealthVisuals();
     this.refreshMoraleVisuals();
@@ -366,15 +337,13 @@ export class Unit extends Phaser.GameObjects.Container {
     this.unitBody.setPosition(offsetX, offsetY);
     this.facingArrow.setPosition(offsetX, offsetY);
     this.commanderChevron?.setPosition(offsetX, offsetY);
-    this.healthBoxBg.setPosition(offsetX, Unit.HEALTH_BOX_BASE_Y + offsetY);
-    this.healthBoxFill.setPosition(
-      Unit.HEALTH_FILL_BASE_X + offsetX,
+    this.healthBoxBg.setPosition(
+      Unit.HEALTH_BOX_BASE_X + offsetX,
       Unit.HEALTH_BOX_BASE_Y + offsetY,
     );
-    this.moraleBoxBg.setPosition(offsetX, Unit.MORALE_BOX_BASE_Y + offsetY);
-    this.moraleBoxFill.setPosition(
-      Unit.HEALTH_FILL_BASE_X + offsetX,
-      Unit.MORALE_BOX_BASE_Y + offsetY,
+    this.healthBoxFill.setPosition(
+      Unit.HEALTH_BOX_BASE_X + offsetX,
+      Unit.HEALTH_FILL_BASE_Y + offsetY,
     );
   }
 
@@ -442,8 +411,8 @@ export class Unit extends Phaser.GameObjects.Container {
   private refreshHealthVisuals(): void {
     const healthRatio = this.getHealthRatio();
     this.healthBoxFill.setDisplaySize(
-      Unit.HEALTH_BOX_INNER_WIDTH * healthRatio,
-      Unit.HEALTH_BOX_INNER_HEIGHT,
+      Unit.HEALTH_BOX_INNER_WIDTH,
+      Unit.HEALTH_BOX_INNER_HEIGHT * healthRatio,
     );
     this.healthBoxFill.setFillStyle(
       Unit.blendColor(Unit.HEALTH_LOW_COLOR, Unit.HEALTH_HIGH_COLOR, healthRatio),
@@ -472,21 +441,30 @@ export class Unit extends Phaser.GameObjects.Container {
 
   private refreshMoraleVisuals(): void {
     const moraleRatio = this.getMoraleRatio();
-    const moraleColors = Unit.TEAM_MORALE_FILL_COLORS[this.team];
-    this.moraleBoxFill.setDisplaySize(
-      Unit.HEALTH_BOX_INNER_WIDTH * moraleRatio,
-      Unit.HEALTH_BOX_INNER_HEIGHT,
+    const moraleBrightness = Phaser.Math.Linear(
+      Unit.MORALE_BRIGHTNESS_MIN,
+      Unit.MORALE_BRIGHTNESS_MAX,
+      moraleRatio,
     );
-    this.moraleBoxFill.setFillStyle(
-      moraleRatio > Unit.MORALE_LOW_THRESHOLD ? moraleColors.high : moraleColors.low,
+    this.unitBody.setFillStyle(
+      Unit.scaleColorBrightness(Unit.TEAM_FILL_COLORS[this.team], moraleBrightness),
+      this.unitType === 'COMMANDER'
+        ? Unit.COMMANDER_BODY_ALPHA
+        : Unit.DEFAULT_BODY_ALPHA,
     );
-    this.moraleBoxFill.setVisible(this.moraleScore !== null && moraleRatio > 0);
   }
 
   private getMoraleRatio(): number {
     if (this.moraleScore === null) {
-      return 0;
+      return 1;
     }
     return Phaser.Math.Clamp(this.moraleScore / Unit.MORALE_MAX_SCORE, 0, 1);
+  }
+
+  private static scaleColorBrightness(color: number, brightness: number): number {
+    const red = Phaser.Math.Clamp(Math.round(((color >> 16) & 0xff) * brightness), 0, 255);
+    const green = Phaser.Math.Clamp(Math.round(((color >> 8) & 0xff) * brightness), 0, 255);
+    const blue = Phaser.Math.Clamp(Math.round((color & 0xff) * brightness), 0, 255);
+    return (red << 16) | (green << 8) | blue;
   }
 }
