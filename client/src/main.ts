@@ -77,7 +77,7 @@ import {
   gridToWorldCenter,
   planFormationLineAssignments,
   setPlannedPath,
-  snapAndCompactPath,
+  translateGridRouteForUnit,
   worldToGridCoordinate,
   type GridCoordinate,
   type UnitCommandPlannerGridMetrics,
@@ -2032,10 +2032,25 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
+    const commandRoute = path.map((point) =>
+      worldToGridCoordinate(
+        point.x,
+        point.y,
+        BattleScene.UNIT_COMMAND_GRID_METRICS,
+      ),
+    );
+    if (commandRoute.length === 0) {
+      return;
+    }
     const formationCenter = getFormationCenter(this.selectedUnits);
     if (!formationCenter) {
       return;
     }
+    const formationAnchorCell = worldToGridCoordinate(
+      formationCenter.x,
+      formationCenter.y,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
 
     const movementCommandMode = buildMovementCommandMode(shiftHeld, {
       preferRoads: this.selectedUnits.size <= 1,
@@ -2045,31 +2060,22 @@ class BattleScene extends Phaser.Scene {
       if (!this.selectedUnits.has(unit)) {
         continue;
       }
-      const offsetX = unit.x - formationCenter.x;
-      const offsetY = unit.y - formationCenter.y;
-      const snappedPath = snapAndCompactPath(
-        path.map((point) =>
-          new Phaser.Math.Vector2(point.x + offsetX, point.y + offsetY),
-        ),
-        BattleScene.UNIT_COMMAND_GRID_METRICS,
-      );
-      if (snappedPath.length === 0) {
-        this.plannedPathsByUnitId.delete(unitId);
-        this.pendingUnitPathCommandsByUnitId.delete(unitId);
-        continue;
-      }
-      const targetCells = snappedPath.map((point) =>
-        worldToGridCoordinate(
-          point.x,
-          point.y,
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
-        ),
-      );
       const unitCell = worldToGridCoordinate(
         unit.x,
         unit.y,
         BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
+      const targetCells = translateGridRouteForUnit({
+        route: commandRoute,
+        formationAnchorCell,
+        unitCell,
+        grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
+      });
+      if (targetCells.length === 0) {
+        this.plannedPathsByUnitId.delete(unitId);
+        this.pendingUnitPathCommandsByUnitId.delete(unitId);
+        continue;
+      }
       if (
         targetCells.length === 1 &&
         unitCell.col === targetCells[0].col &&

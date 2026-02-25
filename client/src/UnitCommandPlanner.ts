@@ -35,6 +35,13 @@ type ClipPathTargetsByTerrainArgs = {
   isGridCellImpassable: (col: number, row: number) => boolean;
 };
 
+type TranslateGridRouteForUnitArgs = {
+  route: ReadonlyArray<GridCoordinate>;
+  formationAnchorCell: GridCoordinate;
+  unitCell: GridCoordinate;
+  grid: UnitCommandPlannerGridMetrics;
+};
+
 type SetPlannedPathArgs = {
   plannedPathsByUnitId: Map<string, Phaser.Math.Vector2[]>;
   unitId: string;
@@ -203,6 +210,33 @@ export function buildGridRouteFromWorldPath(
   }
 
   return compactGridCoordinates(route);
+}
+
+export function translateGridRouteForUnit({
+  route,
+  formationAnchorCell,
+  unitCell,
+  grid,
+}: TranslateGridRouteForUnitArgs): GridCoordinate[] {
+  if (route.length === 0) {
+    return [];
+  }
+
+  const offsetCol = unitCell.col - formationAnchorCell.col;
+  const offsetRow = unitCell.row - formationAnchorCell.row;
+  const translatedRoute = route.map((step) => ({
+    col: Phaser.Math.Clamp(
+      step.col + offsetCol,
+      0,
+      grid.width - 1,
+    ),
+    row: Phaser.Math.Clamp(
+      step.row + offsetRow,
+      0,
+      grid.height - 1,
+    ),
+  }));
+  return compactGridCoordinates(translatedRoute);
 }
 
 export function clipPathTargetsByTerrain({
