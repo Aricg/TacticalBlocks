@@ -511,6 +511,7 @@ class BattleScene extends Phaser.Scene {
         isUnitSelected: (unit: Unit) => this.selectedUnits.has(unit),
         hasSelectedUnits: () => this.selectedUnits.size > 0,
         selectOnlyUnit: (unit: Unit) => this.selectOnlyUnit(unit),
+        selectAllOwnedUnits: () => this.selectAllOwnedUnits(),
         clearSelection: () => this.clearSelection(),
         commandSelectedUnits: (
           targetX: number,
@@ -1980,6 +1981,21 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private selectAllOwnedUnits(): void {
+    for (const unit of this.selectedUnits) {
+      unit.setSelected(false);
+    }
+    this.selectedUnits.clear();
+
+    for (const unit of this.unitsById.values()) {
+      if (unit.team !== this.localPlayerTeam || !unit.isAlive()) {
+        continue;
+      }
+      this.selectedUnits.add(unit);
+      unit.setSelected(true);
+    }
+  }
+
   private commandSelectedUnits(
     targetX: number,
     targetY: number,
@@ -2593,6 +2609,10 @@ class BattleScene extends Phaser.Scene {
     );
     const sampleRadius = BattleScene.MORALE_SAMPLE_RADIUS;
     const authoritativePosition = this.getAuthoritativeUnitPosition(unit);
+    const centerColBasis =
+      authoritativePosition.x / BattleScene.GRID_CELL_WIDTH - 0.5;
+    const centerRowBasis =
+      authoritativePosition.y / BattleScene.GRID_CELL_HEIGHT - 0.5;
     const centerCell = worldToGridCoordinate(
       authoritativePosition.x,
       authoritativePosition.y,
@@ -2602,6 +2622,13 @@ class BattleScene extends Phaser.Scene {
 
     let accumulatedFriendlyWeight = 0;
     let sampledCells = 0;
+    const mirrorSampleCenterCol = BattleScene.GRID_WIDTH - 1 - centerCell.col;
+    const mirrorSampleCenterRow = centerCell.row;
+    const influenceSampleScores: number[] = [];
+    const influenceSampleAlignedScores: number[] = [];
+    const influenceSampleFriendlyWeights: number[] = [];
+    const mirrorInfluenceSampleScores: number[] = [];
+    const mirrorAntiSymmetryErrors: number[] = [];
     for (let rowOffset = -sampleRadius; rowOffset <= sampleRadius; rowOffset += 1) {
       for (let colOffset = -sampleRadius; colOffset <= sampleRadius; colOffset += 1) {
         const sampleCol = Phaser.Math.Clamp(
@@ -2614,14 +2641,36 @@ class BattleScene extends Phaser.Scene {
           0,
           BattleScene.GRID_HEIGHT - 1,
         );
-        const alignedCellScore =
-          this.getInfluenceScoreAtGridCell(sampleCol, sampleRow) * teamSign;
+        const cellScore = this.getInfluenceScoreAtGridCell(sampleCol, sampleRow);
+        const mirroredCounterpartCol = Phaser.Math.Clamp(
+          BattleScene.GRID_WIDTH - 1 - sampleCol,
+          0,
+          BattleScene.GRID_WIDTH - 1,
+        );
+        const mirroredCounterpartScore = this.getInfluenceScoreAtGridCell(
+          mirroredCounterpartCol,
+          sampleRow,
+        );
+        const mirrorWindowCol = Phaser.Math.Clamp(
+          mirrorSampleCenterCol + colOffset,
+          0,
+          BattleScene.GRID_WIDTH - 1,
+        );
+        mirrorInfluenceSampleScores.push(
+          this.getInfluenceScoreAtGridCell(mirrorWindowCol, sampleRow),
+        );
+        mirrorAntiSymmetryErrors.push(cellScore + mirroredCounterpartScore);
+        const alignedCellScore = cellScore * teamSign;
+        influenceSampleScores.push(cellScore);
+        influenceSampleAlignedScores.push(alignedCellScore);
         const normalizedAlignedScore = Phaser.Math.Clamp(
           alignedCellScore / maxAbsInfluenceScore,
           -1,
           1,
         );
-        accumulatedFriendlyWeight += (normalizedAlignedScore + 1) * 0.5;
+        const friendlyWeight = (normalizedAlignedScore + 1) * 0.5;
+        influenceSampleFriendlyWeights.push(friendlyWeight);
+        accumulatedFriendlyWeight += friendlyWeight;
         sampledCells += 1;
       }
     }
@@ -2630,15 +2679,56 @@ class BattleScene extends Phaser.Scene {
       sampledCells <= 0
         ? BattleScene.MORALE_INFLUENCE_MIN
         : (accumulatedFriendlyWeight / sampledCells) * BattleScene.MORALE_MAX_SCORE;
+    const averageFriendlyWeight =
+      sampledCells <= 0 ? 0 : accumulatedFriendlyWeight / sampledCells;
+    let mirrorAntiSymmetryAbsSum = 0;
+    let mirrorAntiSymmetryMaxAbsError = 0;
+    for (const errorValue of mirrorAntiSymmetryErrors) {
+      const absoluteError = Math.abs(errorValue);
+      mirrorAntiSymmetryAbsSum += absoluteError;
+      mirrorAntiSymmetryMaxAbsError = Math.max(
+        mirrorAntiSymmetryMaxAbsError,
+        absoluteError,
+      );
+    }
+    const mirrorAntiSymmetryMeanAbsError =
+      mirrorAntiSymmetryErrors.length > 0
+        ? mirrorAntiSymmetryAbsSum / mirrorAntiSymmetryErrors.length
+        : 0;
     const usingRuntimeMapGrid = this.hasMoraleDebugRuntimeMapGrid();
     const serverMoraleScore = this.moraleScoreByUnitId.get(unitId) ?? null;
+    const supplyLine = this.supplyLinesByUnitId.get(unitId);
     if (!usingRuntimeMapGrid) {
       return {
         serverMoraleScore,
         estimatedMoraleScore: Number.NaN,
         contactDps: this.getContactDpsForMorale(unit, serverMoraleScore),
         runtimeSidecarAvailable: false,
-        influenceBaseScore: Number.NaN,
+        influenceBaseScore,
+        unitTeam: unit.team === Team.RED ? "RED" : "BLUE",
+        teamSign: teamSign > 0 ? 1 : -1,
+        authoritativeX: authoritativePosition.x,
+        authoritativeY: authoritativePosition.y,
+        centerColBasis,
+        centerRowBasis,
+        sampleCenterCol: centerCell.col,
+        sampleCenterRow: centerCell.row,
+        sampleRadius,
+        averageFriendlyWeight,
+        influenceSampleScores,
+        influenceSampleAlignedScores,
+        influenceSampleFriendlyWeights,
+        mirrorSampleCenterCol,
+        mirrorSampleCenterRow,
+        mirrorInfluenceSampleScores,
+        mirrorAntiSymmetryErrors,
+        mirrorAntiSymmetryMeanAbsError,
+        mirrorAntiSymmetryMaxAbsError,
+        supplyConnected: supplyLine ? supplyLine.connected : null,
+        supplySourceCol: supplyLine ? supplyLine.sourceCol : null,
+        supplySourceRow: supplyLine ? supplyLine.sourceRow : null,
+        supplySeverIndex: supplyLine ? supplyLine.severIndex : null,
+        supplyPathLength: supplyLine ? supplyLine.path.length : null,
         terrainType: 'unknown',
         terrainBonus: Number.NaN,
         commanderAuraBonus: Number.NaN,
@@ -2660,7 +2750,6 @@ class BattleScene extends Phaser.Scene {
       centerCell,
     );
     const slopeDelta = this.getSlopeMoraleDeltaForUnit(unitId, centerCell);
-    const supplyLine = this.supplyLinesByUnitId.get(unitId);
     const supplyBlocked = Boolean(supplyLine && !supplyLine.connected);
     const estimatedMoraleScore = supplyBlocked
       ? 0
@@ -2680,6 +2769,30 @@ class BattleScene extends Phaser.Scene {
       contactDps,
       runtimeSidecarAvailable: true,
       influenceBaseScore,
+      unitTeam: unit.team === Team.RED ? "RED" : "BLUE",
+      teamSign: teamSign > 0 ? 1 : -1,
+      authoritativeX: authoritativePosition.x,
+      authoritativeY: authoritativePosition.y,
+      centerColBasis,
+      centerRowBasis,
+      sampleCenterCol: centerCell.col,
+      sampleCenterRow: centerCell.row,
+      sampleRadius,
+      averageFriendlyWeight,
+      influenceSampleScores,
+      influenceSampleAlignedScores,
+      influenceSampleFriendlyWeights,
+      mirrorSampleCenterCol,
+      mirrorSampleCenterRow,
+      mirrorInfluenceSampleScores,
+      mirrorAntiSymmetryErrors,
+      mirrorAntiSymmetryMeanAbsError,
+      mirrorAntiSymmetryMaxAbsError,
+      supplyConnected: supplyLine ? supplyLine.connected : null,
+      supplySourceCol: supplyLine ? supplyLine.sourceCol : null,
+      supplySourceRow: supplyLine ? supplyLine.sourceRow : null,
+      supplySeverIndex: supplyLine ? supplyLine.severIndex : null,
+      supplyPathLength: supplyLine ? supplyLine.path.length : null,
       terrainType,
       terrainBonus,
       commanderAuraBonus,

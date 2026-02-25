@@ -7,6 +7,7 @@ type BattleInputCallbacks = {
   isUnitSelected: (unit: Unit) => boolean;
   hasSelectedUnits: () => boolean;
   selectOnlyUnit: (unit: Unit) => void;
+  selectAllOwnedUnits: () => void;
   clearSelection: () => void;
   commandSelectedUnits: (targetX: number, targetY: number, shiftHeld: boolean) => void;
   commandSelectedUnitsAlongPath: (
@@ -75,6 +76,7 @@ export class BattleInputController {
     this.scene.input.keyboard?.on('keydown-ESC', this.handleKeyDownEsc);
     this.scene.input.keyboard?.on('keydown-D', this.handleKeyDownD);
     this.scene.input.keyboard?.on('keydown-F', this.handleKeyDownF);
+    this.scene.input.keyboard?.on('keydown-S', this.handleKeyDownS);
   }
 
   public reset(): void {
@@ -101,6 +103,7 @@ export class BattleInputController {
     this.scene.input.keyboard?.off('keydown-ESC', this.handleKeyDownEsc);
     this.scene.input.keyboard?.off('keydown-D', this.handleKeyDownD);
     this.scene.input.keyboard?.off('keydown-F', this.handleKeyDownF);
+    this.scene.input.keyboard?.off('keydown-S', this.handleKeyDownS);
     this.reset();
   }
 
@@ -344,5 +347,12 @@ export class BattleInputController {
       return;
     }
     this.isFormationLineArmed = true;
+  };
+
+  private readonly handleKeyDownS = (): void => {
+    if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    this.callbacks.selectAllOwnedUnits();
   };
 }

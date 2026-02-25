@@ -57,6 +57,10 @@ const CONTROL_SECTIONS: ControlSection[] = [
         input: 'D',
         effect: 'Clear selection and reset drag/path preview state.',
       },
+      {
+        input: 'S',
+        effect: 'Select all friendly units.',
+      },
     ],
   },
   {
