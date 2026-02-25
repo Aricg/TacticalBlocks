@@ -68,6 +68,8 @@ export interface UpdateUnitInteractionsParams {
   unitsById: Map<string, Unit>;
   movementStateByUnitId: Map<string, UnitMovementState>;
   gridContactDistance: number;
+  unitForwardOffset: number;
+  attackFacingAngleTolerance: number;
   ensureFiniteUnitState: (unit: Unit) => void;
   updateUnitMoraleScores: (units: Unit[]) => void;
   wasUnitEngagedLastTick: (unit: Unit) => boolean;
@@ -75,6 +77,22 @@ export interface UpdateUnitInteractionsParams {
   getMoraleAdvantageNormalized: (unit: Unit) => number;
   getUnitContactDps: (influenceAdvantage: number) => number;
   getUnitHealthMitigationMultiplier: (influenceAdvantage: number) => number;
+  wrapAngle: (angle: number) => number;
+  setUnitAttacking: (unit: Unit, isAttacking: boolean) => void;
+}
+
+function canUnitAttackTarget(args: {
+  unit: Unit;
+  target: Unit;
+  unitForwardOffset: number;
+  attackFacingAngleTolerance: number;
+  wrapAngle: (angle: number) => number;
+}): boolean {
+  const desiredFacingRotation =
+    Math.atan2(args.target.y - args.unit.y, args.target.x - args.unit.x) -
+    args.unitForwardOffset;
+  const headingError = args.wrapAngle(desiredFacingRotation - args.unit.rotation);
+  return Math.abs(headingError) <= args.attackFacingAngleTolerance;
 }
 
 export function updateUnitInteractions({
@@ -82,6 +100,8 @@ export function updateUnitInteractions({
   unitsById,
   movementStateByUnitId,
   gridContactDistance,
+  unitForwardOffset,
+  attackFacingAngleTolerance,
   ensureFiniteUnitState,
   updateUnitMoraleScores,
   wasUnitEngagedLastTick,
@@ -89,8 +109,15 @@ export function updateUnitInteractions({
   getMoraleAdvantageNormalized,
   getUnitContactDps,
   getUnitHealthMitigationMultiplier,
+  wrapAngle,
+  setUnitAttacking,
 }: UpdateUnitInteractionsParams): Engagements {
   const engagements: Engagements = new Map<string, Set<string>>();
+  for (const unit of unitsById.values()) {
+    if (unit.health > 0) {
+      setUnitAttacking(unit, false);
+    }
+  }
   if (deltaSeconds <= 0) {
     return engagements;
   }
@@ -119,11 +146,34 @@ export function updateUnitInteractions({
       addEngagement(engagements, a.unitId, b.unitId);
       const isEngagementStartingNow =
         !wasUnitEngagedLastTick(a) || !wasUnitEngagedLastTick(b);
-      if (
-        isEngagementStartingNow &&
-        (shouldPauseCombatForUnit(a) || shouldPauseCombatForUnit(b))
-      ) {
+      const aCombatPaused =
+        isEngagementStartingNow && shouldPauseCombatForUnit(a);
+      const bCombatPaused =
+        isEngagementStartingNow && shouldPauseCombatForUnit(b);
+
+      const aCanAttack = canUnitAttackTarget({
+        unit: a,
+        target: b,
+        unitForwardOffset,
+        attackFacingAngleTolerance,
+        wrapAngle,
+      }) && !aCombatPaused;
+      const bCanAttack = canUnitAttackTarget({
+        unit: b,
+        target: a,
+        unitForwardOffset,
+        attackFacingAngleTolerance,
+        wrapAngle,
+      }) && !bCombatPaused;
+      if (!aCanAttack && !bCanAttack) {
         continue;
+      }
+
+      if (aCanAttack) {
+        setUnitAttacking(a, true);
+      }
+      if (bCanAttack) {
+        setUnitAttacking(b, true);
       }
 
       const aMoraleAdvantage = getMoraleAdvantageNormalized(a);
@@ -140,17 +190,26 @@ export function updateUnitInteractions({
         getUnitHealthMitigationMultiplier(bMoraleAdvantage);
 
       const incomingDamageToA =
-        (bContactDps * deltaSeconds) / Math.max(1, aHealthMitigation);
+        bCanAttack
+          ? (bContactDps * deltaSeconds) / Math.max(1, aHealthMitigation)
+          : 0;
       const incomingDamageToB =
-        (aContactDps * deltaSeconds) / Math.max(1, bHealthMitigation);
-      pendingDamageByUnitId.set(
-        a.unitId,
-        (pendingDamageByUnitId.get(a.unitId) ?? 0) + incomingDamageToA,
-      );
-      pendingDamageByUnitId.set(
-        b.unitId,
-        (pendingDamageByUnitId.get(b.unitId) ?? 0) + incomingDamageToB,
-      );
+        aCanAttack
+          ? (aContactDps * deltaSeconds) / Math.max(1, bHealthMitigation)
+          : 0;
+
+      if (incomingDamageToA > 0) {
+        pendingDamageByUnitId.set(
+          a.unitId,
+          (pendingDamageByUnitId.get(a.unitId) ?? 0) + incomingDamageToA,
+        );
+      }
+      if (incomingDamageToB > 0) {
+        pendingDamageByUnitId.set(
+          b.unitId,
+          (pendingDamageByUnitId.get(b.unitId) ?? 0) + incomingDamageToB,
+        );
+      }
     }
   }
 

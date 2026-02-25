@@ -2255,6 +2255,8 @@ export class BattleRoom extends Room<BattleState> {
       unitsById: this.state.units,
       movementStateByUnitId: this.movementStateByUnitId,
       gridContactDistance: BattleRoom.GRID_CONTACT_DISTANCE,
+      unitForwardOffset: BattleRoom.UNIT_FORWARD_OFFSET,
+      attackFacingAngleTolerance: BattleRoom.REFACE_ANGLE_THRESHOLD,
       ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
       updateUnitMoraleScores: (units) => {
         this.moraleStepPendingUnitIds.clear();
@@ -2287,6 +2289,13 @@ export class BattleRoom extends Room<BattleState> {
           influenceAdvantage,
           this.runtimeTuning.healthInfluenceMultiplier,
         ),
+      wrapAngle: (angle) => BattleRoom.wrapAngle(angle),
+      setUnitAttacking: (unit, isAttacking) => {
+        if (unit.isAttacking === isAttacking) {
+          return;
+        }
+        unit.isAttacking = isAttacking;
+      },
     });
 
     this.engagedUnitIds.clear();

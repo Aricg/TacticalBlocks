@@ -10,6 +10,7 @@ export class Unit extends Schema {
   @type("number") rotation = 0;
   @type("number") health = 100;
   @type("number") moraleScore = 0;
+  @type("boolean") isAttacking = false;
   @type("string") team = "";
   @type("string") unitId = "";
   @type("string") unitType = DEFAULT_UNIT_TYPE;

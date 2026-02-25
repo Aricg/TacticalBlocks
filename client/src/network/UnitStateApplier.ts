@@ -28,8 +28,6 @@ type ApplyNetworkUnitRotationSnapshot = (
   snapImmediately?: boolean,
 ) => void;
 
-type MarkUnitInCombatVisual = (unitId: string) => void;
-
 export function normalizeNetworkTeam(teamValue: string): Team {
   return teamValue.toUpperCase() === Team.RED ? Team.RED : Team.BLUE;
 }
@@ -42,7 +40,7 @@ export function upsertNetworkUnitState({
   baseUnitHealth,
   lastKnownHealthByUnitId,
   moraleScoreByUnitId,
-  combatVisualUntilByUnitId,
+  attackingUnitIds,
   applyNetworkUnitPositionSnapshot,
   applyNetworkUnitRotationSnapshot,
 }: {
@@ -53,7 +51,7 @@ export function upsertNetworkUnitState({
   baseUnitHealth: number;
   lastKnownHealthByUnitId: Map<string, number>;
   moraleScoreByUnitId: Map<string, number>;
-  combatVisualUntilByUnitId: Map<string, number>;
+  attackingUnitIds: Set<string>;
   applyNetworkUnitPositionSnapshot: ApplyNetworkUnitPositionSnapshot;
   applyNetworkUnitRotationSnapshot: ApplyNetworkUnitRotationSnapshot;
 }): void {
@@ -71,6 +69,11 @@ export function upsertNetworkUnitState({
     existingUnit.setHealth(networkUnit.health);
     lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
     moraleScoreByUnitId.set(networkUnit.unitId, networkUnit.moraleScore);
+    if (networkUnit.isAttacking) {
+      attackingUnitIds.add(networkUnit.unitId);
+    } else {
+      attackingUnitIds.delete(networkUnit.unitId);
+    }
     applyNetworkUnitPositionSnapshot(
       existingUnit,
       networkUnit.unitId,
@@ -95,7 +98,11 @@ export function upsertNetworkUnitState({
   unitsById.set(networkUnit.unitId, spawnedUnit);
   lastKnownHealthByUnitId.set(networkUnit.unitId, networkUnit.health);
   moraleScoreByUnitId.set(networkUnit.unitId, networkUnit.moraleScore);
-  combatVisualUntilByUnitId.delete(networkUnit.unitId);
+  if (networkUnit.isAttacking) {
+    attackingUnitIds.add(networkUnit.unitId);
+  } else {
+    attackingUnitIds.delete(networkUnit.unitId);
+  }
   applyNetworkUnitPositionSnapshot(
     spawnedUnit,
     networkUnit.unitId,
@@ -117,7 +124,7 @@ export function removeNetworkUnitState({
   unitsById,
   plannedPathsByUnitId,
   lastKnownHealthByUnitId,
-  combatVisualUntilByUnitId,
+  attackingUnitIds,
   moraleScoreByUnitId,
   selectedUnits,
 }: {
@@ -126,7 +133,7 @@ export function removeNetworkUnitState({
   unitsById: Map<string, Unit>;
   plannedPathsByUnitId: Map<string, Phaser.Math.Vector2[]>;
   lastKnownHealthByUnitId: Map<string, number>;
-  combatVisualUntilByUnitId: Map<string, number>;
+  attackingUnitIds: Set<string>;
   moraleScoreByUnitId: Map<string, number>;
   selectedUnits: Set<Unit>;
 }): void {
@@ -138,7 +145,7 @@ export function removeNetworkUnitState({
   unitsById.delete(unitId);
   plannedPathsByUnitId.delete(unitId);
   lastKnownHealthByUnitId.delete(unitId);
-  combatVisualUntilByUnitId.delete(unitId);
+  attackingUnitIds.delete(unitId);
   moraleScoreByUnitId.delete(unitId);
   selectedUnits.delete(unit);
   const index = units.indexOf(unit);
@@ -174,23 +181,16 @@ export function applyNetworkUnitHealthState({
   healthUpdate,
   unitsById,
   lastKnownHealthByUnitId,
-  markUnitInCombatVisual,
 }: {
   healthUpdate: NetworkUnitHealthUpdate;
   unitsById: ReadonlyMap<string, Unit>;
   lastKnownHealthByUnitId: Map<string, number>;
-  markUnitInCombatVisual: MarkUnitInCombatVisual;
 }): void {
   const unit = unitsById.get(healthUpdate.unitId);
   if (!unit) {
     return;
   }
 
-  const previousHealth =
-    lastKnownHealthByUnitId.get(healthUpdate.unitId) ?? healthUpdate.health;
-  if (healthUpdate.health < previousHealth - 0.0001) {
-    markUnitInCombatVisual(healthUpdate.unitId);
-  }
   lastKnownHealthByUnitId.set(healthUpdate.unitId, healthUpdate.health);
   unit.setHealth(healthUpdate.health);
 }

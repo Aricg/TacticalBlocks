@@ -63,6 +63,7 @@ type ServerUnitState = {
   unitId: string;
   health: number;
   moraleScore: number;
+  isAttacking?: boolean;
   unitType?: string;
 };
 
@@ -119,6 +120,7 @@ export type NetworkUnitSnapshot = {
   rotation: number;
   health: number;
   moraleScore: number;
+  isAttacking: boolean;
   unitType: string;
 };
 
@@ -141,6 +143,11 @@ export type NetworkUnitRotationUpdate = {
 export type NetworkUnitMoraleUpdate = {
   unitId: string;
   moraleScore: number;
+};
+
+export type NetworkUnitAttackingUpdate = {
+  unitId: string;
+  isAttacking: boolean;
 };
 
 export type NetworkUnitPathStateUpdate = UnitPathStateMessage;
@@ -224,6 +231,9 @@ type UnitPathStateChangedHandler = (
   pathStateUpdate: NetworkUnitPathStateUpdate,
 ) => void;
 type UnitHealthChangedHandler = (healthUpdate: NetworkUnitHealthUpdate) => void;
+type UnitAttackingChangedHandler = (
+  attackingUpdate: NetworkUnitAttackingUpdate,
+) => void;
 type UnitRotationChangedHandler = (
   rotationUpdate: NetworkUnitRotationUpdate,
 ) => void;
@@ -279,6 +289,7 @@ export class NetworkManager {
     private readonly onUnitPositionChanged: UnitPositionChangedHandler,
     private readonly onUnitPathStateChanged: UnitPathStateChangedHandler,
     private readonly onUnitHealthChanged: UnitHealthChangedHandler,
+    private readonly onUnitAttackingChanged: UnitAttackingChangedHandler,
     private readonly onUnitRotationChanged: UnitRotationChangedHandler,
     private readonly onUnitMoraleChanged: UnitMoraleChangedHandler,
     private readonly onInfluenceGridChanged: InfluenceGridChangedHandler,
@@ -630,6 +641,7 @@ export class NetworkManager {
             moraleScore: Number.isFinite(serverUnit.moraleScore)
               ? serverUnit.moraleScore
               : 0,
+            isAttacking: serverUnit.isAttacking === true,
             unitType:
               typeof serverUnit.unitType === 'string'
                 ? serverUnit.unitType
@@ -672,6 +684,15 @@ export class NetworkManager {
               });
             },
           );
+          const detachIsAttacking = $(serverUnit).listen(
+            'isAttacking',
+            (isAttacking: boolean | undefined) => {
+              this.onUnitAttackingChanged({
+                unitId,
+                isAttacking: isAttacking === true,
+              });
+            },
+          );
           const detachMoraleScore = $(serverUnit).listen(
             'moraleScore',
             (moraleScore: number) => {
@@ -688,6 +709,7 @@ export class NetworkManager {
             detachY,
             detachHealth,
             detachRotation,
+            detachIsAttacking,
             detachMoraleScore,
           );
         },

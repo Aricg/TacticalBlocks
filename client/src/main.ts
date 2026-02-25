@@ -6,6 +6,7 @@ import {
   type NetworkInfluenceGridUpdate,
   type NetworkLobbyStateUpdate,
   NetworkManager,
+  type NetworkUnitAttackingUpdate,
   type NetworkUnitHealthUpdate,
   type NetworkMatchPhase,
   type NetworkUnitRotationUpdate,
@@ -279,8 +280,7 @@ class BattleScene extends Phaser.Scene {
     new Map<string, TerrainType>();
   private readonly lastKnownHealthByUnitId: Map<string, number> =
     new Map<string, number>();
-  private readonly combatVisualUntilByUnitId: Map<string, number> =
-    new Map<string, number>();
+  private readonly attackingUnitIds: Set<string> = new Set<string>();
   private readonly moraleScoreByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly supplyLinesByUnitId: Map<string, NetworkSupplyLineUpdate> =
@@ -342,6 +342,9 @@ class BattleScene extends Phaser.Scene {
   private runtimeTuning: RuntimeTuning = { ...DEFAULT_RUNTIME_TUNING };
   private tuningPanel: RuntimeTuningPanel | null = null;
   private controlsOverlay: ControlsOverlay | null = null;
+  private tickRateText: Phaser.GameObjects.Text | null = null;
+  private smoothedTickDeltaMs = 1000 / 60;
+  private tickRateDisplayAccumulatorMs = 0;
   private showMoraleBreakdownOverlay = true;
   private latestInfluenceGrid: NetworkInfluenceGridUpdate | null = null;
   private mapSamplingWidth = 0;
@@ -398,7 +401,6 @@ class BattleScene extends Phaser.Scene {
     0,
     Math.round(GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds * 1000),
   );
-  private static readonly COMBAT_WIGGLE_HOLD_MS = 250;
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
   private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
@@ -408,6 +410,10 @@ class BattleScene extends Phaser.Scene {
   private static readonly COMMANDER_MORALE_AURA_BONUS = 1;
   private static readonly SLOPE_MORALE_DOT_EQUIVALENT = 1;
   private static readonly LOBBY_OVERLAY_DEPTH = 2200;
+  private static readonly TICK_RATE_DISPLAY_DEPTH = 2301;
+  private static readonly TICK_RATE_DISPLAY_MARGIN = 12;
+  private static readonly TICK_RATE_SMOOTHING_FACTOR = 0.15;
+  private static readonly TICK_RATE_DISPLAY_UPDATE_INTERVAL_MS = 120;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -496,6 +502,18 @@ class BattleScene extends Phaser.Scene {
       this.showMoraleBreakdownOverlay,
     );
     this.controlsOverlay = new ControlsOverlay();
+    this.tickRateText = this.add
+      .text(0, 0, 'Tick: -- /s (-- ms)', {
+        fontFamily: 'monospace',
+        fontSize: '15px',
+        color: '#dbe9ff',
+        backgroundColor: 'rgba(10, 14, 18, 0.62)',
+        padding: { x: 6, y: 4 },
+      })
+      .setOrigin(0, 1)
+      .setScrollFactor(0)
+      .setDepth(BattleScene.TICK_RATE_DISPLAY_DEPTH);
+    this.layoutTickRateDisplay();
     this.applyRuntimeTuning(this.runtimeTuning);
     this.refreshFogOfWar();
     this.createLobbyOverlay();
@@ -590,6 +608,9 @@ class BattleScene extends Phaser.Scene {
       (healthUpdate) => {
         this.applyNetworkUnitHealth(healthUpdate);
       },
+      (attackingUpdate) => {
+        this.applyNetworkUnitAttacking(attackingUpdate);
+      },
       (rotationUpdate) => {
         this.applyNetworkUnitRotation(rotationUpdate);
       },
@@ -662,7 +683,7 @@ class BattleScene extends Phaser.Scene {
         () => 'NEUTRAL',
       );
       this.lastKnownHealthByUnitId.clear();
-      this.combatVisualUntilByUnitId.clear();
+      this.attackingUnitIds.clear();
       this.moraleScoreByUnitId.clear();
       this.supplyLinesByUnitId.clear();
       this.farmCitySupplyLinesByLinkId.clear();
@@ -673,6 +694,8 @@ class BattleScene extends Phaser.Scene {
       this.moraleBreakdownOverlay = null;
       this.controlsOverlay?.destroy();
       this.controlsOverlay = null;
+      this.tickRateText?.destroy();
+      this.tickRateText = null;
       this.latestInfluenceGrid = null;
       this.mapBackground = null;
       this.stopMapTextureRetryLoop();
@@ -1459,7 +1482,7 @@ class BattleScene extends Phaser.Scene {
       baseUnitHealth: this.runtimeTuning.baseUnitHealth,
       lastKnownHealthByUnitId: this.lastKnownHealthByUnitId,
       moraleScoreByUnitId: this.moraleScoreByUnitId,
-      combatVisualUntilByUnitId: this.combatVisualUntilByUnitId,
+      attackingUnitIds: this.attackingUnitIds,
       applyNetworkUnitPositionSnapshot: (
         unit,
         unitId,
@@ -1498,7 +1521,7 @@ class BattleScene extends Phaser.Scene {
       unitsById: this.unitsById,
       plannedPathsByUnitId: this.plannedPathsByUnitId,
       lastKnownHealthByUnitId: this.lastKnownHealthByUnitId,
-      combatVisualUntilByUnitId: this.combatVisualUntilByUnitId,
+      attackingUnitIds: this.attackingUnitIds,
       moraleScoreByUnitId: this.moraleScoreByUnitId,
       selectedUnits: this.selectedUnits,
     });
@@ -1560,8 +1583,17 @@ class BattleScene extends Phaser.Scene {
       healthUpdate,
       unitsById: this.unitsById,
       lastKnownHealthByUnitId: this.lastKnownHealthByUnitId,
-      markUnitInCombatVisual: (unitId) => this.markUnitInCombatVisual(unitId),
     });
+  }
+
+  private applyNetworkUnitAttacking(
+    attackingUpdate: NetworkUnitAttackingUpdate,
+  ): void {
+    if (attackingUpdate.isAttacking) {
+      this.attackingUnitIds.add(attackingUpdate.unitId);
+      return;
+    }
+    this.attackingUnitIds.delete(attackingUpdate.unitId);
   }
 
   private applyNetworkUnitRotation(rotationUpdate: NetworkUnitRotationUpdate): void {
@@ -1867,12 +1899,6 @@ class BattleScene extends Phaser.Scene {
     return nowMs < renderState.startedAtMs + renderState.durationMs - 0.001;
   }
 
-  private markUnitInCombatVisual(unitId: string): void {
-    const existingUntil = this.combatVisualUntilByUnitId.get(unitId) ?? 0;
-    const combatUntil = this.time.now + BattleScene.COMBAT_WIGGLE_HOLD_MS;
-    this.combatVisualUntilByUnitId.set(unitId, Math.max(existingUntil, combatUntil));
-  }
-
   private getCombatWigglePhaseSeed(unitId: string): number {
     let hash = 2166136261;
     for (let i = 0; i < unitId.length; i += 1) {
@@ -1887,16 +1913,12 @@ class BattleScene extends Phaser.Scene {
     for (const [unitId, unit] of this.unitsById) {
       if (!unit.isAlive()) {
         unit.clearCombatVisualOffset();
-        this.combatVisualUntilByUnitId.delete(unitId);
+        this.attackingUnitIds.delete(unitId);
         continue;
       }
 
-      const combatUntil = this.combatVisualUntilByUnitId.get(unitId) ?? 0;
-      if (combatUntil <= timeMs) {
+      if (!this.attackingUnitIds.has(unitId)) {
         unit.clearCombatVisualOffset();
-        if (combatUntil > 0) {
-          this.combatVisualUntilByUnitId.delete(unitId);
-        }
         continue;
       }
 
@@ -2909,7 +2931,43 @@ class BattleScene extends Phaser.Scene {
     return unit ? unit.rotation : 0;
   }
 
+  private layoutTickRateDisplay(): void {
+    if (!this.tickRateText) {
+      return;
+    }
+    this.tickRateText.setPosition(
+      BattleScene.TICK_RATE_DISPLAY_MARGIN,
+      this.cameras.main.height - BattleScene.TICK_RATE_DISPLAY_MARGIN,
+    );
+  }
+
+  private updateTickRateDisplay(deltaMs: number): void {
+    if (!this.tickRateText || !Number.isFinite(deltaMs) || deltaMs <= 0) {
+      return;
+    }
+    this.layoutTickRateDisplay();
+    this.smoothedTickDeltaMs = Phaser.Math.Linear(
+      this.smoothedTickDeltaMs,
+      deltaMs,
+      BattleScene.TICK_RATE_SMOOTHING_FACTOR,
+    );
+    this.tickRateDisplayAccumulatorMs += deltaMs;
+    if (
+      this.tickRateDisplayAccumulatorMs
+      < BattleScene.TICK_RATE_DISPLAY_UPDATE_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.tickRateDisplayAccumulatorMs = 0;
+    const safeDeltaMs = Math.max(0.1, this.smoothedTickDeltaMs);
+    const tickRate = 1000 / safeDeltaMs;
+    this.tickRateText.setText(
+      `Tick: ${tickRate.toFixed(1)} /s (${safeDeltaMs.toFixed(1)} ms)`,
+    );
+  }
+
   update(time: number, delta: number): void {
+    this.updateTickRateDisplay(delta);
     runVisualUpdatePipeline({
       timeMs: time,
       deltaMs: delta,
