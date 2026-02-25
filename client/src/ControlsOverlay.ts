@@ -17,11 +17,11 @@ const CONTROL_SECTIONS: ControlSection[] = [
         effect: 'Select that unit.',
       },
       {
-        input: 'Left Click (map)',
-        effect: 'Clear current selection.',
+        input: 'Left Click (empty map)',
+        effect: 'Deselect all currently selected units.',
       },
       {
-        input: 'Left Drag (from selected unit or while units selected)',
+        input: 'Right Drag (from selected unit or while units selected)',
         effect: 'Draw a movement path; release to stage that path.',
       },
       {
@@ -29,7 +29,7 @@ const CONTROL_SECTIONS: ControlSection[] = [
         effect: 'Box select friendly units.',
       },
       {
-        input: 'Right Click (map)',
+        input: 'Right Click (map, with units selected)',
         effect: 'Stage a move command to the clicked location.',
       },
       {
@@ -37,8 +37,8 @@ const CONTROL_SECTIONS: ControlSection[] = [
         effect: 'Queue the movement command instead of replacing.',
       },
       {
-        input: 'F then Left Drag (with units selected)',
-        effect: 'Draw a one-shot line formation; release to stage unit slots.',
+        input: 'F then Right Drag (with units selected)',
+        effect: 'Draw a one-shot formation area box; release to stage unit slots.',
       },
       {
         input: 'Space',

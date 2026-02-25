@@ -14,8 +14,11 @@ type BattleInputCallbacks = {
     path: Phaser.Math.Vector2[],
     shiftHeld: boolean,
   ) => void;
-  commandSelectedUnitsIntoLine: (
-    path: Phaser.Math.Vector2[],
+  commandSelectedUnitsIntoFormationArea: (
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
     shiftHeld: boolean,
   ) => void;
   commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) => void;
@@ -57,12 +60,13 @@ export class BattleInputController {
   private suppressCommandOnPointerUp = false;
   private dragStart: Phaser.Math.Vector2 | null = null;
   private pathDragStart: Phaser.Math.Vector2 | null = null;
-  private pathDragStartedOnUnit = false;
+  private formationAreaDragStart: Phaser.Math.Vector2 | null = null;
   private boxSelecting = false;
+  private leftDragStartedWithSelection = false;
+  private formationAreaDragging = false;
   private pathDrawing = false;
   private draggedPath: Phaser.Math.Vector2[] = [];
-  private isFormationLineArmed = false;
-  private useFormationLineForCurrentDrag = false;
+  private isFormationAreaArmed = false;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -87,12 +91,13 @@ export class BattleInputController {
     this.suppressCommandOnPointerUp = false;
     this.dragStart = null;
     this.pathDragStart = null;
-    this.pathDragStartedOnUnit = false;
+    this.formationAreaDragStart = null;
     this.boxSelecting = false;
+    this.leftDragStartedWithSelection = false;
+    this.formationAreaDragging = false;
     this.pathDrawing = false;
     this.draggedPath = [];
-    this.isFormationLineArmed = false;
-    this.useFormationLineForCurrentDrag = false;
+    this.isFormationAreaArmed = false;
     this.callbacks.clearSelectionBox();
     this.callbacks.clearPathPreview();
   }
@@ -118,7 +123,7 @@ export class BattleInputController {
     gameObject: Phaser.GameObjects.GameObject,
     event: Phaser.Types.Input.EventData,
   ): void => {
-    if (!this.callbacks.isBattleActive() || pointer.button !== 0) {
+    if (!this.callbacks.isBattleActive()) {
       return;
     }
 
@@ -127,25 +132,23 @@ export class BattleInputController {
       return;
     }
 
-    if (this.callbacks.isUnitSelected(clickedUnit)) {
-      this.pathDragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-      this.pathDragStartedOnUnit = true;
-      this.pathDrawing = false;
-      this.draggedPath = [this.pathDragStart.clone()];
-      this.useFormationLineForCurrentDrag = false;
-      this.callbacks.clearPathPreview();
-    } else {
-      this.callbacks.selectOnlyUnit(clickedUnit);
-      this.suppressCommandOnPointerUp = true;
-      this.pathDragStart = null;
-      this.pathDragStartedOnUnit = false;
-      this.pathDrawing = false;
-      this.draggedPath = [];
-      this.useFormationLineForCurrentDrag = false;
-      this.callbacks.clearPathPreview();
+    if (pointer.button === 0) {
+      if (!this.callbacks.isUnitSelected(clickedUnit)) {
+        this.callbacks.selectOnlyUnit(clickedUnit);
+        this.suppressCommandOnPointerUp = true;
+      }
+      event.stopPropagation();
+      return;
     }
 
-    event.stopPropagation();
+    if (pointer.button === 2 && this.callbacks.isUnitSelected(clickedUnit)) {
+      if (this.isFormationAreaArmed) {
+        this.beginFormationAreaDrag(pointer);
+      } else {
+        this.beginPathDrag(pointer);
+      }
+      event.stopPropagation();
+    }
   };
 
   private readonly handlePointerDown = (pointer: Phaser.Input.Pointer): void => {
@@ -154,11 +157,13 @@ export class BattleInputController {
     }
 
     if (pointer.button === 2) {
-      this.callbacks.commandSelectedUnits(
-        pointer.worldX,
-        pointer.worldY,
-        this.callbacks.isShiftHeld(pointer),
-      );
+      if (this.callbacks.hasSelectedUnits()) {
+        if (this.isFormationAreaArmed) {
+          this.beginFormationAreaDrag(pointer);
+        } else {
+          this.beginPathDrag(pointer);
+        }
+      }
       return;
     }
 
@@ -166,18 +171,7 @@ export class BattleInputController {
       return;
     }
 
-    if (this.callbacks.hasSelectedUnits()) {
-      if (!this.pathDragStart) {
-        this.pathDragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-        this.pathDragStartedOnUnit = false;
-        this.pathDrawing = false;
-        this.draggedPath = [this.pathDragStart.clone()];
-        this.useFormationLineForCurrentDrag = false;
-        this.callbacks.clearPathPreview();
-      }
-      return;
-    }
-
+    this.leftDragStartedWithSelection = this.callbacks.hasSelectedUnits();
     this.dragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
     this.boxSelecting = false;
   };
@@ -188,7 +182,7 @@ export class BattleInputController {
     }
 
     if (this.pathDragStart) {
-      if (!pointer.leftButtonDown()) {
+      if (!pointer.rightButtonDown()) {
         return;
       }
 
@@ -201,10 +195,6 @@ export class BattleInputController {
         );
         if (dragDistance >= this.config.dragThreshold) {
           this.pathDrawing = true;
-          if (this.isFormationLineArmed && this.callbacks.hasSelectedUnits()) {
-            this.useFormationLineForCurrentDrag = true;
-            this.isFormationLineArmed = false;
-          }
           this.callbacks.appendDraggedPathPoint(
             this.draggedPath,
             pointer.worldX,
@@ -225,7 +215,37 @@ export class BattleInputController {
       return;
     }
 
-    if (this.dragStart && pointer.leftButtonDown()) {
+    if (this.formationAreaDragStart) {
+      if (!pointer.rightButtonDown()) {
+        return;
+      }
+
+      const dragDistance = Phaser.Math.Distance.Between(
+        this.formationAreaDragStart.x,
+        this.formationAreaDragStart.y,
+        pointer.worldX,
+        pointer.worldY,
+      );
+      if (!this.formationAreaDragging && dragDistance >= this.config.dragThreshold) {
+        this.formationAreaDragging = true;
+      }
+
+      if (this.formationAreaDragging) {
+        this.callbacks.drawSelectionBox(
+          this.formationAreaDragStart.x,
+          this.formationAreaDragStart.y,
+          pointer.worldX,
+          pointer.worldY,
+        );
+      }
+      return;
+    }
+
+    if (
+      this.dragStart &&
+      pointer.leftButtonDown() &&
+      !this.leftDragStartedWithSelection
+    ) {
       const dragDistance = Phaser.Math.Distance.Between(
         this.dragStart.x,
         this.dragStart.y,
@@ -248,43 +268,64 @@ export class BattleInputController {
   };
 
   private readonly handlePointerUp = (pointer: Phaser.Input.Pointer): void => {
-    if (!this.callbacks.isBattleActive() || pointer.button !== 0) {
+    if (!this.callbacks.isBattleActive()) {
       return;
     }
 
-    if (this.pathDragStart) {
+    if (pointer.button === 2 && this.pathDragStart) {
       this.pathDragStart = null;
 
       if (this.pathDrawing) {
         const commandPath = this.callbacks.buildCommandPath(this.draggedPath);
         if (commandPath.length > 1) {
-          if (this.useFormationLineForCurrentDrag) {
-            this.callbacks.commandSelectedUnitsIntoLine(
-              commandPath,
-              this.callbacks.isShiftHeld(pointer),
-            );
-          } else {
-            this.callbacks.commandSelectedUnitsAlongPath(
-              commandPath,
-              this.callbacks.isShiftHeld(pointer),
-            );
-          }
+          this.callbacks.commandSelectedUnitsAlongPath(
+            commandPath,
+            this.callbacks.isShiftHeld(pointer),
+          );
         }
-      } else if (!this.pathDragStartedOnUnit) {
-        this.callbacks.clearSelection();
+      } else {
+        this.callbacks.commandSelectedUnits(
+          pointer.worldX,
+          pointer.worldY,
+          this.callbacks.isShiftHeld(pointer),
+        );
       }
 
-      this.pathDragStartedOnUnit = false;
       this.pathDrawing = false;
       this.draggedPath = [];
-      this.useFormationLineForCurrentDrag = false;
       this.callbacks.clearPathPreview();
+      return;
+    }
+
+    if (pointer.button === 2 && this.formationAreaDragStart) {
+      const start = this.formationAreaDragStart;
+      this.formationAreaDragStart = null;
+      if (this.formationAreaDragging) {
+        this.callbacks.commandSelectedUnitsIntoFormationArea(
+          start.x,
+          start.y,
+          pointer.worldX,
+          pointer.worldY,
+          this.callbacks.isShiftHeld(pointer),
+        );
+      } else {
+        this.callbacks.commandSelectedUnits(
+          pointer.worldX,
+          pointer.worldY,
+          this.callbacks.isShiftHeld(pointer),
+        );
+      }
+      this.formationAreaDragging = false;
+      this.callbacks.clearSelectionBox();
+      return;
+    }
+
+    if (pointer.button !== 0) {
       return;
     }
 
     if (this.suppressCommandOnPointerUp) {
       this.suppressCommandOnPointerUp = false;
-      this.pathDragStartedOnUnit = false;
       return;
     }
 
@@ -298,6 +339,7 @@ export class BattleInputController {
       this.callbacks.clearSelectionBox();
       this.dragStart = null;
       this.boxSelecting = false;
+      this.leftDragStartedWithSelection = false;
       return;
     }
 
@@ -305,6 +347,7 @@ export class BattleInputController {
       this.callbacks.clearSelectionBox();
       this.dragStart = null;
       this.boxSelecting = false;
+      this.leftDragStartedWithSelection = false;
       this.callbacks.clearSelection();
     }
   };
@@ -337,12 +380,13 @@ export class BattleInputController {
     this.suppressCommandOnPointerUp = false;
     this.dragStart = null;
     this.pathDragStart = null;
-    this.pathDragStartedOnUnit = false;
+    this.formationAreaDragStart = null;
     this.boxSelecting = false;
+    this.leftDragStartedWithSelection = false;
+    this.formationAreaDragging = false;
     this.pathDrawing = false;
     this.draggedPath = [];
-    this.isFormationLineArmed = false;
-    this.useFormationLineForCurrentDrag = false;
+    this.isFormationAreaArmed = false;
     this.callbacks.clearSelectionBox();
     this.callbacks.clearPathPreview();
     this.callbacks.clearSelection();
@@ -352,7 +396,7 @@ export class BattleInputController {
     if (!this.callbacks.isBattleActive()) {
       return;
     }
-    this.isFormationLineArmed = true;
+    this.isFormationAreaArmed = true;
   };
 
   private readonly handleKeyDownS = (): void => {
@@ -379,4 +423,28 @@ export class BattleInputController {
       Boolean(event?.shiftKey),
     );
   };
+
+  private beginPathDrag(pointer: Phaser.Input.Pointer): void {
+    this.pathDragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
+    this.formationAreaDragStart = null;
+    this.formationAreaDragging = false;
+    this.pathDrawing = false;
+    this.draggedPath = [this.pathDragStart.clone()];
+    this.callbacks.clearSelectionBox();
+    this.callbacks.clearPathPreview();
+  }
+
+  private beginFormationAreaDrag(pointer: Phaser.Input.Pointer): void {
+    this.formationAreaDragStart = new Phaser.Math.Vector2(
+      pointer.worldX,
+      pointer.worldY,
+    );
+    this.pathDragStart = null;
+    this.pathDrawing = false;
+    this.draggedPath = [];
+    this.formationAreaDragging = false;
+    this.isFormationAreaArmed = false;
+    this.callbacks.clearPathPreview();
+    this.callbacks.clearSelectionBox();
+  }
 }

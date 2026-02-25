@@ -54,6 +54,13 @@ type PlanFormationLineAssignmentsArgs = {
   grid: UnitCommandPlannerGridMetrics;
 };
 
+type PlanFormationAreaAssignmentsArgs = {
+  start: FormationLinePoint;
+  end: FormationLinePoint;
+  units: ReadonlyArray<FormationLineUnit>;
+  grid: UnitCommandPlannerGridMetrics;
+};
+
 export function buildMovementCommandMode(
   shiftHeld: boolean,
   options?: {
@@ -318,6 +325,112 @@ export function planFormationLineAssignments({
 
   const slots = distributeFormationLineSlots(path, units.length, grid);
   return assignUnitsToSlotsStable(units, slots);
+}
+
+export function planFormationAreaAssignments({
+  start,
+  end,
+  units,
+  grid,
+}: PlanFormationAreaAssignmentsArgs): FormationLineAssignment[] {
+  if (units.length === 0) {
+    return [];
+  }
+
+  const slots = distributeFormationAreaSlots({
+    start,
+    end,
+    slotCount: units.length,
+    grid,
+  });
+  return assignUnitsToSlotsStable(units, slots);
+}
+
+function distributeFormationAreaSlots({
+  start,
+  end,
+  slotCount,
+  grid,
+}: {
+  start: FormationLinePoint;
+  end: FormationLinePoint;
+  slotCount: number;
+  grid: UnitCommandPlannerGridMetrics;
+}): FormationLinePoint[] {
+  if (slotCount <= 0) {
+    return [];
+  }
+
+  const startCell = worldToGridCoordinate(start.x, start.y, grid);
+  const endCell = worldToGridCoordinate(end.x, end.y, grid);
+  const minCol = Math.min(startCell.col, endCell.col);
+  const maxCol = Math.max(startCell.col, endCell.col);
+  const minRow = Math.min(startCell.row, endCell.row);
+  const maxRow = Math.max(startCell.row, endCell.row);
+  const availableCols = maxCol - minCol + 1;
+  const availableRows = maxRow - minRow + 1;
+
+  const slotShape = pickFormationAreaSlotShape(
+    slotCount,
+    availableCols,
+    availableRows,
+  );
+
+  const slots: FormationLinePoint[] = [];
+  const colSpan = maxCol - minCol;
+  const rowSpan = maxRow - minRow;
+  for (let index = 0; index < slotCount; index += 1) {
+    const slotColIndex = index % slotShape.cols;
+    const slotRowIndex = Math.floor(index / slotShape.cols);
+    const colBasis =
+      slotShape.cols <= 1
+        ? minCol + colSpan * 0.5
+        : minCol + (slotColIndex * colSpan) / (slotShape.cols - 1);
+    const rowBasis =
+      slotShape.rows <= 1
+        ? minRow + rowSpan * 0.5
+        : minRow + (slotRowIndex * rowSpan) / (slotShape.rows - 1);
+    const center = gridToWorldCenter(
+      {
+        col: Phaser.Math.Clamp(Math.round(colBasis), 0, grid.width - 1),
+        row: Phaser.Math.Clamp(Math.round(rowBasis), 0, grid.height - 1),
+      },
+      grid,
+    );
+    slots.push({ x: center.x, y: center.y });
+  }
+
+  return slots;
+}
+
+function pickFormationAreaSlotShape(
+  slotCount: number,
+  availableCols: number,
+  availableRows: number,
+): { cols: number; rows: number } {
+  let bestCols = slotCount;
+  let bestRows = 1;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  const targetAspectRatio =
+    availableRows > 0 ? availableCols / availableRows : 1;
+
+  for (let cols = 1; cols <= slotCount; cols += 1) {
+    const rows = Math.ceil(slotCount / cols);
+    const shapeAspectRatio = cols / rows;
+    const aspectScore = Math.abs(shapeAspectRatio - targetAspectRatio);
+    const overflowPenalty =
+      Math.max(0, cols - availableCols) + Math.max(0, rows - availableRows);
+    const wasteRatio = (cols * rows - slotCount) / slotCount;
+    const score = aspectScore + overflowPenalty * 4 + wasteRatio * 0.15;
+    if (score < bestScore) {
+      bestScore = score;
+      bestCols = cols;
+      bestRows = rows;
+    }
+  }
+
+  return { cols: bestCols, rows: bestRows };
 }
 
 function traceGridLine(

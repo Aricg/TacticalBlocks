@@ -78,7 +78,7 @@ import {
   buildMovementCommandMode,
   getFormationCenter,
   gridToWorldCenter,
-  planFormationLineAssignments,
+  planFormationAreaAssignments,
   setPlannedPath,
   translateGridRouteForUnit,
   worldToGridCoordinate,
@@ -574,10 +574,19 @@ class BattleScene extends Phaser.Scene {
           path: Phaser.Math.Vector2[],
           shiftHeld: boolean,
         ) => this.commandSelectedUnitsAlongPath(path, shiftHeld),
-        commandSelectedUnitsIntoLine: (
-          path: Phaser.Math.Vector2[],
+        commandSelectedUnitsIntoFormationArea: (
+          startX: number,
+          startY: number,
+          endX: number,
+          endY: number,
           shiftHeld: boolean,
-        ) => this.commandSelectedUnitsIntoLine(path, shiftHeld),
+        ) => this.commandSelectedUnitsIntoFormationArea(
+          startX,
+          startY,
+          endX,
+          endY,
+          shiftHeld,
+        ),
         commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) =>
           this.commandSelectedUnitsTowardEnemyInfluenceLine(shiftHeld),
         commandSelectedUnitsTowardNearestVisibleEnemyUnit: (shiftHeld: boolean) =>
@@ -2385,15 +2394,14 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  private commandSelectedUnitsIntoLine(
-    path: Phaser.Math.Vector2[],
+  private commandSelectedUnitsIntoFormationArea(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
     shiftHeld = false,
   ): void {
-    if (
-      !this.isBattleActive() ||
-      this.selectedUnits.size === 0 ||
-      path.length === 0
-    ) {
+    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
       return;
     }
 
@@ -2408,8 +2416,9 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const assignments = planFormationLineAssignments({
-      path,
+    const assignments = planFormationAreaAssignments({
+      start: { x: startX, y: startY },
+      end: { x: endX, y: endY },
       units: selectedUnitsForPlanning,
       grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
     });

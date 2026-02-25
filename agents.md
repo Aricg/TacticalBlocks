@@ -28,8 +28,7 @@
   
     Control Scheme:
    * Left Click (on unit): Select Unit.
-   * Left Click (on map): Deselect All.
-   * Left Drag (from unit/map with selection): Draw Path.
+   * Left Click (on empty map): Deselect All.
+   * Right Click (on map with selection): Move Command.
+   * Right Drag (from unit/map with selection): Draw Path.
    * Left Drag (from map with no selection): Box Select.
-   * Right Click (on map): Move Command.
-
