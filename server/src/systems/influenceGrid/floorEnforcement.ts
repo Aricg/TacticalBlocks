@@ -139,16 +139,16 @@ function getDominanceTargets(
 ): DominanceTarget[] {
   const colBasis = x / cellWidth - 0.5;
   const rowBasis = y / cellHeight - 0.5;
-  const baseCol = PhaserMath.floorClamp(colBasis, 0, gridWidth - 1);
-  const baseRow = PhaserMath.floorClamp(rowBasis, 0, gridHeight - 1);
-  const nextCol = PhaserMath.clamp(baseCol + 1, 0, gridWidth - 1);
-  const nextRow = PhaserMath.clamp(baseRow + 1, 0, gridHeight - 1);
+  const minCol = PhaserMath.floorClamp(colBasis, 0, gridWidth - 1);
+  const maxCol = PhaserMath.clamp(Math.ceil(colBasis), 0, gridWidth - 1);
+  const minRow = PhaserMath.floorClamp(rowBasis, 0, gridHeight - 1);
+  const maxRow = PhaserMath.clamp(Math.ceil(rowBasis), 0, gridHeight - 1);
 
   const candidateCoords = [
-    { col: baseCol, row: baseRow },
-    { col: nextCol, row: baseRow },
-    { col: baseCol, row: nextRow },
-    { col: nextCol, row: nextRow },
+    { col: minCol, row: minRow },
+    { col: maxCol, row: minRow },
+    { col: minCol, row: maxRow },
+    { col: maxCol, row: maxRow },
   ];
 
   const uniqueCoords = new Map<string, { col: number; row: number }>();
