@@ -325,6 +325,11 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.supply.depotSupplyPulseIntervalSeconds > 0
       ? GAMEPLAY_CONFIG.supply.depotSupplyPulseIntervalSeconds
       : 1;
+  private static readonly MAX_UNIT_SUPPLY_LINE_LENGTH_CELLS =
+    Number.isFinite(GAMEPLAY_CONFIG.supply.maxUnitSupplyLineLengthCells) &&
+    GAMEPLAY_CONFIG.supply.maxUnitSupplyLineLengthCells >= 0
+      ? Math.floor(GAMEPLAY_CONFIG.supply.maxUnitSupplyLineLengthCells)
+      : 12;
   private static readonly CITY_DEPOT_SUPPLY_MAX_STOCK = 64;
   private static readonly SUPPLY_TRIP_MIN_DURATION_SECONDS = 0.25;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
@@ -2653,6 +2658,7 @@ export class BattleRoom extends Room<BattleState> {
           previousRetryStateByUnitId: this.supplySourceRetryStateByUnitId,
           blockedSourceRetryIntervalMs:
             BattleRoom.SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS,
+          maxSupplyLineLengthCells: BattleRoom.MAX_UNIT_SUPPLY_LINE_LENGTH_CELLS,
           nowMs: Date.now(),
         });
       this.supplySourceRetryStateByUnitId.clear();

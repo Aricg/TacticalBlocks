@@ -171,6 +171,7 @@ export const GAMEPLAY_CONFIG = {
     blockedSourceRetryIntervalSeconds: 3,
     cityDepotSupplyPerDelivery: 16,
     depotSupplyPulseIntervalSeconds: 1,
+    maxUnitSupplyLineLengthCells: 12,
   },
   unit: {
     baseSpeed: UNIT_BASE_MOVE_SPEED,

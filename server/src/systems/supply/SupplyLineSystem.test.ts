@@ -179,6 +179,87 @@ function runFarmSupplySeversWhenEnemyOccupiesLinkCellTest(): void {
   assert.equal(supplyStatus.linkStates[0]?.severIndex, 1);
 }
 
+function runUnitSupplyLineMaxLengthCapsDirectPathTest(): void {
+  const { supplyLinesByUnitId } = computeSupplyLinesForUnits({
+    units: [
+      {
+        unitId: 'u-at-limit',
+        team: 'RED',
+        health: 100,
+        x: 12,
+        y: 0,
+      },
+      {
+        unitId: 'u-over-limit',
+        team: 'RED',
+        health: 100,
+        x: 13,
+        y: 0,
+      },
+    ],
+    worldToGridCoordinate: (x, y) => ({ col: Math.round(x), row: Math.round(y) }),
+    getTeamCityCell: () => ({ col: 0, row: 0 }),
+    redCityOwner: 'RED',
+    blueCityOwner: 'BLUE',
+    neutralCityOwners: [],
+    neutralCityCells: [],
+    getInfluenceScoreAtCell: () => 0,
+    isCellImpassable: () => false,
+    enemyInfluenceSeverThreshold: 0.0001,
+    maxSupplyLineLengthCells: 12,
+  });
+
+  const atLimit = supplyLinesByUnitId.get('u-at-limit');
+  assert.ok(atLimit);
+  assert.equal(atLimit.connected, true);
+  assert.equal(atLimit.severIndex, -1);
+
+  const overLimit = supplyLinesByUnitId.get('u-over-limit');
+  assert.ok(overLimit);
+  assert.equal(overLimit.connected, false);
+  assert.equal(overLimit.severIndex, 13);
+}
+
+function runUnitSupplyLineMaxLengthCapsRelayPathTest(): void {
+  const { supplyLinesByUnitId } = computeSupplyLinesForUnits({
+    units: [
+      {
+        unitId: 'u-relay-anchor',
+        team: 'RED',
+        health: 100,
+        x: 8,
+        y: 0,
+      },
+      {
+        unitId: 'u-relay-target',
+        team: 'RED',
+        health: 100,
+        x: 16,
+        y: 0,
+      },
+    ],
+    worldToGridCoordinate: (x, y) => ({ col: Math.round(x), row: Math.round(y) }),
+    getTeamCityCell: () => ({ col: 0, row: 0 }),
+    redCityOwner: 'RED',
+    blueCityOwner: 'BLUE',
+    neutralCityOwners: [],
+    neutralCityCells: [],
+    getInfluenceScoreAtCell: () => 0,
+    isCellImpassable: () => false,
+    enemyInfluenceSeverThreshold: 0.0001,
+    maxSupplyLineLengthCells: 12,
+  });
+
+  const relayAnchor = supplyLinesByUnitId.get('u-relay-anchor');
+  assert.ok(relayAnchor);
+  assert.equal(relayAnchor.connected, true);
+
+  const relayTarget = supplyLinesByUnitId.get('u-relay-target');
+  assert.ok(relayTarget);
+  assert.equal(relayTarget.connected, false);
+  assert.equal(relayTarget.severIndex, 13);
+}
+
 function runTraceGridLineDirectionInvarianceTest(): void {
   const pairs = [
     {
@@ -301,6 +382,8 @@ runFarmSupplyFallbackForLegacyMapsTest();
 runUnsuppliedCityCannotSupplyUnitsTest();
 runSuppliedCityCanSupplyUnitsTest();
 runFarmSupplySeversWhenEnemyOccupiesLinkCellTest();
+runUnitSupplyLineMaxLengthCapsDirectPathTest();
+runUnitSupplyLineMaxLengthCapsRelayPathTest();
 runTraceGridLineDirectionInvarianceTest();
 runSupplyPathTravelDurationScalesWithDistanceTest();
 runSupplyPathRoadSpeedMultiplierTest();

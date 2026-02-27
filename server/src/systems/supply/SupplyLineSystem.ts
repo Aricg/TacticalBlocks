@@ -39,6 +39,7 @@ export type ComputeSupplyLinesParams = {
   ) => boolean;
   previousRetryStateByUnitId?: ReadonlyMap<string, SupplySourceRetryState>;
   blockedSourceRetryIntervalMs?: number;
+  maxSupplyLineLengthCells?: number;
   nowMs?: number;
 };
 
@@ -282,6 +283,40 @@ function evaluateSupplyPath({
   return { path, severIndex };
 }
 
+function applyMaxSupplyLineLength({
+  path,
+  severIndex,
+  maxSupplyLineLengthCells,
+}: {
+  path: GridCoordinate[];
+  severIndex: number;
+  maxSupplyLineLengthCells?: number;
+}): { path: GridCoordinate[]; severIndex: number } {
+  const normalizedMaxLength =
+    typeof maxSupplyLineLengthCells === "number" &&
+    Number.isFinite(maxSupplyLineLengthCells) &&
+    maxSupplyLineLengthCells >= 0
+      ? Math.floor(maxSupplyLineLengthCells)
+      : Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(normalizedMaxLength)) {
+    return { path, severIndex };
+  }
+
+  const maxAllowedDisconnectedIndex = normalizedMaxLength + 1;
+  if (path.length <= maxAllowedDisconnectedIndex) {
+    return { path, severIndex };
+  }
+
+  if (severIndex !== -1 && severIndex <= maxAllowedDisconnectedIndex) {
+    return { path, severIndex };
+  }
+
+  return {
+    path,
+    severIndex: maxAllowedDisconnectedIndex,
+  };
+}
+
 function getManhattanDistance(
   leftCell: GridCoordinate,
   rightCell: GridCoordinate,
@@ -370,6 +405,7 @@ function buildRelayConnectedSupplyLine({
   getInfluenceScoreAtCell,
   isCellImpassable,
   enemyInfluenceSeverThreshold,
+  maxSupplyLineLengthCells,
 }: {
   teamUnits: readonly string[];
   targetUnitId: string;
@@ -379,6 +415,7 @@ function buildRelayConnectedSupplyLine({
   getInfluenceScoreAtCell: (col: number, row: number) => number;
   isCellImpassable: (cell: GridCoordinate) => boolean;
   enemyInfluenceSeverThreshold: number;
+  maxSupplyLineLengthCells?: number;
 }): ComputedSupplyLineState | null {
   const targetUnitCell = unitCellByUnitId.get(targetUnitId);
   if (!targetUnitCell) {
@@ -425,15 +462,21 @@ function buildRelayConnectedSupplyLine({
       continue;
     }
 
-    const relayLeg = evaluateSupplyPath({
-      sourceCell: candidateUnitCell,
-      unitCell: targetUnitCell,
-      team,
-      getInfluenceScoreAtCell,
-      isCellImpassable,
-      enemyInfluenceSeverThreshold,
+    const relayLeg = applyMaxSupplyLineLength({
+      ...evaluateSupplyPath({
+        sourceCell: candidateUnitCell,
+        unitCell: targetUnitCell,
+        team,
+        getInfluenceScoreAtCell,
+        isCellImpassable,
+        enemyInfluenceSeverThreshold,
+      }),
+      maxSupplyLineLengthCells,
     });
-    const combinedRelay = buildCombinedRelayPath(candidateSupplyLine, relayLeg);
+    const combinedRelay = applyMaxSupplyLineLength({
+      ...buildCombinedRelayPath(candidateSupplyLine, relayLeg),
+      maxSupplyLineLengthCells,
+    });
     if (combinedRelay.severIndex === -1) {
       return {
         unitId: targetUnitId,
@@ -609,6 +652,7 @@ export function computeSupplyLinesForUnits({
   isCitySupplySourceEligible,
   previousRetryStateByUnitId,
   blockedSourceRetryIntervalMs,
+  maxSupplyLineLengthCells,
   nowMs,
 }: ComputeSupplyLinesParams): ComputeSupplyLinesResult {
   const supplyLinesByUnitId = new Map<string, ComputedSupplyLineState>();
@@ -684,13 +728,16 @@ export function computeSupplyLinesForUnits({
         }
       }
 
-      let supplyPath = evaluateSupplyPath({
-        sourceCell,
-        unitCell,
-        team: resolvedTeam,
-        getInfluenceScoreAtCell,
-        isCellImpassable,
-        enemyInfluenceSeverThreshold,
+      let supplyPath = applyMaxSupplyLineLength({
+        ...evaluateSupplyPath({
+          sourceCell,
+          unitCell,
+          team: resolvedTeam,
+          getInfluenceScoreAtCell,
+          isCellImpassable,
+          enemyInfluenceSeverThreshold,
+        }),
+        maxSupplyLineLengthCells,
       });
       if (supplyPath.severIndex !== -1 && prioritizedCities.length > 1) {
         if (!previousRetry) {
@@ -703,26 +750,32 @@ export function computeSupplyLinesForUnits({
               ? 0
               : (currentSourceIndex + 1) % prioritizedCities.length;
           sourceCell = prioritizedCities[nextSourceIndex];
-          supplyPath = evaluateSupplyPath({
-            sourceCell,
-            unitCell,
-            team: resolvedTeam,
-            getInfluenceScoreAtCell,
-            isCellImpassable,
-            enemyInfluenceSeverThreshold,
+          supplyPath = applyMaxSupplyLineLength({
+            ...evaluateSupplyPath({
+              sourceCell,
+              unitCell,
+              team: resolvedTeam,
+              getInfluenceScoreAtCell,
+              isCellImpassable,
+              enemyInfluenceSeverThreshold,
+            }),
+            maxSupplyLineLengthCells,
           });
           nextSwitchAtMs = resolvedNowMs + retryIntervalMs;
         }
       }
 
       if (supplyPath.severIndex === -1 && !isSameCell(sourceCell, nearestCityCell)) {
-        const nearestSupplyPath = evaluateSupplyPath({
-          sourceCell: nearestCityCell,
-          unitCell,
-          team: resolvedTeam,
-          getInfluenceScoreAtCell,
-          isCellImpassable,
-          enemyInfluenceSeverThreshold,
+        const nearestSupplyPath = applyMaxSupplyLineLength({
+          ...evaluateSupplyPath({
+            sourceCell: nearestCityCell,
+            unitCell,
+            team: resolvedTeam,
+            getInfluenceScoreAtCell,
+            isCellImpassable,
+            enemyInfluenceSeverThreshold,
+          }),
+          maxSupplyLineLengthCells,
         });
         if (nearestSupplyPath.severIndex === -1) {
           sourceCell = nearestCityCell;
@@ -773,6 +826,7 @@ export function computeSupplyLinesForUnits({
           getInfluenceScoreAtCell,
           isCellImpassable,
           enemyInfluenceSeverThreshold,
+          maxSupplyLineLengthCells,
         });
         if (!relaySupplyLine) {
           continue;
