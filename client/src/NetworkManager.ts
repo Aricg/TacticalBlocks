@@ -122,7 +122,6 @@ type BattleRoomState = {
   farmCitySupplyLines: unknown;
   citySupplyDepotLines: unknown;
   citySupplyBySourceId: unknown;
-  cityFarmSupplyReceivedBySourceId: unknown;
   influenceGrid: ServerInfluenceGridState;
   simulationFrame: number;
   mapId: string;
@@ -478,7 +477,7 @@ export class NetworkManager {
       };
       const emitCitySupplyUpdate = (force = false) => {
         const update = this.buildCitySupplyUpdate(
-          state.cityFarmSupplyReceivedBySourceId,
+          state.citySupplyBySourceId,
         );
         const signature = this.getCitySupplySignature(update);
         if (!force && signature === lastCitySupplySignature) {
@@ -505,13 +504,13 @@ export class NetworkManager {
           emitCityOwnershipUpdate();
         },
       );
-      const detachCitySupplyAdd = $(state).cityFarmSupplyReceivedBySourceId.onAdd(() => {
+      const detachCitySupplyAdd = $(state).citySupplyBySourceId.onAdd(() => {
         emitCitySupplyUpdate();
       });
-      const detachCitySupplyChange = $(state).cityFarmSupplyReceivedBySourceId.onChange(() => {
+      const detachCitySupplyChange = $(state).citySupplyBySourceId.onChange(() => {
         emitCitySupplyUpdate();
       });
-      const detachCitySupplyRemove = $(state).cityFarmSupplyReceivedBySourceId.onRemove(() => {
+      const detachCitySupplyRemove = $(state).citySupplyBySourceId.onRemove(() => {
         emitCitySupplyUpdate();
       });
       const detachSimulationFrame = $(state).listen('simulationFrame', () => {

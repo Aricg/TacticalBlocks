@@ -1694,7 +1694,6 @@ export class BattleRoom extends Room<BattleState> {
 
   private resetCityUnitGenerationState(): void {
     this.state.citySupplyBySourceId.clear();
-    this.state.cityFarmSupplyReceivedBySourceId.clear();
     this.citySupplyTripProgressBySourceId.clear();
     this.citySupplyDecayProgressBySourceId.clear();
     this.citySupplyOwnerBySourceId.clear();
@@ -1710,7 +1709,6 @@ export class BattleRoom extends Room<BattleState> {
     resetCitySupplyForSourcesSystem({
       spawnSources,
       citySupplyBySourceId: this.state.citySupplyBySourceId,
-      cityFarmSupplyReceivedBySourceId: this.state.cityFarmSupplyReceivedBySourceId,
       citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
       citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
       citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
@@ -1731,7 +1729,6 @@ export class BattleRoom extends Room<BattleState> {
     syncCitySupplyStateSystem({
       spawnSources,
       citySupplyBySourceId: this.state.citySupplyBySourceId,
-      cityFarmSupplyReceivedBySourceId: this.state.cityFarmSupplyReceivedBySourceId,
       citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
       citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
       citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
@@ -1829,7 +1826,6 @@ export class BattleRoom extends Room<BattleState> {
       farmCitySupplyLines: this.state.farmCitySupplyLines.values(),
       sourceIdByCityZoneId: this.getCitySupplySourceIdByCityZoneId(),
       citySupplyBySourceId: this.state.citySupplyBySourceId,
-      cityFarmSupplyReceivedBySourceId: this.state.cityFarmSupplyReceivedBySourceId,
       citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
       citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
       citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
