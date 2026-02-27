@@ -30,6 +30,7 @@ import {
   syncCitySupplyState as syncCitySupplyStateSystem,
   updateCitySupplyAndGenerateUnits as updateCitySupplyAndGenerateUnitsSystem,
 } from "../systems/cities/CitySupplySystem.js";
+import { updateDepotSupplyAvailability as updateDepotSupplyAvailabilitySystem } from "../systems/cities/DepotSupplySystem.js";
 import { buildCityInfluenceSources } from "../systems/cities/CityInfluenceSourceSync.js";
 import {
   updateCityOwnershipFromOccupancy as updateCityOwnershipFromOccupancySystem,
@@ -43,10 +44,8 @@ import {
   simulateMovementTick,
 } from "../systems/movement/MovementSimulation.js";
 import {
-  advanceBouncingSupplyTrip,
   computeSupplyPathOneWayTravelSeconds,
   computeFarmToCitySupplyStatus,
-  consumeDepotSupplyStock,
   findSupplySeverIndex,
   type ComputedFarmToCitySupplyLinkState,
   computeSupplyLinesForUnits,
@@ -1222,158 +1221,6 @@ export class BattleRoom extends Room<BattleState> {
     });
   }
 
-  private normalizeDepotSupplyStateForCityZone(
-    cityZoneId: string,
-    owner: CityOwner,
-  ): {
-    stock: number;
-    pulseElapsedSeconds: number;
-    tripPhase: number;
-  } {
-    const previousOwner = this.depotSupplyOwnerByCityZoneId.get(cityZoneId);
-    const ownerChanged = previousOwner !== undefined && previousOwner !== owner;
-    const neutralOwner = owner === "NEUTRAL";
-    const stock =
-      ownerChanged || neutralOwner
-        ? 0
-        : Math.max(
-            0,
-            Math.floor(this.depotSupplyStockByCityZoneId.get(cityZoneId) ?? 0),
-          );
-    const pulseElapsedSeconds =
-      ownerChanged || neutralOwner
-        ? 0
-        : Math.max(
-            0,
-            this.depotSupplyPulseElapsedSecondsByCityZoneId.get(cityZoneId) ?? 0,
-          );
-    const tripPhase =
-      ownerChanged || neutralOwner
-        ? 0
-        : ((this.depotSupplyTripPhaseByCityZoneId.get(cityZoneId) ?? 0) % 2 + 2) % 2;
-
-    this.depotSupplyOwnerByCityZoneId.set(cityZoneId, owner);
-    return {
-      stock,
-      pulseElapsedSeconds,
-      tripPhase,
-    };
-  }
-
-  private updateDepotSupplyAvailability({
-    deltaSeconds,
-    suppliedCityZoneIds,
-    computedCitySupplyDepotLines,
-    sourceIdByCityZoneId,
-  }: {
-    deltaSeconds: number;
-    suppliedCityZoneIds: ReadonlySet<string>;
-    computedCitySupplyDepotLines: readonly ComputedCitySupplyDepotLineState[];
-    sourceIdByCityZoneId: ReadonlyMap<string, string>;
-  }): Set<string> {
-    const eligibleDepotCityZoneIds = new Set<string>();
-    const activeCityZoneIds = new Set<string>();
-    for (const supplyDepotLine of computedCitySupplyDepotLines) {
-      const cityZoneId = supplyDepotLine.cityZoneId;
-      activeCityZoneIds.add(cityZoneId);
-      const normalizedState = this.normalizeDepotSupplyStateForCityZone(
-        cityZoneId,
-        supplyDepotLine.owner,
-      );
-      let stock = normalizedState.stock;
-      let pulseElapsedSeconds = normalizedState.pulseElapsedSeconds;
-      let tripPhase = normalizedState.tripPhase;
-
-      const canReceiveSupplyDelivery =
-        supplyDepotLine.connected && suppliedCityZoneIds.has(cityZoneId);
-      if (canReceiveSupplyDelivery) {
-        const tripProgress = advanceBouncingSupplyTrip({
-          previousPhase: tripPhase,
-          deltaSeconds,
-          oneWayTravelSeconds: supplyDepotLine.oneWayTravelSeconds,
-        });
-        tripPhase = tripProgress.nextPhase;
-        if (tripProgress.completedOutboundTrips > 0) {
-          const sourceId = sourceIdByCityZoneId.get(cityZoneId);
-          const citySupplyAvailable =
-            sourceId !== undefined
-              ? Math.max(
-                  0,
-                  Math.floor(this.state.citySupplyBySourceId.get(sourceId) ?? 0),
-                )
-              : 0;
-          const completedDeliveries = Math.min(
-            tripProgress.completedOutboundTrips,
-            citySupplyAvailable,
-          );
-          if (sourceId !== undefined && completedDeliveries > 0) {
-            this.state.citySupplyBySourceId.set(
-              sourceId,
-              citySupplyAvailable - completedDeliveries,
-            );
-          }
-          if (completedDeliveries > 0) {
-            stock +=
-              completedDeliveries * BattleRoom.CITY_DEPOT_SUPPLY_PER_DELIVERY;
-          }
-        }
-      } else {
-        tripPhase = 0;
-      }
-
-      const stockConsumption = consumeDepotSupplyStock({
-        currentStock: stock,
-        pulseElapsedSeconds,
-        deltaSeconds,
-        pulseIntervalSeconds: BattleRoom.CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS,
-      });
-      stock = stockConsumption.nextStock;
-      pulseElapsedSeconds = stockConsumption.nextPulseElapsedSeconds;
-
-      this.depotSupplyStockByCityZoneId.set(cityZoneId, stock);
-      this.depotSupplyPulseElapsedSecondsByCityZoneId.set(
-        cityZoneId,
-        pulseElapsedSeconds,
-      );
-      this.depotSupplyTripPhaseByCityZoneId.set(cityZoneId, tripPhase);
-      supplyDepotLine.depotSupplyStock = stock;
-
-      if (stock > 0) {
-        eligibleDepotCityZoneIds.add(cityZoneId);
-      }
-    }
-
-    for (const cityZoneId of Array.from(this.depotSupplyStockByCityZoneId.keys())) {
-      if (activeCityZoneIds.has(cityZoneId)) {
-        continue;
-      }
-      this.depotSupplyStockByCityZoneId.delete(cityZoneId);
-      this.depotSupplyPulseElapsedSecondsByCityZoneId.delete(cityZoneId);
-      this.depotSupplyTripPhaseByCityZoneId.delete(cityZoneId);
-      this.depotSupplyOwnerByCityZoneId.delete(cityZoneId);
-    }
-    for (const cityZoneId of Array.from(this.depotSupplyPulseElapsedSecondsByCityZoneId.keys())) {
-      if (activeCityZoneIds.has(cityZoneId)) {
-        continue;
-      }
-      this.depotSupplyPulseElapsedSecondsByCityZoneId.delete(cityZoneId);
-    }
-    for (const cityZoneId of Array.from(this.depotSupplyTripPhaseByCityZoneId.keys())) {
-      if (activeCityZoneIds.has(cityZoneId)) {
-        continue;
-      }
-      this.depotSupplyTripPhaseByCityZoneId.delete(cityZoneId);
-    }
-    for (const cityZoneId of Array.from(this.depotSupplyOwnerByCityZoneId.keys())) {
-      if (activeCityZoneIds.has(cityZoneId)) {
-        continue;
-      }
-      this.depotSupplyOwnerByCityZoneId.delete(cityZoneId);
-    }
-
-    return eligibleDepotCityZoneIds;
-  }
-
   private getTerrainMoraleBonusAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
     return BattleRoom.TERRAIN_MORALE_BONUS[terrainType] ?? 0;
@@ -1847,6 +1694,7 @@ export class BattleRoom extends Room<BattleState> {
 
   private resetCityUnitGenerationState(): void {
     this.state.citySupplyBySourceId.clear();
+    this.state.cityFarmSupplyReceivedBySourceId.clear();
     this.citySupplyTripProgressBySourceId.clear();
     this.citySupplyDecayProgressBySourceId.clear();
     this.citySupplyOwnerBySourceId.clear();
@@ -1862,6 +1710,7 @@ export class BattleRoom extends Room<BattleState> {
     resetCitySupplyForSourcesSystem({
       spawnSources,
       citySupplyBySourceId: this.state.citySupplyBySourceId,
+      cityFarmSupplyReceivedBySourceId: this.state.cityFarmSupplyReceivedBySourceId,
       citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
       citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
       citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
@@ -1882,6 +1731,7 @@ export class BattleRoom extends Room<BattleState> {
     syncCitySupplyStateSystem({
       spawnSources,
       citySupplyBySourceId: this.state.citySupplyBySourceId,
+      cityFarmSupplyReceivedBySourceId: this.state.cityFarmSupplyReceivedBySourceId,
       citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
       citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
       citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
@@ -1979,6 +1829,7 @@ export class BattleRoom extends Room<BattleState> {
       farmCitySupplyLines: this.state.farmCitySupplyLines.values(),
       sourceIdByCityZoneId: this.getCitySupplySourceIdByCityZoneId(),
       citySupplyBySourceId: this.state.citySupplyBySourceId,
+      cityFarmSupplyReceivedBySourceId: this.state.cityFarmSupplyReceivedBySourceId,
       citySupplyTripProgressBySourceId: this.citySupplyTripProgressBySourceId,
       citySupplyDecayProgressBySourceId: this.citySupplyDecayProgressBySourceId,
       citySupplyOwnerBySourceId: this.citySupplyOwnerBySourceId,
@@ -2703,11 +2554,20 @@ export class BattleRoom extends Room<BattleState> {
     const computedFarmCitySupplyLines = farmToCitySupplyStatus.linkStates;
     const suppliedCityZoneIds = farmToCitySupplyStatus.suppliedCityZoneIds;
     const sourceIdByCityZoneId = this.getCitySupplySourceIdByCityZoneId();
-    const eligibleDepotCityZoneIds = this.updateDepotSupplyAvailability({
+    const eligibleDepotCityZoneIds = updateDepotSupplyAvailabilitySystem({
       deltaSeconds,
       suppliedCityZoneIds,
       computedCitySupplyDepotLines,
       sourceIdByCityZoneId,
+      citySupplyBySourceId: this.state.citySupplyBySourceId,
+      depotSupplyStockByCityZoneId: this.depotSupplyStockByCityZoneId,
+      depotSupplyPulseElapsedSecondsByCityZoneId:
+        this.depotSupplyPulseElapsedSecondsByCityZoneId,
+      depotSupplyTripPhaseByCityZoneId: this.depotSupplyTripPhaseByCityZoneId,
+      depotSupplyOwnerByCityZoneId: this.depotSupplyOwnerByCityZoneId,
+      depotSupplyPerDelivery: BattleRoom.CITY_DEPOT_SUPPLY_PER_DELIVERY,
+      depotSupplyPulseIntervalSeconds:
+        BattleRoom.CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS,
     });
     this.syncCitySupplyDepotLines(computedCitySupplyDepotLines);
 

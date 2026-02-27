@@ -36,12 +36,14 @@ function getNormalizedSupplyAmount(value: number | undefined): number {
 export function syncCitySupplyState({
   spawnSources,
   citySupplyBySourceId,
+  cityFarmSupplyReceivedBySourceId,
   citySupplyTripProgressBySourceId,
   citySupplyDecayProgressBySourceId,
   citySupplyOwnerBySourceId,
 }: {
   spawnSources: readonly CitySpawnSource[];
   citySupplyBySourceId: MutableNumberStore;
+  cityFarmSupplyReceivedBySourceId?: MutableNumberStore;
   citySupplyTripProgressBySourceId: Map<string, number>;
   citySupplyDecayProgressBySourceId: Map<string, number>;
   citySupplyOwnerBySourceId: Map<string, CityOwner>;
@@ -51,6 +53,12 @@ export function syncCitySupplyState({
     validSourceIds.add(source.sourceId);
     if (!citySupplyBySourceId.has(source.sourceId)) {
       citySupplyBySourceId.set(source.sourceId, 0);
+    }
+    if (
+      cityFarmSupplyReceivedBySourceId &&
+      !cityFarmSupplyReceivedBySourceId.has(source.sourceId)
+    ) {
+      cityFarmSupplyReceivedBySourceId.set(source.sourceId, 0);
     }
     if (!citySupplyTripProgressBySourceId.has(source.sourceId)) {
       citySupplyTripProgressBySourceId.set(source.sourceId, 0);
@@ -68,6 +76,14 @@ export function syncCitySupplyState({
       continue;
     }
     citySupplyBySourceId.delete(sourceId);
+  }
+  if (cityFarmSupplyReceivedBySourceId) {
+    for (const sourceId of Array.from(cityFarmSupplyReceivedBySourceId.keys())) {
+      if (validSourceIds.has(sourceId)) {
+        continue;
+      }
+      cityFarmSupplyReceivedBySourceId.delete(sourceId);
+    }
   }
   for (const sourceId of Array.from(citySupplyTripProgressBySourceId.keys())) {
     if (validSourceIds.has(sourceId)) {
@@ -92,12 +108,14 @@ export function syncCitySupplyState({
 export function resetCitySupplyForSources({
   spawnSources,
   citySupplyBySourceId,
+  cityFarmSupplyReceivedBySourceId,
   citySupplyTripProgressBySourceId,
   citySupplyDecayProgressBySourceId,
   citySupplyOwnerBySourceId,
 }: {
   spawnSources: readonly CitySpawnSource[];
   citySupplyBySourceId: MutableNumberStore;
+  cityFarmSupplyReceivedBySourceId?: MutableNumberStore;
   citySupplyTripProgressBySourceId: Map<string, number>;
   citySupplyDecayProgressBySourceId: Map<string, number>;
   citySupplyOwnerBySourceId: Map<string, CityOwner>;
@@ -105,12 +123,14 @@ export function resetCitySupplyForSources({
   syncCitySupplyState({
     spawnSources,
     citySupplyBySourceId,
+    cityFarmSupplyReceivedBySourceId,
     citySupplyTripProgressBySourceId,
     citySupplyDecayProgressBySourceId,
     citySupplyOwnerBySourceId,
   });
   for (const source of spawnSources) {
     citySupplyBySourceId.set(source.sourceId, 0);
+    cityFarmSupplyReceivedBySourceId?.set(source.sourceId, 0);
     citySupplyTripProgressBySourceId.set(source.sourceId, 0);
     citySupplyDecayProgressBySourceId.set(source.sourceId, 0);
     citySupplyOwnerBySourceId.set(source.sourceId, source.owner);
@@ -150,6 +170,7 @@ export function updateCitySupplyAndGenerateUnits({
   farmCitySupplyLines,
   sourceIdByCityZoneId,
   citySupplyBySourceId,
+  cityFarmSupplyReceivedBySourceId,
   citySupplyTripProgressBySourceId,
   citySupplyDecayProgressBySourceId,
   citySupplyOwnerBySourceId,
@@ -163,6 +184,7 @@ export function updateCitySupplyAndGenerateUnits({
   farmCitySupplyLines: Iterable<FarmCitySupplyLinkState>;
   sourceIdByCityZoneId: ReadonlyMap<string, string>;
   citySupplyBySourceId: MutableNumberStore;
+  cityFarmSupplyReceivedBySourceId?: MutableNumberStore;
   citySupplyTripProgressBySourceId: Map<string, number>;
   citySupplyDecayProgressBySourceId: Map<string, number>;
   citySupplyOwnerBySourceId: Map<string, CityOwner>;
@@ -180,6 +202,7 @@ export function updateCitySupplyAndGenerateUnits({
   syncCitySupplyState({
     spawnSources,
     citySupplyBySourceId,
+    cityFarmSupplyReceivedBySourceId,
     citySupplyTripProgressBySourceId,
     citySupplyDecayProgressBySourceId,
     citySupplyOwnerBySourceId,
@@ -223,6 +246,7 @@ export function updateCitySupplyAndGenerateUnits({
     const lastOwner = citySupplyOwnerBySourceId.get(sourceId);
     if (lastOwner !== source.owner) {
       citySupplyBySourceId.set(sourceId, 0);
+      cityFarmSupplyReceivedBySourceId?.set(sourceId, 0);
       citySupplyTripProgressBySourceId.set(sourceId, 0);
       citySupplyDecayProgressBySourceId.set(sourceId, 0);
     }
@@ -230,6 +254,7 @@ export function updateCitySupplyAndGenerateUnits({
 
     if (source.owner === "NEUTRAL") {
       citySupplyBySourceId.set(sourceId, 0);
+      cityFarmSupplyReceivedBySourceId?.set(sourceId, 0);
       citySupplyTripProgressBySourceId.set(sourceId, 0);
       citySupplyDecayProgressBySourceId.set(sourceId, 0);
       continue;
@@ -247,6 +272,15 @@ export function updateCitySupplyAndGenerateUnits({
       citySupplyDecayProgressBySourceId.set(sourceId, 0);
       if (completedTrips > 0) {
         supplyAmount += completedTrips;
+        if (cityFarmSupplyReceivedBySourceId) {
+          const receivedSoFar = getNormalizedSupplyAmount(
+            cityFarmSupplyReceivedBySourceId.get(sourceId),
+          );
+          cityFarmSupplyReceivedBySourceId.set(
+            sourceId,
+            receivedSoFar + completedTrips,
+          );
+        }
       }
     } else {
       const decayProgress =
