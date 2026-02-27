@@ -97,6 +97,7 @@ type ServerFarmCitySupplyLineState = {
   cityZoneId: string;
   team: string;
   connected: boolean;
+  oneWayTravelSeconds: number;
   severIndex: number;
   path: ArrayLike<ServerGridCellState>;
 };
@@ -109,6 +110,8 @@ type ServerCitySupplyDepotLineState = {
   cityRow: number;
   depotCol: number;
   depotRow: number;
+  depotSupplyStock: number;
+  oneWayTravelSeconds: number;
   severIndex: number;
   path: ArrayLike<ServerGridCellState>;
 };
@@ -211,6 +214,7 @@ export type NetworkFarmCitySupplyLineUpdate = {
   cityZoneId: string;
   team: 'BLUE' | 'RED';
   connected: boolean;
+  oneWayTravelSeconds: number;
   severIndex: number;
   path: NetworkSupplyLinePathCell[];
 };
@@ -223,6 +227,8 @@ export type NetworkCitySupplyDepotLineUpdate = {
   cityRow: number;
   depotCol: number;
   depotRow: number;
+  depotSupplyStock: number;
+  oneWayTravelSeconds: number;
   severIndex: number;
   path: NetworkSupplyLinePathCell[];
 };
@@ -688,6 +694,7 @@ export class NetworkManager {
         const detachers: Array<() => void> = [
           $(serverSupplyLine).listen('team', queueSupplyLineUpdate),
           $(serverSupplyLine).listen('connected', queueSupplyLineUpdate),
+          $(serverSupplyLine).listen('oneWayTravelSeconds', queueSupplyLineUpdate),
           $(serverSupplyLine).listen('severIndex', queueSupplyLineUpdate),
           $(serverSupplyLine).listen('farmZoneId', queueSupplyLineUpdate),
           $(serverSupplyLine).listen('cityZoneId', queueSupplyLineUpdate),
@@ -786,6 +793,8 @@ export class NetworkManager {
           $(serverDepotLine).listen('cityRow', queueDepotLineUpdate),
           $(serverDepotLine).listen('depotCol', queueDepotLineUpdate),
           $(serverDepotLine).listen('depotRow', queueDepotLineUpdate),
+          $(serverDepotLine).listen('depotSupplyStock', queueDepotLineUpdate),
+          $(serverDepotLine).listen('oneWayTravelSeconds', queueDepotLineUpdate),
           $(serverDepotLine).listen('severIndex', queueDepotLineUpdate),
           $(serverDepotLine).path.onChange(() => {
             queueDepotLineUpdate();
@@ -1221,7 +1230,6 @@ export class NetworkManager {
       typeof value === 'number' && Number.isFinite(value)
         ? Math.round(value)
         : fallback;
-
     const normalizedPath = Array.from(serverSupplyLine?.path ?? [])
       .map((cell) => {
         const col = safeInteger(cell?.col, Number.NaN);
@@ -1267,7 +1275,13 @@ export class NetworkManager {
       typeof value === 'number' && Number.isFinite(value)
         ? Math.round(value)
         : fallback;
-
+    const safePositiveFloat = (
+      value: number | null | undefined,
+      fallback = 0.25,
+    ): number =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? value
+        : fallback;
     const normalizedPath = Array.from(serverSupplyLine?.path ?? [])
       .map((cell) => {
         const col = safeInteger(cell?.col, Number.NaN);
@@ -1291,6 +1305,7 @@ export class NetworkManager {
           : '',
       team: normalizedTeam,
       connected: serverSupplyLine?.connected === true,
+      oneWayTravelSeconds: safePositiveFloat(serverSupplyLine?.oneWayTravelSeconds),
       severIndex: safeInteger(serverSupplyLine?.severIndex),
       path: normalizedPath,
     };
@@ -1325,6 +1340,20 @@ export class NetworkManager {
       typeof value === 'number' && Number.isFinite(value)
         ? Math.round(value)
         : fallback;
+    const safePositiveFloat = (
+      value: number | null | undefined,
+      fallback = 0.25,
+    ): number =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? value
+        : fallback;
+    const safeNonNegativeInteger = (
+      value: number | null | undefined,
+      fallback = 0,
+    ): number =>
+      typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.floor(value))
+        : fallback;
 
     const normalizedPath = Array.from(serverSupplyDepotLine?.path ?? [])
       .map((cell) => {
@@ -1345,6 +1374,12 @@ export class NetworkManager {
       cityRow: safeInteger(serverSupplyDepotLine?.cityRow),
       depotCol: safeInteger(serverSupplyDepotLine?.depotCol),
       depotRow: safeInteger(serverSupplyDepotLine?.depotRow),
+      depotSupplyStock: safeNonNegativeInteger(
+        serverSupplyDepotLine?.depotSupplyStock,
+      ),
+      oneWayTravelSeconds: safePositiveFloat(
+        serverSupplyDepotLine?.oneWayTravelSeconds,
+      ),
       severIndex: safeInteger(serverSupplyDepotLine?.severIndex),
       path: normalizedPath,
     };

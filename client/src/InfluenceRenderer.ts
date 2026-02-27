@@ -31,6 +31,7 @@ export type FarmCitySupplyLineSnapshot = {
   cityZoneId: string;
   team: 'BLUE' | 'RED';
   connected: boolean;
+  oneWayTravelSeconds: number;
   severIndex: number;
   path: SupplyLinePathCellSnapshot[];
 };
@@ -43,6 +44,7 @@ export type CitySupplyDepotLineSnapshot = {
   cityRow: number;
   depotCol: number;
   depotRow: number;
+  oneWayTravelSeconds: number;
   severIndex: number;
   path: SupplyLinePathCellSnapshot[];
 };
@@ -96,6 +98,7 @@ type FarmCitySupplyLineRenderState = {
   linkId: string;
   team: 'BLUE' | 'RED';
   connected: boolean;
+  oneWayTravelSeconds: number;
   endIndex: number;
   severCell: SupplyLineRenderCell | null;
   cells: SupplyLineRenderCell[];
@@ -105,6 +108,7 @@ type CitySupplyDepotLineRenderState = {
   cityZoneId: string;
   owner: 'BLUE' | 'RED' | 'NEUTRAL';
   connected: boolean;
+  oneWayTravelSeconds: number;
   endIndex: number;
   severCell: SupplyLineRenderCell | null;
   cells: SupplyLineRenderCell[];
@@ -164,6 +168,9 @@ export class InfluenceRenderer {
   private static readonly CITY_SUPPLY_DEPOT_CONNECTED_ALPHA = 0.9;
   private static readonly CITY_SUPPLY_DEPOT_DISCONNECTED_ALPHA = 0.55;
   private static readonly CITY_SUPPLY_DEPOT_SEVER_COLOR = 0xf0c3a4;
+  private static readonly CITY_SUPPLY_DEPOT_DOT_RADIUS = 4;
+  private static readonly CITY_SUPPLY_DEPOT_DOT_COLOR = 0xf0c3a4;
+  private static readonly CITY_SUPPLY_DEPOT_DOT_ALPHA = 0.95;
   private static readonly FARM_CITY_SUPPLY_COLOR = 0xffd700;
   private static readonly FARM_CITY_SUPPLY_DISCONNECTED_ALPHA = 0.55;
   private static readonly FARM_CITY_SUPPLY_CONNECTED_ALPHA = 0.9;
@@ -363,6 +370,11 @@ export class InfluenceRenderer {
           typeof supplyLine.cityZoneId === 'string' ? supplyLine.cityZoneId : '',
         team,
         connected: supplyLine.connected === true,
+        oneWayTravelSeconds:
+          Number.isFinite(supplyLine.oneWayTravelSeconds)
+          && supplyLine.oneWayTravelSeconds > 0
+            ? supplyLine.oneWayTravelSeconds
+            : this.farmCitySupplyTripDurationSeconds,
         severIndex: Number.isFinite(supplyLine.severIndex)
           ? Math.round(supplyLine.severIndex)
           : -1,
@@ -426,6 +438,11 @@ export class InfluenceRenderer {
         depotRow: Number.isFinite(supplyDepotLine.depotRow)
           ? Math.round(supplyDepotLine.depotRow)
           : -1,
+        oneWayTravelSeconds:
+          Number.isFinite(supplyDepotLine.oneWayTravelSeconds)
+          && supplyDepotLine.oneWayTravelSeconds > 0
+            ? supplyDepotLine.oneWayTravelSeconds
+            : this.farmCitySupplyTripDurationSeconds,
         severIndex: Number.isFinite(supplyDepotLine.severIndex)
           ? Math.round(supplyDepotLine.severIndex)
           : -1,
@@ -528,7 +545,7 @@ export class InfluenceRenderer {
     }
 
     this.renderDebugOverlay(this.targetServerCells);
-    this.renderCitySupplyDepotLines();
+    this.renderCitySupplyDepotLines(timeMs);
     this.renderFarmCitySupplyLines(timeMs);
     this.renderSupplyWave(timeMs, deltaMs);
   }
@@ -638,6 +655,7 @@ export class InfluenceRenderer {
         linkId: supplyLine.linkId,
         team: supplyLine.team,
         connected: supplyLine.connected,
+        oneWayTravelSeconds: supplyLine.oneWayTravelSeconds,
         endIndex,
         severCell,
         cells,
@@ -685,6 +703,7 @@ export class InfluenceRenderer {
         cityZoneId: supplyDepotLine.cityZoneId,
         owner: supplyDepotLine.owner,
         connected: supplyDepotLine.connected,
+        oneWayTravelSeconds: supplyDepotLine.oneWayTravelSeconds,
         endIndex,
         severCell,
         cells,
@@ -694,7 +713,7 @@ export class InfluenceRenderer {
     this.citySupplyDepotLineRenderStates = nextRenderStates;
   }
 
-  private renderCitySupplyDepotLines(): void {
+  private renderCitySupplyDepotLines(timeMs: number): void {
     if (this.citySupplyDepotLineRenderStates.length === 0) {
       return;
     }
@@ -747,6 +766,41 @@ export class InfluenceRenderer {
           severCell.y - 4,
         );
       }
+
+      if (!supplyDepotLine.connected || supplyDepotLine.endIndex < 1) {
+        continue;
+      }
+
+      const oneWayTripDurationMs = Math.max(
+        1,
+        supplyDepotLine.oneWayTravelSeconds * 1000,
+      );
+      const cycleDurationMs = oneWayTripDurationMs * 2;
+      const phaseOffset = this.getStablePhaseOffset(supplyDepotLine.cityZoneId);
+      const rawCyclePhase = ((timeMs / cycleDurationMs) + phaseOffset) % 1;
+      const forwardPhase =
+        rawCyclePhase < 0.5 ? rawCyclePhase * 2 : (1 - rawCyclePhase) * 2;
+      const segmentPosition = forwardPhase * supplyDepotLine.endIndex;
+      const segmentIndex = Math.floor(segmentPosition);
+      const interpolationT = segmentPosition - segmentIndex;
+      const startCell = supplyDepotLine.cells[segmentIndex];
+      const endCell = supplyDepotLine.cells[
+        Math.min(segmentIndex + 1, supplyDepotLine.endIndex)
+      ];
+      if (!startCell || !endCell) {
+        continue;
+      }
+      const dotX = Phaser.Math.Linear(startCell.x, endCell.x, interpolationT);
+      const dotY = Phaser.Math.Linear(startCell.y, endCell.y, interpolationT);
+      this.citySupplyDepotGraphics.fillStyle(
+        InfluenceRenderer.CITY_SUPPLY_DEPOT_DOT_COLOR,
+        InfluenceRenderer.CITY_SUPPLY_DEPOT_DOT_ALPHA,
+      );
+      this.citySupplyDepotGraphics.fillCircle(
+        dotX,
+        dotY,
+        InfluenceRenderer.CITY_SUPPLY_DEPOT_DOT_RADIUS,
+      );
     }
   }
 
@@ -754,9 +808,6 @@ export class InfluenceRenderer {
     if (this.farmCitySupplyLineRenderStates.length === 0) {
       return;
     }
-
-    const tripDurationMs = this.farmCitySupplyTripDurationSeconds * 1000;
-    const cycleDurationMs = tripDurationMs * 2;
 
     for (const supplyLine of this.farmCitySupplyLineRenderStates) {
       this.farmCitySupplyGraphics.lineStyle(
@@ -808,12 +859,16 @@ export class InfluenceRenderer {
 
       if (
         !supplyLine.connected ||
-        supplyLine.endIndex < 1 ||
-        cycleDurationMs <= 0
+        supplyLine.endIndex < 1
       ) {
         continue;
       }
 
+      const oneWayTripDurationMs = Math.max(
+        1,
+        supplyLine.oneWayTravelSeconds * 1000,
+      );
+      const cycleDurationMs = oneWayTripDurationMs * 2;
       const phaseOffset = this.getStablePhaseOffset(supplyLine.linkId);
       const rawCyclePhase = ((timeMs / cycleDurationMs) + phaseOffset) % 1;
       const forwardPhase =

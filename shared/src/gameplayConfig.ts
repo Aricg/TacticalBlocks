@@ -169,6 +169,8 @@ export const GAMEPLAY_CONFIG = {
   supply: {
     enemyInfluenceSeverThreshold: 0.0001,
     blockedSourceRetryIntervalSeconds: 3,
+    cityDepotSupplyPerDelivery: 16,
+    depotSupplyPulseIntervalSeconds: 1,
   },
   unit: {
     baseSpeed: UNIT_BASE_MOVE_SPEED,

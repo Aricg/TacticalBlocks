@@ -7,6 +7,7 @@ export class FarmCitySupplyLineState extends Schema {
   @type("string") cityZoneId = "";
   @type("string") team = "";
   @type("boolean") connected = true;
+  @type("number") oneWayTravelSeconds = 0.25;
   @type("number") severIndex = -1;
   @type([GridCellState]) path = new ArraySchema<GridCellState>();
 

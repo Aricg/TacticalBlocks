@@ -318,6 +318,10 @@ class BattleScene extends Phaser.Scene {
     string,
     Phaser.GameObjects.Arc
   > = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly supplyDepotSupplyTextsByCityZoneId: Map<
+    string,
+    Phaser.GameObjects.Text
+  > = new Map<string, Phaser.GameObjects.Text>();
   private readonly lastSentSupplyDepotCellByCityZoneId: Map<string, string> =
     new Map<string, string>();
   private activeSupplyDepotDragCityZoneId: string | null = null;
@@ -418,6 +422,8 @@ class BattleScene extends Phaser.Scene {
   private static readonly SUPPLY_DEPOT_STROKE_COLOR = 0x2d1d0f;
   private static readonly SUPPLY_DEPOT_STROKE_ALPHA = 0.95;
   private static readonly SUPPLY_DEPOT_DRAG_SEND_INTERVAL_MS = 40;
+  private static readonly SUPPLY_DEPOT_SUPPLY_TEXT_OFFSET_Y = 9;
+  private static readonly SUPPLY_DEPOT_SUPPLY_TEXT_DEPTH = 1101;
   private static readonly PREVIEW_PATH_POINT_SPACING =
     GAMEPLAY_CONFIG.input.previewPathPointSpacing;
   private static readonly GRID_WIDTH = GAMEPLAY_CONFIG.influence.gridWidth;
@@ -778,9 +784,13 @@ class BattleScene extends Phaser.Scene {
       for (const marker of this.supplyDepotMarkersByCityZoneId.values()) {
         marker.destroy();
       }
+      for (const supplyText of this.supplyDepotSupplyTextsByCityZoneId.values()) {
+        supplyText.destroy();
+      }
       this.cities.length = 0;
       this.neutralCities.length = 0;
       this.supplyDepotMarkersByCityZoneId.clear();
+      this.supplyDepotSupplyTextsByCityZoneId.clear();
       this.cityByHomeTeam[Team.RED] = null;
       this.cityByHomeTeam[Team.BLUE] = null;
       this.neutralCityOwners = this.neutralCityGridCoordinates.map(
@@ -896,9 +906,13 @@ class BattleScene extends Phaser.Scene {
     for (const marker of this.supplyDepotMarkersByCityZoneId.values()) {
       marker.destroy();
     }
+    for (const supplyText of this.supplyDepotSupplyTextsByCityZoneId.values()) {
+      supplyText.destroy();
+    }
     this.cities.length = 0;
     this.neutralCities.length = 0;
     this.supplyDepotMarkersByCityZoneId.clear();
+    this.supplyDepotSupplyTextsByCityZoneId.clear();
     this.cityByHomeTeam[Team.RED] = null;
     this.cityByHomeTeam[Team.BLUE] = null;
     this.lastSentSupplyDepotCellByCityZoneId.clear();
@@ -985,6 +999,7 @@ class BattleScene extends Phaser.Scene {
           BattleScene.UNIT_COMMAND_GRID_METRICS,
         );
         marker.setPosition(snapped.x, snapped.y);
+        this.positionSupplyDepotSupplyText(cityZoneId, snapped.x, snapped.y);
         this.sendSupplyDepotMoveCommand(cityZoneId, targetCell);
       },
     );
@@ -1006,6 +1021,7 @@ class BattleScene extends Phaser.Scene {
           BattleScene.UNIT_COMMAND_GRID_METRICS,
         );
         marker.setPosition(snapped.x, snapped.y);
+        this.positionSupplyDepotSupplyText(cityZoneId, snapped.x, snapped.y);
         this.sendSupplyDepotMoveCommand(cityZoneId, targetCell, true);
         this.activeSupplyDepotDragCityZoneId = null;
       },
@@ -1013,6 +1029,40 @@ class BattleScene extends Phaser.Scene {
 
     this.supplyDepotMarkersByCityZoneId.set(cityZoneId, marker);
     return marker;
+  }
+
+  private ensureSupplyDepotSupplyText(cityZoneId: string): Phaser.GameObjects.Text {
+    const existing = this.supplyDepotSupplyTextsByCityZoneId.get(cityZoneId);
+    if (existing) {
+      return existing;
+    }
+
+    const text = this.add.text(0, 0, '0', {
+      fontFamily: 'monospace',
+      fontSize: '11px',
+      color: '#f5e1ce',
+      stroke: '#2d1d0f',
+      strokeThickness: 2,
+    });
+    text.setOrigin(0.5, 0);
+    text.setDepth(BattleScene.SUPPLY_DEPOT_SUPPLY_TEXT_DEPTH);
+    this.supplyDepotSupplyTextsByCityZoneId.set(cityZoneId, text);
+    return text;
+  }
+
+  private positionSupplyDepotSupplyText(
+    cityZoneId: string,
+    x: number,
+    y: number,
+  ): void {
+    const text = this.supplyDepotSupplyTextsByCityZoneId.get(cityZoneId);
+    if (!text) {
+      return;
+    }
+    text.setPosition(
+      x,
+      y + BattleScene.SUPPLY_DEPOT_RADIUS + BattleScene.SUPPLY_DEPOT_SUPPLY_TEXT_OFFSET_Y,
+    );
   }
 
   private sendSupplyDepotMoveCommand(
@@ -1063,6 +1113,7 @@ class BattleScene extends Phaser.Scene {
       }
       activeCityZoneIds.add(cityZoneId);
       const marker = this.ensureSupplyDepotMarker(cityZoneId);
+      const supplyText = this.ensureSupplyDepotSupplyText(cityZoneId);
       const depotCell = {
         col: supplyDepotLine.depotCol,
         row: supplyDepotLine.depotRow,
@@ -1074,6 +1125,9 @@ class BattleScene extends Phaser.Scene {
       if (this.activeSupplyDepotDragCityZoneId !== cityZoneId) {
         marker.setPosition(depotPosition.x, depotPosition.y);
       }
+      this.positionSupplyDepotSupplyText(cityZoneId, marker.x, marker.y);
+      supplyText.setText(`${Math.max(0, Math.floor(supplyDepotLine.depotSupplyStock))}`);
+      supplyText.setVisible(true);
 
       const canDrag = this.isSupplyDepotLocallyDraggable(supplyDepotLine.owner);
       if (canDrag) {
@@ -1091,6 +1145,9 @@ class BattleScene extends Phaser.Scene {
       }
       marker.destroy();
       this.supplyDepotMarkersByCityZoneId.delete(cityZoneId);
+      const supplyText = this.supplyDepotSupplyTextsByCityZoneId.get(cityZoneId);
+      supplyText?.destroy();
+      this.supplyDepotSupplyTextsByCityZoneId.delete(cityZoneId);
       this.lastSentSupplyDepotCellByCityZoneId.delete(cityZoneId);
       if (this.activeSupplyDepotDragCityZoneId === cityZoneId) {
         this.activeSupplyDepotDragCityZoneId = null;

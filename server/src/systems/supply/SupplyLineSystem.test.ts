@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import {
+  advanceBouncingSupplyTrip,
+  computeSupplyPathOneWayTravelSeconds,
+  consumeDepotSupplyStock,
   computeFarmToCitySupplyStatus,
   computeSupplyLinesForUnits,
 } from './SupplyLineSystem.js';
@@ -203,8 +206,103 @@ function runTraceGridLineDirectionInvarianceTest(): void {
   }
 }
 
+function runSupplyPathTravelDurationScalesWithDistanceTest(): void {
+  const shortDuration = computeSupplyPathOneWayTravelSeconds({
+    path: [
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+    ],
+    cellWidth: 10,
+    cellHeight: 10,
+    baseMoveSpeed: 5,
+    getSpeedMultiplierAtCell: () => 1,
+  });
+  const longDuration = computeSupplyPathOneWayTravelSeconds({
+    path: [
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+      { col: 2, row: 0 },
+      { col: 3, row: 0 },
+    ],
+    cellWidth: 10,
+    cellHeight: 10,
+    baseMoveSpeed: 5,
+    getSpeedMultiplierAtCell: () => 1,
+  });
+
+  assert.equal(shortDuration, 2);
+  assert.equal(longDuration, 6);
+}
+
+function runSupplyPathRoadSpeedMultiplierTest(): void {
+  const noRoadDuration = computeSupplyPathOneWayTravelSeconds({
+    path: [
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+      { col: 2, row: 0 },
+    ],
+    cellWidth: 10,
+    cellHeight: 10,
+    baseMoveSpeed: 10,
+    getSpeedMultiplierAtCell: () => 1,
+  });
+  const withRoadDuration = computeSupplyPathOneWayTravelSeconds({
+    path: [
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+      { col: 2, row: 0 },
+    ],
+    cellWidth: 10,
+    cellHeight: 10,
+    baseMoveSpeed: 10,
+    getSpeedMultiplierAtCell: (cell) => (cell.col >= 1 ? 2 : 1),
+  });
+
+  assert.equal(noRoadDuration, 2);
+  assert.equal(withRoadDuration, 1.5);
+  assert.equal(withRoadDuration < noRoadDuration, true);
+}
+
+function runBouncingSupplyTripCountsOutboundArrivalsTest(): void {
+  const result = advanceBouncingSupplyTrip({
+    previousPhase: 0.8,
+    deltaSeconds: 1.4,
+    oneWayTravelSeconds: 1,
+  });
+
+  assert.equal(result.completedOutboundTrips, 1);
+  assert.ok(Math.abs(result.nextPhase - 0.2) < 1e-9);
+}
+
+function runDepotSupplyPulseConsumptionTest(): void {
+  const result = consumeDepotSupplyStock({
+    currentStock: 3,
+    pulseElapsedSeconds: 0.4,
+    deltaSeconds: 1.8,
+    pulseIntervalSeconds: 1,
+  });
+
+  assert.equal(result.pulsesTriggered, 2);
+  assert.equal(result.nextStock, 1);
+  assert.ok(Math.abs(result.nextPulseElapsedSeconds - 0.2) < 1e-9);
+
+  const depleted = consumeDepotSupplyStock({
+    currentStock: 1,
+    pulseElapsedSeconds: 0.9,
+    deltaSeconds: 0.2,
+    pulseIntervalSeconds: 1,
+  });
+  assert.equal(depleted.pulsesTriggered, 1);
+  assert.equal(depleted.nextStock, 0);
+  assert.equal(depleted.nextPulseElapsedSeconds, 0);
+}
+
 runFarmSupplyFallbackForLegacyMapsTest();
 runUnsuppliedCityCannotSupplyUnitsTest();
 runSuppliedCityCanSupplyUnitsTest();
 runFarmSupplySeversWhenEnemyOccupiesLinkCellTest();
 runTraceGridLineDirectionInvarianceTest();
+runSupplyPathTravelDurationScalesWithDistanceTest();
+runSupplyPathRoadSpeedMultiplierTest();
+runBouncingSupplyTripCountsOutboundArrivalsTest();
+runDepotSupplyPulseConsumptionTest();

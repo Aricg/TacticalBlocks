@@ -792,3 +792,171 @@ export function computeSupplyLinesForUnits({
 
   return { supplyLinesByUnitId, retryStateByUnitId };
 }
+
+export function computeSupplyPathOneWayTravelSeconds({
+  path,
+  cellWidth,
+  cellHeight,
+  baseMoveSpeed,
+  getSpeedMultiplierAtCell,
+  minimumDurationSeconds = 0.25,
+}: {
+  path: readonly GridCoordinate[];
+  cellWidth: number;
+  cellHeight: number;
+  baseMoveSpeed: number;
+  getSpeedMultiplierAtCell: (cell: GridCoordinate) => number;
+  minimumDurationSeconds?: number;
+}): number {
+  const minDuration =
+    Number.isFinite(minimumDurationSeconds) && minimumDurationSeconds > 0
+      ? minimumDurationSeconds
+      : 0.25;
+  if (path.length < 2) {
+    return minDuration;
+  }
+
+  const resolvedCellWidth = Number.isFinite(cellWidth) && cellWidth > 0 ? cellWidth : 1;
+  const resolvedCellHeight =
+    Number.isFinite(cellHeight) && cellHeight > 0 ? cellHeight : 1;
+  const resolvedBaseMoveSpeed =
+    Number.isFinite(baseMoveSpeed) && baseMoveSpeed > 0 ? baseMoveSpeed : 1;
+
+  let travelSeconds = 0;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const fromCell = path[index];
+    const toCell = path[index + 1];
+    const segmentDistance = Math.hypot(
+      (toCell.col - fromCell.col) * resolvedCellWidth,
+      (toCell.row - fromCell.row) * resolvedCellHeight,
+    );
+    if (!Number.isFinite(segmentDistance) || segmentDistance <= 0) {
+      continue;
+    }
+
+    const rawSpeedMultiplier = getSpeedMultiplierAtCell(fromCell);
+    const speedMultiplier =
+      Number.isFinite(rawSpeedMultiplier) && rawSpeedMultiplier > 0
+        ? rawSpeedMultiplier
+        : 1;
+    const segmentSpeed = resolvedBaseMoveSpeed * speedMultiplier;
+    if (!Number.isFinite(segmentSpeed) || segmentSpeed <= 0) {
+      continue;
+    }
+
+    travelSeconds += segmentDistance / segmentSpeed;
+  }
+
+  if (!Number.isFinite(travelSeconds) || travelSeconds <= 0) {
+    return minDuration;
+  }
+  return Math.max(minDuration, travelSeconds);
+}
+
+export function advanceBouncingSupplyTrip({
+  previousPhase,
+  deltaSeconds,
+  oneWayTravelSeconds,
+}: {
+  previousPhase: number;
+  deltaSeconds: number;
+  oneWayTravelSeconds: number;
+}): {
+  nextPhase: number;
+  completedOutboundTrips: number;
+} {
+  const normalizedPreviousPhase = Number.isFinite(previousPhase)
+    ? ((previousPhase % 2) + 2) % 2
+    : 0;
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+    return {
+      nextPhase: normalizedPreviousPhase,
+      completedOutboundTrips: 0,
+    };
+  }
+  if (!Number.isFinite(oneWayTravelSeconds) || oneWayTravelSeconds <= 0) {
+    return {
+      nextPhase: normalizedPreviousPhase,
+      completedOutboundTrips: 0,
+    };
+  }
+
+  const nextRawPhase = normalizedPreviousPhase + deltaSeconds / oneWayTravelSeconds;
+  const completedOutboundTrips = Math.max(
+    0,
+    Math.floor((nextRawPhase - 1) / 2) -
+      Math.floor((normalizedPreviousPhase - 1) / 2),
+  );
+
+  return {
+    nextPhase: ((nextRawPhase % 2) + 2) % 2,
+    completedOutboundTrips,
+  };
+}
+
+export function consumeDepotSupplyStock({
+  currentStock,
+  pulseElapsedSeconds,
+  deltaSeconds,
+  pulseIntervalSeconds,
+}: {
+  currentStock: number;
+  pulseElapsedSeconds: number;
+  deltaSeconds: number;
+  pulseIntervalSeconds: number;
+}): {
+  nextStock: number;
+  nextPulseElapsedSeconds: number;
+  pulsesTriggered: number;
+} {
+  const normalizedStock =
+    Number.isFinite(currentStock) && currentStock > 0 ? Math.floor(currentStock) : 0;
+  if (normalizedStock <= 0) {
+    return {
+      nextStock: 0,
+      nextPulseElapsedSeconds: 0,
+      pulsesTriggered: 0,
+    };
+  }
+
+  const normalizedPulseElapsedSeconds =
+    Number.isFinite(pulseElapsedSeconds) && pulseElapsedSeconds > 0
+      ? pulseElapsedSeconds
+      : 0;
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+    return {
+      nextStock: normalizedStock,
+      nextPulseElapsedSeconds: normalizedPulseElapsedSeconds,
+      pulsesTriggered: 0,
+    };
+  }
+
+  const normalizedPulseIntervalSeconds =
+    Number.isFinite(pulseIntervalSeconds) && pulseIntervalSeconds > 0
+      ? pulseIntervalSeconds
+      : 1;
+  let nextPulseElapsedSeconds = normalizedPulseElapsedSeconds + deltaSeconds;
+  const possiblePulseCount = Math.floor(
+    nextPulseElapsedSeconds / normalizedPulseIntervalSeconds,
+  );
+  const pulsesTriggered = Math.min(normalizedStock, Math.max(0, possiblePulseCount));
+  if (pulsesTriggered > 0) {
+    nextPulseElapsedSeconds -=
+      pulsesTriggered * normalizedPulseIntervalSeconds;
+  }
+
+  const nextStock = Math.max(0, normalizedStock - pulsesTriggered);
+  if (nextStock <= 0) {
+    return {
+      nextStock: 0,
+      nextPulseElapsedSeconds: 0,
+      pulsesTriggered,
+    };
+  }
+
+  return {
+    nextStock,
+    nextPulseElapsedSeconds,
+    pulsesTriggered,
+  };
+}

@@ -9,6 +9,8 @@ export class CitySupplyDepotLineState extends Schema {
   @type("number") cityRow = -1;
   @type("number") depotCol = -1;
   @type("number") depotRow = -1;
+  @type("number") depotSupplyStock = 0;
+  @type("number") oneWayTravelSeconds = 0.25;
   @type("number") severIndex = -1;
   @type([GridCellState]) path = new ArraySchema<GridCellState>();
 

@@ -43,7 +43,10 @@ import {
   simulateMovementTick,
 } from "../systems/movement/MovementSimulation.js";
 import {
+  advanceBouncingSupplyTrip,
+  computeSupplyPathOneWayTravelSeconds,
   computeFarmToCitySupplyStatus,
+  consumeDepotSupplyStock,
   findSupplySeverIndex,
   type ComputedFarmToCitySupplyLinkState,
   computeSupplyLinesForUnits,
@@ -140,6 +143,8 @@ type ComputedCitySupplyDepotLineState = {
   cityRow: number;
   depotCol: number;
   depotRow: number;
+  depotSupplyStock: number;
+  oneWayTravelSeconds: number;
   severIndex: number;
   path: GridCoordinate[];
 };
@@ -159,6 +164,10 @@ export class BattleRoom extends Room<BattleState> {
   private readonly farmCitySupplySignatureByLinkId = new Map<string, string>();
   private readonly citySupplyDepotSignatureByZoneId = new Map<string, string>();
   private readonly citySupplyDepotCellByZoneId = new Map<string, GridCoordinate>();
+  private readonly depotSupplyStockByCityZoneId = new Map<string, number>();
+  private readonly depotSupplyPulseElapsedSecondsByCityZoneId = new Map<string, number>();
+  private readonly depotSupplyTripPhaseByCityZoneId = new Map<string, number>();
+  private readonly depotSupplyOwnerByCityZoneId = new Map<string, CityOwner>();
   private readonly supplySourceRetryStateByUnitId = new Map<
     string,
     SupplySourceRetryState
@@ -305,6 +314,17 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds > 0
       ? GAMEPLAY_CONFIG.supply.blockedSourceRetryIntervalSeconds * 1000
       : 3000;
+  private static readonly CITY_DEPOT_SUPPLY_PER_DELIVERY =
+    Number.isFinite(GAMEPLAY_CONFIG.supply.cityDepotSupplyPerDelivery) &&
+    GAMEPLAY_CONFIG.supply.cityDepotSupplyPerDelivery > 0
+      ? Math.floor(GAMEPLAY_CONFIG.supply.cityDepotSupplyPerDelivery)
+      : 16;
+  private static readonly CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS =
+    Number.isFinite(GAMEPLAY_CONFIG.supply.depotSupplyPulseIntervalSeconds) &&
+    GAMEPLAY_CONFIG.supply.depotSupplyPulseIntervalSeconds > 0
+      ? GAMEPLAY_CONFIG.supply.depotSupplyPulseIntervalSeconds
+      : 1;
+  private static readonly SUPPLY_TRIP_MIN_DURATION_SECONDS = 0.25;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
   private static readonly CITY_SUPPLY_PER_UNIT_THRESHOLD = 10;
 
@@ -350,7 +370,7 @@ export class BattleRoom extends Room<BattleState> {
       this.resolveStartingForceUnitCountPerTeamForMap(this.state.mapId);
     this.spawnStartingForces();
     this.updateInfluenceGrid(true);
-    this.updateSupplyLines();
+    this.updateSupplyLines(0);
 
     this.setSimulationInterval((deltaMs) => {
       if (this.matchPhase !== "BATTLE") {
@@ -364,7 +384,7 @@ export class BattleRoom extends Room<BattleState> {
       if (cityOwnershipChanged) {
         this.syncCityInfluenceSources();
       }
-      this.updateSupplyLines();
+      this.updateSupplyLines(deltaSeconds);
       const generatedCityUnits = this.updateCityUnitGeneration(deltaSeconds);
       const engagements = this.updateUnitInteractions(deltaSeconds);
       this.pruneSupplyLinesForMissingUnits();
@@ -528,6 +548,9 @@ export class BattleRoom extends Room<BattleState> {
   private buildFarmCitySupplyLineSignature(
     supplyLine: ComputedFarmToCitySupplyLinkState,
   ): string {
+    const oneWayTravelSeconds = this.getSupplyPathOneWayTravelSeconds(
+      supplyLine.path,
+    );
     const pathSignature = supplyLine.path
       .map((cell) => `${cell.col},${cell.row}`)
       .join(";");
@@ -537,6 +560,7 @@ export class BattleRoom extends Room<BattleState> {
       supplyLine.cityZoneId,
       supplyLine.connected ? "1" : "0",
       `${supplyLine.severIndex}`,
+      oneWayTravelSeconds.toFixed(4),
       pathSignature,
     ].join("|");
   }
@@ -561,11 +585,15 @@ export class BattleRoom extends Room<BattleState> {
     supplyLine: ComputedFarmToCitySupplyLinkState,
   ): FarmCitySupplyLineState {
     const state = new FarmCitySupplyLineState();
+    const oneWayTravelSeconds = this.getSupplyPathOneWayTravelSeconds(
+      supplyLine.path,
+    );
     state.linkId = supplyLine.linkId;
     state.farmZoneId = supplyLine.farmZoneId;
     state.cityZoneId = supplyLine.cityZoneId;
     state.team = supplyLine.team;
     state.connected = supplyLine.connected;
+    state.oneWayTravelSeconds = oneWayTravelSeconds;
     state.severIndex = supplyLine.severIndex;
     for (const cell of supplyLine.path) {
       state.path.push(new GridCellState(cell.col, cell.row));
@@ -1183,6 +1211,169 @@ export class BattleRoom extends Room<BattleState> {
     return baseStepCost * roadCostMultiplier;
   }
 
+  private getSupplyPathOneWayTravelSeconds(path: readonly GridCoordinate[]): number {
+    return computeSupplyPathOneWayTravelSeconds({
+      path,
+      cellWidth: BattleRoom.CELL_WIDTH,
+      cellHeight: BattleRoom.CELL_HEIGHT,
+      baseMoveSpeed: this.runtimeTuning.unitMoveSpeed,
+      getSpeedMultiplierAtCell: (cell) => this.getTerrainSpeedMultiplierAtCell(cell),
+      minimumDurationSeconds: BattleRoom.SUPPLY_TRIP_MIN_DURATION_SECONDS,
+    });
+  }
+
+  private normalizeDepotSupplyStateForCityZone(
+    cityZoneId: string,
+    owner: CityOwner,
+  ): {
+    stock: number;
+    pulseElapsedSeconds: number;
+    tripPhase: number;
+  } {
+    const previousOwner = this.depotSupplyOwnerByCityZoneId.get(cityZoneId);
+    const ownerChanged = previousOwner !== undefined && previousOwner !== owner;
+    const neutralOwner = owner === "NEUTRAL";
+    const stock =
+      ownerChanged || neutralOwner
+        ? 0
+        : Math.max(
+            0,
+            Math.floor(this.depotSupplyStockByCityZoneId.get(cityZoneId) ?? 0),
+          );
+    const pulseElapsedSeconds =
+      ownerChanged || neutralOwner
+        ? 0
+        : Math.max(
+            0,
+            this.depotSupplyPulseElapsedSecondsByCityZoneId.get(cityZoneId) ?? 0,
+          );
+    const tripPhase =
+      ownerChanged || neutralOwner
+        ? 0
+        : ((this.depotSupplyTripPhaseByCityZoneId.get(cityZoneId) ?? 0) % 2 + 2) % 2;
+
+    this.depotSupplyOwnerByCityZoneId.set(cityZoneId, owner);
+    return {
+      stock,
+      pulseElapsedSeconds,
+      tripPhase,
+    };
+  }
+
+  private updateDepotSupplyAvailability({
+    deltaSeconds,
+    suppliedCityZoneIds,
+    computedCitySupplyDepotLines,
+    sourceIdByCityZoneId,
+  }: {
+    deltaSeconds: number;
+    suppliedCityZoneIds: ReadonlySet<string>;
+    computedCitySupplyDepotLines: readonly ComputedCitySupplyDepotLineState[];
+    sourceIdByCityZoneId: ReadonlyMap<string, string>;
+  }): Set<string> {
+    const eligibleDepotCityZoneIds = new Set<string>();
+    const activeCityZoneIds = new Set<string>();
+    for (const supplyDepotLine of computedCitySupplyDepotLines) {
+      const cityZoneId = supplyDepotLine.cityZoneId;
+      activeCityZoneIds.add(cityZoneId);
+      const normalizedState = this.normalizeDepotSupplyStateForCityZone(
+        cityZoneId,
+        supplyDepotLine.owner,
+      );
+      let stock = normalizedState.stock;
+      let pulseElapsedSeconds = normalizedState.pulseElapsedSeconds;
+      let tripPhase = normalizedState.tripPhase;
+
+      const canReceiveSupplyDelivery =
+        supplyDepotLine.connected && suppliedCityZoneIds.has(cityZoneId);
+      if (canReceiveSupplyDelivery) {
+        const tripProgress = advanceBouncingSupplyTrip({
+          previousPhase: tripPhase,
+          deltaSeconds,
+          oneWayTravelSeconds: supplyDepotLine.oneWayTravelSeconds,
+        });
+        tripPhase = tripProgress.nextPhase;
+        if (tripProgress.completedOutboundTrips > 0) {
+          const sourceId = sourceIdByCityZoneId.get(cityZoneId);
+          const citySupplyAvailable =
+            sourceId !== undefined
+              ? Math.max(
+                  0,
+                  Math.floor(this.state.citySupplyBySourceId.get(sourceId) ?? 0),
+                )
+              : 0;
+          const completedDeliveries = Math.min(
+            tripProgress.completedOutboundTrips,
+            citySupplyAvailable,
+          );
+          if (sourceId !== undefined && completedDeliveries > 0) {
+            this.state.citySupplyBySourceId.set(
+              sourceId,
+              citySupplyAvailable - completedDeliveries,
+            );
+          }
+          if (completedDeliveries > 0) {
+            stock +=
+              completedDeliveries * BattleRoom.CITY_DEPOT_SUPPLY_PER_DELIVERY;
+          }
+        }
+      } else {
+        tripPhase = 0;
+      }
+
+      const stockConsumption = consumeDepotSupplyStock({
+        currentStock: stock,
+        pulseElapsedSeconds,
+        deltaSeconds,
+        pulseIntervalSeconds: BattleRoom.CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS,
+      });
+      stock = stockConsumption.nextStock;
+      pulseElapsedSeconds = stockConsumption.nextPulseElapsedSeconds;
+
+      this.depotSupplyStockByCityZoneId.set(cityZoneId, stock);
+      this.depotSupplyPulseElapsedSecondsByCityZoneId.set(
+        cityZoneId,
+        pulseElapsedSeconds,
+      );
+      this.depotSupplyTripPhaseByCityZoneId.set(cityZoneId, tripPhase);
+      supplyDepotLine.depotSupplyStock = stock;
+
+      if (stock > 0) {
+        eligibleDepotCityZoneIds.add(cityZoneId);
+      }
+    }
+
+    for (const cityZoneId of Array.from(this.depotSupplyStockByCityZoneId.keys())) {
+      if (activeCityZoneIds.has(cityZoneId)) {
+        continue;
+      }
+      this.depotSupplyStockByCityZoneId.delete(cityZoneId);
+      this.depotSupplyPulseElapsedSecondsByCityZoneId.delete(cityZoneId);
+      this.depotSupplyTripPhaseByCityZoneId.delete(cityZoneId);
+      this.depotSupplyOwnerByCityZoneId.delete(cityZoneId);
+    }
+    for (const cityZoneId of Array.from(this.depotSupplyPulseElapsedSecondsByCityZoneId.keys())) {
+      if (activeCityZoneIds.has(cityZoneId)) {
+        continue;
+      }
+      this.depotSupplyPulseElapsedSecondsByCityZoneId.delete(cityZoneId);
+    }
+    for (const cityZoneId of Array.from(this.depotSupplyTripPhaseByCityZoneId.keys())) {
+      if (activeCityZoneIds.has(cityZoneId)) {
+        continue;
+      }
+      this.depotSupplyTripPhaseByCityZoneId.delete(cityZoneId);
+    }
+    for (const cityZoneId of Array.from(this.depotSupplyOwnerByCityZoneId.keys())) {
+      if (activeCityZoneIds.has(cityZoneId)) {
+        continue;
+      }
+      this.depotSupplyOwnerByCityZoneId.delete(cityZoneId);
+    }
+
+    return eligibleDepotCityZoneIds;
+  }
+
   private getTerrainMoraleBonusAtCell(cell: GridCoordinate): number {
     const terrainType = this.getTerrainTypeAtCell(cell);
     return BattleRoom.TERRAIN_MORALE_BONUS[terrainType] ?? 0;
@@ -1514,6 +1705,8 @@ export class BattleRoom extends Room<BattleState> {
       `${supplyDepotLine.cityCol},${supplyDepotLine.cityRow}`,
       `${supplyDepotLine.depotCol},${supplyDepotLine.depotRow}`,
       supplyDepotLine.connected ? "1" : "0",
+      `${Math.max(0, Math.floor(supplyDepotLine.depotSupplyStock))}`,
+      supplyDepotLine.oneWayTravelSeconds.toFixed(4),
       `${supplyDepotLine.severIndex}`,
       pathSignature,
     ].join("|");
@@ -1530,6 +1723,8 @@ export class BattleRoom extends Room<BattleState> {
     state.cityRow = supplyDepotLine.cityRow;
     state.depotCol = supplyDepotLine.depotCol;
     state.depotRow = supplyDepotLine.depotRow;
+    state.depotSupplyStock = Math.max(0, Math.floor(supplyDepotLine.depotSupplyStock));
+    state.oneWayTravelSeconds = supplyDepotLine.oneWayTravelSeconds;
     state.severIndex = supplyDepotLine.severIndex;
     for (const cell of supplyDepotLine.path) {
       state.path.push(new GridCellState(cell.col, cell.row));
@@ -1567,6 +1762,11 @@ export class BattleRoom extends Room<BattleState> {
       existingState.cityRow = supplyDepotLine.cityRow;
       existingState.depotCol = supplyDepotLine.depotCol;
       existingState.depotRow = supplyDepotLine.depotRow;
+      existingState.depotSupplyStock = Math.max(
+        0,
+        Math.floor(supplyDepotLine.depotSupplyStock),
+      );
+      existingState.oneWayTravelSeconds = supplyDepotLine.oneWayTravelSeconds;
       existingState.severIndex = supplyDepotLine.severIndex;
       while (existingState.path.length > 0) {
         existingState.path.pop();
@@ -1838,6 +2038,7 @@ export class BattleRoom extends Room<BattleState> {
     this.syncCityInfluenceSources();
     this.broadcast(NETWORK_MESSAGE_TYPES.runtimeTuningSnapshot, this.runtimeTuning);
     this.updateInfluenceGrid(true);
+    this.updateSupplyLines(0);
   }
 
   private handleLobbyReadyMessage(
@@ -1978,6 +2179,10 @@ export class BattleRoom extends Room<BattleState> {
     this.supplySignatureByUnitId.clear();
     this.farmCitySupplySignatureByLinkId.clear();
     this.citySupplyDepotSignatureByZoneId.clear();
+    this.depotSupplyStockByCityZoneId.clear();
+    this.depotSupplyPulseElapsedSecondsByCityZoneId.clear();
+    this.depotSupplyTripPhaseByCityZoneId.clear();
+    this.depotSupplyOwnerByCityZoneId.clear();
     this.supplySourceRetryStateByUnitId.clear();
     this.blockedSupplyEndpointInfluenceTracker.clear();
   }
@@ -2044,7 +2249,7 @@ export class BattleRoom extends Room<BattleState> {
     this.mapRuntimeService.clearInfluenceGrid(this.state.influenceGrid);
     this.mapRuntimeService.clearInfluenceGrid(this.supplyEvaluationInfluenceGrid);
     this.updateInfluenceGrid(true);
-    this.updateSupplyLines();
+    this.updateSupplyLines(0);
     this.simulationFrame = 0;
     this.state.simulationFrame = 0;
     this.mapRevision = switchResult.nextMapRevision;
@@ -2313,7 +2518,7 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    this.updateSupplyLines();
+    this.updateSupplyLines(0);
   }
 
   private updateMovement(deltaSeconds: number): void {
@@ -2373,6 +2578,8 @@ export class BattleRoom extends Room<BattleState> {
           cityRow: cityCell.row,
           depotCol: depotCell.col,
           depotRow: depotCell.row,
+          depotSupplyStock: 0,
+          oneWayTravelSeconds: this.getSupplyPathOneWayTravelSeconds(neutralPath),
           severIndex: -1,
           path: neutralPath,
         });
@@ -2424,6 +2631,7 @@ export class BattleRoom extends Room<BattleState> {
       if (severIndex === -1 && !reachedDepot) {
         severIndex = Math.max(0, path.length - 1);
       }
+      const oneWayTravelSeconds = this.getSupplyPathOneWayTravelSeconds(path);
 
       computedLines.push({
         cityZoneId: cityZone.cityZoneId,
@@ -2433,6 +2641,8 @@ export class BattleRoom extends Room<BattleState> {
         cityRow: cityCell.row,
         depotCol: depotCell.col,
         depotRow: depotCell.row,
+        depotSupplyStock: 0,
+        oneWayTravelSeconds,
         severIndex,
         path,
       });
@@ -2441,7 +2651,7 @@ export class BattleRoom extends Room<BattleState> {
     return computedLines;
   }
 
-  private updateSupplyLines(): void {
+  private updateSupplyLines(deltaSeconds = 0): void {
     this.updateSupplyEvaluationInfluenceGrid();
     const enemyOccupiedCellKeysByTeam: Record<PlayerTeam, Set<string>> = {
       BLUE: new Set<string>(),
@@ -2490,16 +2700,20 @@ export class BattleRoom extends Room<BattleState> {
       cityZonesForSupply,
       enemyOccupiedCellKeysByTeam,
     );
-    this.syncCitySupplyDepotLines(computedCitySupplyDepotLines);
     const computedFarmCitySupplyLines = farmToCitySupplyStatus.linkStates;
     const suppliedCityZoneIds = farmToCitySupplyStatus.suppliedCityZoneIds;
+    const sourceIdByCityZoneId = this.getCitySupplySourceIdByCityZoneId();
+    const eligibleDepotCityZoneIds = this.updateDepotSupplyAvailability({
+      deltaSeconds,
+      suppliedCityZoneIds,
+      computedCitySupplyDepotLines,
+      sourceIdByCityZoneId,
+    });
+    this.syncCitySupplyDepotLines(computedCitySupplyDepotLines);
 
     const suppliedDepotCellKeys = new Set<string>();
     for (const supplyDepotLine of computedCitySupplyDepotLines) {
-      if (
-        !supplyDepotLine.connected ||
-        !suppliedCityZoneIds.has(supplyDepotLine.cityZoneId)
-      ) {
+      if (!eligibleDepotCityZoneIds.has(supplyDepotLine.cityZoneId)) {
         continue;
       }
       suppliedDepotCellKeys.add(
@@ -2612,6 +2826,9 @@ export class BattleRoom extends Room<BattleState> {
       existingState.cityZoneId = supplyLine.cityZoneId;
       existingState.team = supplyLine.team;
       existingState.connected = supplyLine.connected;
+      existingState.oneWayTravelSeconds = this.getSupplyPathOneWayTravelSeconds(
+        supplyLine.path,
+      );
       existingState.severIndex = supplyLine.severIndex;
       while (existingState.path.length > 0) {
         existingState.path.pop();
@@ -3005,7 +3222,7 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     this.resetCityGenerationTimersForAllSources();
-    this.updateSupplyLines();
+    this.updateSupplyLines(0);
     this.matchPhase = "BATTLE";
     this.broadcastLobbyState();
     console.log("Battle started: all lobby players ready.");
