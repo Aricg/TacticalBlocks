@@ -138,6 +138,7 @@ type ComputedCitySupplyDepotLineState = {
   cityZoneId: string;
   owner: CityOwner;
   connected: boolean;
+  transferActive: boolean;
   cityCol: number;
   cityRow: number;
   depotCol: number;
@@ -323,6 +324,7 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.supply.depotSupplyPulseIntervalSeconds > 0
       ? GAMEPLAY_CONFIG.supply.depotSupplyPulseIntervalSeconds
       : 1;
+  private static readonly CITY_DEPOT_SUPPLY_MAX_STOCK = 64;
   private static readonly SUPPLY_TRIP_MIN_DURATION_SECONDS = 0.25;
   private static readonly CITY_SPAWN_SEARCH_RADIUS = 4;
   private static readonly CITY_SUPPLY_PER_UNIT_THRESHOLD = 10;
@@ -1552,6 +1554,7 @@ export class BattleRoom extends Room<BattleState> {
       `${supplyDepotLine.cityCol},${supplyDepotLine.cityRow}`,
       `${supplyDepotLine.depotCol},${supplyDepotLine.depotRow}`,
       supplyDepotLine.connected ? "1" : "0",
+      supplyDepotLine.transferActive ? "1" : "0",
       `${Math.max(0, Math.floor(supplyDepotLine.depotSupplyStock))}`,
       supplyDepotLine.oneWayTravelSeconds.toFixed(4),
       `${supplyDepotLine.severIndex}`,
@@ -1566,6 +1569,7 @@ export class BattleRoom extends Room<BattleState> {
     state.cityZoneId = supplyDepotLine.cityZoneId;
     state.owner = supplyDepotLine.owner;
     state.connected = supplyDepotLine.connected;
+    state.transferActive = supplyDepotLine.transferActive;
     state.cityCol = supplyDepotLine.cityCol;
     state.cityRow = supplyDepotLine.cityRow;
     state.depotCol = supplyDepotLine.depotCol;
@@ -1605,6 +1609,7 @@ export class BattleRoom extends Room<BattleState> {
       existingState.cityZoneId = supplyDepotLine.cityZoneId;
       existingState.owner = supplyDepotLine.owner;
       existingState.connected = supplyDepotLine.connected;
+      existingState.transferActive = supplyDepotLine.transferActive;
       existingState.cityCol = supplyDepotLine.cityCol;
       existingState.cityRow = supplyDepotLine.cityRow;
       existingState.depotCol = supplyDepotLine.depotCol;
@@ -2421,6 +2426,7 @@ export class BattleRoom extends Room<BattleState> {
           cityZoneId: cityZone.cityZoneId,
           owner: cityZone.owner,
           connected: false,
+          transferActive: false,
           cityCol: cityCell.col,
           cityRow: cityCell.row,
           depotCol: depotCell.col,
@@ -2484,6 +2490,7 @@ export class BattleRoom extends Room<BattleState> {
         cityZoneId: cityZone.cityZoneId,
         owner: cityZone.owner,
         connected: reachedDepot && severIndex === -1,
+        transferActive: reachedDepot && severIndex === -1,
         cityCol: cityCell.col,
         cityRow: cityCell.row,
         depotCol: depotCell.col,
@@ -2562,6 +2569,7 @@ export class BattleRoom extends Room<BattleState> {
       depotSupplyTripPhaseByCityZoneId: this.depotSupplyTripPhaseByCityZoneId,
       depotSupplyOwnerByCityZoneId: this.depotSupplyOwnerByCityZoneId,
       depotSupplyPerDelivery: BattleRoom.CITY_DEPOT_SUPPLY_PER_DELIVERY,
+      depotSupplyMaxStock: BattleRoom.CITY_DEPOT_SUPPLY_MAX_STOCK,
       depotSupplyPulseIntervalSeconds:
         BattleRoom.CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS,
     });

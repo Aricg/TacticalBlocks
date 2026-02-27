@@ -106,6 +106,7 @@ type ServerCitySupplyDepotLineState = {
   cityZoneId: string;
   owner: string;
   connected: boolean;
+  transferActive: boolean;
   cityCol: number;
   cityRow: number;
   depotCol: number;
@@ -223,6 +224,7 @@ export type NetworkCitySupplyDepotLineUpdate = {
   cityZoneId: string;
   owner: 'BLUE' | 'RED' | 'NEUTRAL';
   connected: boolean;
+  transferActive: boolean;
   cityCol: number;
   cityRow: number;
   depotCol: number;
@@ -1372,6 +1374,7 @@ export class NetworkManager {
       cityZoneId,
       owner: normalizeOwner(serverSupplyDepotLine?.owner),
       connected: serverSupplyDepotLine?.connected === true,
+      transferActive: serverSupplyDepotLine?.transferActive === true,
       cityCol: safeInteger(serverSupplyDepotLine?.cityCol),
       cityRow: safeInteger(serverSupplyDepotLine?.cityRow),
       depotCol: safeInteger(serverSupplyDepotLine?.depotCol),

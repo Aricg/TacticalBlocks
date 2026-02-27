@@ -5,6 +5,7 @@ export class CitySupplyDepotLineState extends Schema {
   @type("string") cityZoneId = "";
   @type("string") owner = "NEUTRAL";
   @type("boolean") connected = false;
+  @type("boolean") transferActive = false;
   @type("number") cityCol = -1;
   @type("number") cityRow = -1;
   @type("number") depotCol = -1;

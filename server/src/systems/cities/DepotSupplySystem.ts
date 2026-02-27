@@ -8,6 +8,7 @@ export type DepotSupplyLineState = {
   cityZoneId: string;
   owner: CityOwner;
   connected: boolean;
+  transferActive: boolean;
   oneWayTravelSeconds: number;
   depotSupplyStock: number;
 };
@@ -75,6 +76,7 @@ export function updateDepotSupplyAvailability({
   depotSupplyOwnerByCityZoneId,
   depotSupplyPerDelivery,
   depotSupplyPulseIntervalSeconds,
+  depotSupplyMaxStock,
 }: {
   deltaSeconds: number;
   suppliedCityZoneIds: ReadonlySet<string>;
@@ -87,7 +89,23 @@ export function updateDepotSupplyAvailability({
   depotSupplyOwnerByCityZoneId: Map<string, CityOwner>;
   depotSupplyPerDelivery: number;
   depotSupplyPulseIntervalSeconds: number;
+  depotSupplyMaxStock: number;
 }): Set<string> {
+  const normalizedDepotSupplyPerDelivery =
+    Number.isFinite(depotSupplyPerDelivery) && depotSupplyPerDelivery > 0
+      ? Math.floor(depotSupplyPerDelivery)
+      : 1;
+  const normalizedDepotSupplyMaxStock =
+    Number.isFinite(depotSupplyMaxStock) && depotSupplyMaxStock > 0
+      ? Math.max(
+          normalizedDepotSupplyPerDelivery,
+          Math.floor(depotSupplyMaxStock),
+        )
+      : 64;
+  const resumeTransferAtStockOrBelow = Math.max(
+    0,
+    normalizedDepotSupplyMaxStock - normalizedDepotSupplyPerDelivery,
+  );
   const eligibleDepotCityZoneIds = new Set<string>();
   const activeCityZoneIds = new Set<string>();
   for (const supplyDepotLine of computedCitySupplyDepotLines) {
@@ -101,12 +119,14 @@ export function updateDepotSupplyAvailability({
       depotSupplyTripPhaseByCityZoneId,
       depotSupplyOwnerByCityZoneId,
     });
-    let stock = normalizedState.stock;
+    let stock = Math.min(normalizedState.stock, normalizedDepotSupplyMaxStock);
     let pulseElapsedSeconds = normalizedState.pulseElapsedSeconds;
     let tripPhase = normalizedState.tripPhase;
 
     const canReceiveSupplyDelivery =
-      supplyDepotLine.connected && suppliedCityZoneIds.has(cityZoneId);
+      supplyDepotLine.connected &&
+      suppliedCityZoneIds.has(cityZoneId) &&
+      stock <= resumeTransferAtStockOrBelow;
     if (canReceiveSupplyDelivery) {
       const tripProgress = advanceBouncingSupplyTrip({
         previousPhase: tripPhase,
@@ -120,15 +140,23 @@ export function updateDepotSupplyAvailability({
           sourceId !== undefined
             ? Math.max(0, Math.floor(citySupplyBySourceId.get(sourceId) ?? 0))
             : 0;
+        const maxDeliveriesByStockCapacity = Math.max(
+          0,
+          Math.floor(
+            (normalizedDepotSupplyMaxStock - stock) /
+              normalizedDepotSupplyPerDelivery,
+          ),
+        );
         const completedDeliveries = Math.min(
           tripProgress.completedOutboundTrips,
           citySupplyAvailable,
+          maxDeliveriesByStockCapacity,
         );
         if (sourceId !== undefined && completedDeliveries > 0) {
           citySupplyBySourceId.set(sourceId, citySupplyAvailable - completedDeliveries);
         }
         if (completedDeliveries > 0) {
-          stock += completedDeliveries * depotSupplyPerDelivery;
+          stock += completedDeliveries * normalizedDepotSupplyPerDelivery;
         }
       }
     } else {
@@ -148,6 +176,10 @@ export function updateDepotSupplyAvailability({
     depotSupplyPulseElapsedSecondsByCityZoneId.set(cityZoneId, pulseElapsedSeconds);
     depotSupplyTripPhaseByCityZoneId.set(cityZoneId, tripPhase);
     supplyDepotLine.depotSupplyStock = stock;
+    supplyDepotLine.transferActive =
+      supplyDepotLine.connected &&
+      suppliedCityZoneIds.has(cityZoneId) &&
+      stock <= resumeTransferAtStockOrBelow;
 
     if (stock > 0) {
       eligibleDepotCityZoneIds.add(cityZoneId);

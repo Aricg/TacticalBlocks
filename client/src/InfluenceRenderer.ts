@@ -40,6 +40,7 @@ export type CitySupplyDepotLineSnapshot = {
   cityZoneId: string;
   owner: 'BLUE' | 'RED' | 'NEUTRAL';
   connected: boolean;
+  transferActive: boolean;
   cityCol: number;
   cityRow: number;
   depotCol: number;
@@ -108,6 +109,7 @@ type CitySupplyDepotLineRenderState = {
   cityZoneId: string;
   owner: 'BLUE' | 'RED' | 'NEUTRAL';
   connected: boolean;
+  transferActive: boolean;
   oneWayTravelSeconds: number;
   endIndex: number;
   severCell: SupplyLineRenderCell | null;
@@ -426,6 +428,7 @@ export class InfluenceRenderer {
         cityZoneId: supplyDepotLine.cityZoneId,
         owner,
         connected: supplyDepotLine.connected === true,
+        transferActive: supplyDepotLine.transferActive === true,
         cityCol: Number.isFinite(supplyDepotLine.cityCol)
           ? Math.round(supplyDepotLine.cityCol)
           : -1,
@@ -703,6 +706,7 @@ export class InfluenceRenderer {
         cityZoneId: supplyDepotLine.cityZoneId,
         owner: supplyDepotLine.owner,
         connected: supplyDepotLine.connected,
+        transferActive: supplyDepotLine.transferActive,
         oneWayTravelSeconds: supplyDepotLine.oneWayTravelSeconds,
         endIndex,
         severCell,
@@ -767,7 +771,7 @@ export class InfluenceRenderer {
         );
       }
 
-      if (!supplyDepotLine.connected || supplyDepotLine.endIndex < 1) {
+      if (!supplyDepotLine.transferActive || supplyDepotLine.endIndex < 1) {
         continue;
       }
 
