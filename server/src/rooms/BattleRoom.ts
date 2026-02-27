@@ -220,6 +220,7 @@ export class BattleRoom extends Room<BattleState> {
   private mapRevision = 0;
   private isGeneratingMap = false;
   private simulationFrame = 0;
+  private unitSupplyLineRefreshElapsedSeconds = 0;
   private readonly citySupplyTripProgressBySourceId = new Map<
     string,
     number
@@ -2035,8 +2036,27 @@ export class BattleRoom extends Room<BattleState> {
     this.depotSupplyPulseElapsedSecondsByCityZoneId.clear();
     this.depotSupplyTripPhaseByCityZoneId.clear();
     this.depotSupplyOwnerByCityZoneId.clear();
+    this.unitSupplyLineRefreshElapsedSeconds = 0;
     this.supplySourceRetryStateByUnitId.clear();
     this.blockedSupplyEndpointInfluenceTracker.clear();
+  }
+
+  private shouldRefreshUnitSupplyLines(deltaSeconds: number): boolean {
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+      return true;
+    }
+
+    this.unitSupplyLineRefreshElapsedSeconds += deltaSeconds;
+    if (
+      this.unitSupplyLineRefreshElapsedSeconds + Number.EPSILON <
+      BattleRoom.CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS
+    ) {
+      return false;
+    }
+
+    this.unitSupplyLineRefreshElapsedSeconds %=
+      BattleRoom.CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS;
+    return true;
   }
 
   private clearUnits(): void {
@@ -2575,95 +2595,123 @@ export class BattleRoom extends Room<BattleState> {
     });
     this.syncCitySupplyDepotLines(computedCitySupplyDepotLines);
 
-    const suppliedDepotCellKeys = new Set<string>();
-    for (const supplyDepotLine of computedCitySupplyDepotLines) {
-      if (!eligibleDepotCityZoneIds.has(supplyDepotLine.cityZoneId)) {
-        continue;
-      }
-      suppliedDepotCellKeys.add(
-        this.getGridCellKeyFromColRow(
-          supplyDepotLine.depotCol,
-          supplyDepotLine.depotRow,
-        ),
-      );
-    }
-
-    const supplyDepotCellByZoneId = new Map<string, GridCoordinate>();
-    for (const supplyDepotLine of computedCitySupplyDepotLines) {
-      supplyDepotCellByZoneId.set(supplyDepotLine.cityZoneId, {
-        col: supplyDepotLine.depotCol,
-        row: supplyDepotLine.depotRow,
-      });
-    }
-
-    const homeDepotByTeam: Record<PlayerTeam, GridCoordinate> = {
-      RED:
-        supplyDepotCellByZoneId.get(this.cityZoneIdByHomeTeam.RED) ??
-        this.getCityCell("RED"),
-      BLUE:
-        supplyDepotCellByZoneId.get(this.cityZoneIdByHomeTeam.BLUE) ??
-        this.getCityCell("BLUE"),
-    };
-    const neutralDepotCells = this.neutralCityCells.map((cityCell, index) =>
-      supplyDepotCellByZoneId.get(this.neutralCityZoneIds[index] ?? `neutral-${index}`) ??
-      {
-        col: cityCell.col,
-        row: cityCell.row,
-      });
-
-    const { supplyLinesByUnitId: computedSupplyLines, retryStateByUnitId } =
-      computeSupplyLinesForUnits({
-        units: this.state.units.values(),
-        worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
-        getTeamCityCell: (team) => homeDepotByTeam[team],
-        redCityOwner: this.state.redCityOwner,
-        blueCityOwner: this.state.blueCityOwner,
-        neutralCityOwners: this.state.neutralCityOwners,
-        neutralCityCells: neutralDepotCells,
-        getInfluenceScoreAtCell: (col, row) =>
-          this.getSupplyEvaluationInfluenceScoreAtCell(col, row),
-        isCellImpassable: (cell) => this.isCellImpassable(cell),
-        enemyInfluenceSeverThreshold:
-          GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
-        isCitySupplySourceEligible: (_team, cityCell) =>
-          suppliedDepotCellKeys.has(
-            this.getGridCellKeyFromColRow(cityCell.col, cityCell.row),
+    if (this.shouldRefreshUnitSupplyLines(deltaSeconds)) {
+      const suppliedDepotCellKeys = new Set<string>();
+      for (const supplyDepotLine of computedCitySupplyDepotLines) {
+        if (!eligibleDepotCityZoneIds.has(supplyDepotLine.cityZoneId)) {
+          continue;
+        }
+        suppliedDepotCellKeys.add(
+          this.getGridCellKeyFromColRow(
+            supplyDepotLine.depotCol,
+            supplyDepotLine.depotRow,
           ),
-        previousRetryStateByUnitId: this.supplySourceRetryStateByUnitId,
-        blockedSourceRetryIntervalMs:
-          BattleRoom.SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS,
-        nowMs: Date.now(),
-      });
-    this.supplySourceRetryStateByUnitId.clear();
-    for (const [unitId, retryState] of retryStateByUnitId) {
-      this.supplySourceRetryStateByUnitId.set(unitId, retryState);
-    }
-
-    for (const [unitId, supplyLine] of computedSupplyLines) {
-      const nextSignature = this.buildSupplyLineSignature(supplyLine);
-      const previousSignature = this.supplySignatureByUnitId.get(unitId);
-      if (previousSignature === nextSignature) {
-        continue;
+        );
       }
 
-      this.supplySignatureByUnitId.set(unitId, nextSignature);
-      const existingState = this.state.supplyLines.get(unitId);
-      if (!existingState) {
-        this.state.supplyLines.set(unitId, this.createSupplyLineState(supplyLine));
-        continue;
+      const supplyDepotCellByZoneId = new Map<string, GridCoordinate>();
+      for (const supplyDepotLine of computedCitySupplyDepotLines) {
+        supplyDepotCellByZoneId.set(supplyDepotLine.cityZoneId, {
+          col: supplyDepotLine.depotCol,
+          row: supplyDepotLine.depotRow,
+        });
       }
 
-      existingState.unitId = supplyLine.unitId;
-      existingState.team = supplyLine.team;
-      existingState.connected = supplyLine.connected;
-      existingState.sourceCol = supplyLine.sourceCol;
-      existingState.sourceRow = supplyLine.sourceRow;
-      existingState.severIndex = supplyLine.severIndex;
-      while (existingState.path.length > 0) {
-        existingState.path.pop();
+      const homeDepotByTeam: Record<PlayerTeam, GridCoordinate> = {
+        RED:
+          supplyDepotCellByZoneId.get(this.cityZoneIdByHomeTeam.RED) ??
+          this.getCityCell("RED"),
+        BLUE:
+          supplyDepotCellByZoneId.get(this.cityZoneIdByHomeTeam.BLUE) ??
+          this.getCityCell("BLUE"),
+      };
+      const neutralDepotCells = this.neutralCityCells.map((cityCell, index) =>
+        supplyDepotCellByZoneId.get(this.neutralCityZoneIds[index] ?? `neutral-${index}`) ??
+        {
+          col: cityCell.col,
+          row: cityCell.row,
+        });
+
+      const { supplyLinesByUnitId: computedSupplyLines, retryStateByUnitId } =
+        computeSupplyLinesForUnits({
+          units: this.state.units.values(),
+          worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
+          getTeamCityCell: (team) => homeDepotByTeam[team],
+          redCityOwner: this.state.redCityOwner,
+          blueCityOwner: this.state.blueCityOwner,
+          neutralCityOwners: this.state.neutralCityOwners,
+          neutralCityCells: neutralDepotCells,
+          getInfluenceScoreAtCell: (col, row) =>
+            this.getSupplyEvaluationInfluenceScoreAtCell(col, row),
+          isCellImpassable: (cell) => this.isCellImpassable(cell),
+          enemyInfluenceSeverThreshold:
+            GAMEPLAY_CONFIG.supply.enemyInfluenceSeverThreshold,
+          isCitySupplySourceEligible: (_team, cityCell) =>
+            suppliedDepotCellKeys.has(
+              this.getGridCellKeyFromColRow(cityCell.col, cityCell.row),
+            ),
+          previousRetryStateByUnitId: this.supplySourceRetryStateByUnitId,
+          blockedSourceRetryIntervalMs:
+            BattleRoom.SUPPLY_BLOCKED_SOURCE_RETRY_INTERVAL_MS,
+          nowMs: Date.now(),
+        });
+      this.supplySourceRetryStateByUnitId.clear();
+      for (const [unitId, retryState] of retryStateByUnitId) {
+        this.supplySourceRetryStateByUnitId.set(unitId, retryState);
       }
-      for (const cell of supplyLine.path) {
-        existingState.path.push(new GridCellState(cell.col, cell.row));
+
+      for (const [unitId, supplyLine] of computedSupplyLines) {
+        const nextSignature = this.buildSupplyLineSignature(supplyLine);
+        const previousSignature = this.supplySignatureByUnitId.get(unitId);
+        if (previousSignature === nextSignature) {
+          continue;
+        }
+
+        this.supplySignatureByUnitId.set(unitId, nextSignature);
+        const existingState = this.state.supplyLines.get(unitId);
+        if (!existingState) {
+          this.state.supplyLines.set(unitId, this.createSupplyLineState(supplyLine));
+          continue;
+        }
+
+        existingState.unitId = supplyLine.unitId;
+        existingState.team = supplyLine.team;
+        existingState.connected = supplyLine.connected;
+        existingState.sourceCol = supplyLine.sourceCol;
+        existingState.sourceRow = supplyLine.sourceRow;
+        existingState.severIndex = supplyLine.severIndex;
+        while (existingState.path.length > 0) {
+          existingState.path.pop();
+        }
+        for (const cell of supplyLine.path) {
+          existingState.path.push(new GridCellState(cell.col, cell.row));
+        }
+      }
+
+      const activeSupplyUnitIds = new Set(computedSupplyLines.keys());
+      for (const unitId of Array.from(this.state.supplyLines.keys())) {
+        if (activeSupplyUnitIds.has(unitId)) {
+          continue;
+        }
+        this.state.supplyLines.delete(unitId);
+        this.supplySignatureByUnitId.delete(unitId);
+        this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
+      }
+
+      for (const unitId of Array.from(this.supplySignatureByUnitId.keys())) {
+        if (activeSupplyUnitIds.has(unitId)) {
+          continue;
+        }
+        this.supplySignatureByUnitId.delete(unitId);
+        this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
+      }
+
+      for (const unitId of Array.from(this.supplySourceRetryStateByUnitId.keys())) {
+        if (activeSupplyUnitIds.has(unitId)) {
+          continue;
+        }
+        this.supplySourceRetryStateByUnitId.delete(unitId);
+        this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
       }
     }
 
@@ -2700,32 +2748,6 @@ export class BattleRoom extends Room<BattleState> {
       for (const cell of supplyLine.path) {
         existingState.path.push(new GridCellState(cell.col, cell.row));
       }
-    }
-
-    const activeSupplyUnitIds = new Set(computedSupplyLines.keys());
-    for (const unitId of Array.from(this.state.supplyLines.keys())) {
-      if (activeSupplyUnitIds.has(unitId)) {
-        continue;
-      }
-      this.state.supplyLines.delete(unitId);
-      this.supplySignatureByUnitId.delete(unitId);
-      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
-    }
-
-    for (const unitId of Array.from(this.supplySignatureByUnitId.keys())) {
-      if (activeSupplyUnitIds.has(unitId)) {
-        continue;
-      }
-      this.supplySignatureByUnitId.delete(unitId);
-      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
-    }
-
-    for (const unitId of Array.from(this.supplySourceRetryStateByUnitId.keys())) {
-      if (activeSupplyUnitIds.has(unitId)) {
-        continue;
-      }
-      this.supplySourceRetryStateByUnitId.delete(unitId);
-      this.blockedSupplyEndpointInfluenceTracker.deleteUnit(unitId);
     }
 
     const activeFarmCityLinkIds = new Set(
