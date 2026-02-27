@@ -1,4 +1,5 @@
 import { ArraySchema, MapSchema, Schema, type } from "@colyseus/schema";
+import { CitySupplyDepotLineState } from "./CitySupplyDepotLineState.js";
 import { FarmCitySupplyLineState } from "./FarmCitySupplyLineState.js";
 import { InfluenceGridState } from "./InfluenceGridState.js";
 import { SupplyLineState } from "./SupplyLineState.js";
@@ -10,6 +11,8 @@ export class BattleState extends Schema {
   @type({ map: SupplyLineState }) supplyLines = new MapSchema<SupplyLineState>();
   @type({ map: FarmCitySupplyLineState })
   farmCitySupplyLines = new MapSchema<FarmCitySupplyLineState>();
+  @type({ map: CitySupplyDepotLineState })
+  citySupplyDepotLines = new MapSchema<CitySupplyDepotLineState>();
   @type({ map: "number" }) citySupplyBySourceId = new MapSchema<number>();
   @type(InfluenceGridState) influenceGrid = new InfluenceGridState();
   @type("number") simulationFrame = 0;

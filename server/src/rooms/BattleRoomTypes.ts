@@ -18,6 +18,7 @@ export type {
   MovementCommandModeInput,
   PlayerTeam,
   RuntimeTuningUpdateMessage,
+  CitySupplyDepotMoveMessage,
   UnitCancelMovementMessage,
   UnitToggleMovementPauseMessage,
   UnitPathMessage,

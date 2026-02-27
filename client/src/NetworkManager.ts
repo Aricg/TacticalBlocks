@@ -1,5 +1,6 @@
 import { Client, Room, getStateCallbacks } from 'colyseus.js';
 import {
+  type CitySupplyDepotMoveMessage,
   NETWORK_MESSAGE_TYPES,
   type BattleEndedMessage,
   type LobbyGenerateMapMessage,
@@ -100,10 +101,23 @@ type ServerFarmCitySupplyLineState = {
   path: ArrayLike<ServerGridCellState>;
 };
 
+type ServerCitySupplyDepotLineState = {
+  cityZoneId: string;
+  owner: string;
+  connected: boolean;
+  cityCol: number;
+  cityRow: number;
+  depotCol: number;
+  depotRow: number;
+  severIndex: number;
+  path: ArrayLike<ServerGridCellState>;
+};
+
 type BattleRoomState = {
   units: unknown;
   supplyLines: unknown;
   farmCitySupplyLines: unknown;
+  citySupplyDepotLines: unknown;
   citySupplyBySourceId: unknown;
   influenceGrid: ServerInfluenceGridState;
   simulationFrame: number;
@@ -201,6 +215,18 @@ export type NetworkFarmCitySupplyLineUpdate = {
   path: NetworkSupplyLinePathCell[];
 };
 
+export type NetworkCitySupplyDepotLineUpdate = {
+  cityZoneId: string;
+  owner: 'BLUE' | 'RED' | 'NEUTRAL';
+  connected: boolean;
+  cityCol: number;
+  cityRow: number;
+  depotCol: number;
+  depotRow: number;
+  severIndex: number;
+  path: NetworkSupplyLinePathCell[];
+};
+
 export type NetworkMatchPhase = MatchPhase;
 
 export type NetworkLobbyPlayer = {
@@ -269,6 +295,10 @@ type FarmCitySupplyLineChangedHandler = (
   supplyLineUpdate: NetworkFarmCitySupplyLineUpdate,
 ) => void;
 type FarmCitySupplyLineRemovedHandler = (linkId: string) => void;
+type CitySupplyDepotLineChangedHandler = (
+  supplyDepotLineUpdate: NetworkCitySupplyDepotLineUpdate,
+) => void;
+type CitySupplyDepotLineRemovedHandler = (cityZoneId: string) => void;
 type RuntimeTuningChangedHandler = (
   runtimeTuning: RuntimeTuningSnapshotMessage,
 ) => void;
@@ -315,6 +345,8 @@ export class NetworkManager {
     private readonly onSupplyLineRemoved: SupplyLineRemovedHandler,
     private readonly onFarmCitySupplyLineChanged: FarmCitySupplyLineChangedHandler,
     private readonly onFarmCitySupplyLineRemoved: FarmCitySupplyLineRemovedHandler,
+    private readonly onCitySupplyDepotLineChanged: CitySupplyDepotLineChangedHandler,
+    private readonly onCitySupplyDepotLineRemoved: CitySupplyDepotLineRemovedHandler,
     private readonly onRuntimeTuningChanged: RuntimeTuningChangedHandler,
     endpoint = resolveServerEndpoint(),
     roomName = 'battle',
@@ -698,6 +730,102 @@ export class NetworkManager {
         },
       );
 
+      const citySupplyDepotLineListenerDetachersByZoneId = new Map<
+        string,
+        Array<() => void>
+      >();
+      const detachCitySupplyDepotLineListeners = (cityZoneId: string) => {
+        const listeners =
+          citySupplyDepotLineListenerDetachersByZoneId.get(cityZoneId);
+        if (!listeners) {
+          return;
+        }
+        for (const detach of listeners) {
+          detach();
+        }
+        citySupplyDepotLineListenerDetachersByZoneId.delete(cityZoneId);
+      };
+      const attachCitySupplyDepotLineListeners = (
+        serverDepotLine: ServerCitySupplyDepotLineState,
+        zoneKey: string,
+      ) => {
+        const normalized = this.normalizeCitySupplyDepotLineUpdate(
+          serverDepotLine,
+          zoneKey,
+        );
+        if (!normalized) {
+          return;
+        }
+
+        detachCitySupplyDepotLineListeners(normalized.cityZoneId);
+
+        let flushQueued = false;
+        const queueDepotLineUpdate = () => {
+          if (flushQueued) {
+            return;
+          }
+          flushQueued = true;
+          NetworkManager.queuePositionFlush(() => {
+            flushQueued = false;
+            const latest = this.normalizeCitySupplyDepotLineUpdate(
+              serverDepotLine,
+              zoneKey,
+            );
+            if (!latest) {
+              return;
+            }
+            this.onCitySupplyDepotLineChanged(latest);
+          });
+        };
+
+        this.onCitySupplyDepotLineChanged(normalized);
+        const detachers: Array<() => void> = [
+          $(serverDepotLine).listen('owner', queueDepotLineUpdate),
+          $(serverDepotLine).listen('connected', queueDepotLineUpdate),
+          $(serverDepotLine).listen('cityCol', queueDepotLineUpdate),
+          $(serverDepotLine).listen('cityRow', queueDepotLineUpdate),
+          $(serverDepotLine).listen('depotCol', queueDepotLineUpdate),
+          $(serverDepotLine).listen('depotRow', queueDepotLineUpdate),
+          $(serverDepotLine).listen('severIndex', queueDepotLineUpdate),
+          $(serverDepotLine).path.onChange(() => {
+            queueDepotLineUpdate();
+          }),
+        ];
+        citySupplyDepotLineListenerDetachersByZoneId.set(
+          normalized.cityZoneId,
+          detachers,
+        );
+      };
+      const detachCitySupplyDepotLineAdd = $(state).citySupplyDepotLines.onAdd(
+        (serverDepotLine: ServerCitySupplyDepotLineState, zoneKey: string) => {
+          attachCitySupplyDepotLineListeners(serverDepotLine, zoneKey);
+        },
+        true,
+      );
+      const detachCitySupplyDepotLineRemove = $(state).citySupplyDepotLines.onRemove(
+        (serverDepotLine: ServerCitySupplyDepotLineState, zoneKey: string) => {
+          const normalized = this.normalizeCitySupplyDepotLineUpdate(
+            serverDepotLine,
+            zoneKey,
+          );
+          const cityZoneId = normalized?.cityZoneId ?? zoneKey;
+          if (cityZoneId.length === 0) {
+            return;
+          }
+          detachCitySupplyDepotLineListeners(cityZoneId);
+          this.onCitySupplyDepotLineRemoved(cityZoneId);
+        },
+      );
+      this.detachCallbacks.push(
+        detachCitySupplyDepotLineAdd,
+        detachCitySupplyDepotLineRemove,
+        () => {
+          for (const cityZoneId of citySupplyDepotLineListenerDetachersByZoneId.keys()) {
+            detachCitySupplyDepotLineListeners(cityZoneId);
+          }
+        },
+      );
+
       const detachUnitAdd = $(state).units.onAdd(
         (serverUnit: ServerUnitState, unitKey: string) => {
           const unitId = serverUnit.unitId || unitKey;
@@ -823,6 +951,14 @@ export class NetworkManager {
 
     const message: UnitToggleMovementPauseMessage = { unitId };
     this.room.send(NETWORK_MESSAGE_TYPES.unitToggleMovementPause, message);
+  }
+
+  public sendCitySupplyDepotMove(message: CitySupplyDepotMoveMessage): void {
+    if (!this.room) {
+      return;
+    }
+
+    this.room.send(NETWORK_MESSAGE_TYPES.citySupplyDepotMove, message);
   }
 
   public sendRuntimeTuningUpdate(update: RuntimeTuningUpdateMessage): void {
@@ -1156,6 +1292,60 @@ export class NetworkManager {
       team: normalizedTeam,
       connected: serverSupplyLine?.connected === true,
       severIndex: safeInteger(serverSupplyLine?.severIndex),
+      path: normalizedPath,
+    };
+  }
+
+  private normalizeCitySupplyDepotLineUpdate(
+    serverSupplyDepotLine: ServerCitySupplyDepotLineState,
+    zoneKey: string,
+  ): NetworkCitySupplyDepotLineUpdate | null {
+    const cityZoneId =
+      typeof serverSupplyDepotLine?.cityZoneId === 'string' &&
+      serverSupplyDepotLine.cityZoneId.length > 0
+        ? serverSupplyDepotLine.cityZoneId
+        : zoneKey;
+    if (cityZoneId.length === 0) {
+      return null;
+    }
+
+    const normalizeOwner = (ownerValue: string | undefined): 'BLUE' | 'RED' | 'NEUTRAL' => {
+      if (ownerValue?.toUpperCase() === 'RED') {
+        return 'RED';
+      }
+      if (ownerValue?.toUpperCase() === 'BLUE') {
+        return 'BLUE';
+      }
+      return 'NEUTRAL';
+    };
+    const safeInteger = (
+      value: number | null | undefined,
+      fallback = -1,
+    ): number =>
+      typeof value === 'number' && Number.isFinite(value)
+        ? Math.round(value)
+        : fallback;
+
+    const normalizedPath = Array.from(serverSupplyDepotLine?.path ?? [])
+      .map((cell) => {
+        const col = safeInteger(cell?.col, Number.NaN);
+        const row = safeInteger(cell?.row, Number.NaN);
+        if (!Number.isFinite(col) || !Number.isFinite(row)) {
+          return null;
+        }
+        return { col, row };
+      })
+      .filter((cell): cell is NetworkSupplyLinePathCell => cell !== null);
+
+    return {
+      cityZoneId,
+      owner: normalizeOwner(serverSupplyDepotLine?.owner),
+      connected: serverSupplyDepotLine?.connected === true,
+      cityCol: safeInteger(serverSupplyDepotLine?.cityCol),
+      cityRow: safeInteger(serverSupplyDepotLine?.cityRow),
+      depotCol: safeInteger(serverSupplyDepotLine?.depotCol),
+      depotRow: safeInteger(serverSupplyDepotLine?.depotRow),
+      severIndex: safeInteger(serverSupplyDepotLine?.severIndex),
       path: normalizedPath,
     };
   }

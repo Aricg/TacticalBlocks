@@ -54,6 +54,7 @@ type BattleInputCallbacks = {
   buildCommandPath: (path: Phaser.Math.Vector2[]) => Phaser.Math.Vector2[];
   cancelSelectedUnitMovement: () => void;
   engageSelectedUnitMovement: () => void;
+  isPointerInputBlocked?: () => boolean;
   isShiftHeld: (pointer: Phaser.Input.Pointer) => boolean;
   clearAllQueuedMovement: () => void;
 };
@@ -148,6 +149,9 @@ export class BattleInputController {
     if (!this.callbacks.isBattleActive()) {
       return;
     }
+    if (this.callbacks.isPointerInputBlocked?.()) {
+      return;
+    }
 
     if (pointer.button === 2) {
       if (this.callbacks.hasSelectedUnits()) {
@@ -168,6 +172,9 @@ export class BattleInputController {
 
   private readonly handlePointerMove = (pointer: Phaser.Input.Pointer): void => {
     if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    if (this.callbacks.isPointerInputBlocked?.()) {
       return;
     }
 
@@ -241,6 +248,9 @@ export class BattleInputController {
 
   private readonly handlePointerUp = (pointer: Phaser.Input.Pointer): void => {
     if (!this.callbacks.isBattleActive()) {
+      return;
+    }
+    if (this.callbacks.isPointerInputBlocked?.()) {
       return;
     }
 

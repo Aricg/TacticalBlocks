@@ -6,6 +6,7 @@ export const NETWORK_MESSAGE_TYPES = {
   unitPathState: 'unitPathState',
   unitCancelMovement: 'unitCancelMovement',
   unitToggleMovementPause: 'unitToggleMovementPause',
+  citySupplyDepotMove: 'citySupplyDepotMove',
   runtimeTuningUpdate: 'runtimeTuningUpdate',
   lobbyReady: 'lobbyReady',
   lobbySelectMap: 'lobbySelectMap',
@@ -55,6 +56,12 @@ export type UnitCancelMovementMessage = {
 
 export type UnitToggleMovementPauseMessage = {
   unitId: string;
+};
+
+export type CitySupplyDepotMoveMessage = {
+  cityZoneId: string;
+  col: number;
+  row: number;
 };
 
 export type RuntimeTuningSnapshotMessage = RuntimeTuning;
