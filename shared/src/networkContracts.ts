@@ -6,7 +6,6 @@ export const NETWORK_MESSAGE_TYPES = {
   unitPathState: 'unitPathState',
   unitCancelMovement: 'unitCancelMovement',
   unitToggleMovementPause: 'unitToggleMovementPause',
-  unitHoldMovement: 'unitHoldMovement',
   runtimeTuningUpdate: 'runtimeTuningUpdate',
   lobbyReady: 'lobbyReady',
   lobbySelectMap: 'lobbySelectMap',
@@ -55,10 +54,6 @@ export type UnitCancelMovementMessage = {
 };
 
 export type UnitToggleMovementPauseMessage = {
-  unitId: string;
-};
-
-export type UnitHoldMovementMessage = {
   unitId: string;
 };
 

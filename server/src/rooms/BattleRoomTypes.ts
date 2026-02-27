@@ -19,7 +19,6 @@ export type {
   PlayerTeam,
   RuntimeTuningUpdateMessage,
   UnitCancelMovementMessage,
-  UnitHoldMovementMessage,
   UnitToggleMovementPauseMessage,
   UnitPathMessage,
   UnitPathStateMessage,

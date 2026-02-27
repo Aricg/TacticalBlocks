@@ -39,7 +39,6 @@ import {
   normalizePathWaypoints,
 } from "../systems/movement/MovementCommandRouter.js";
 import {
-  isMoraleSafeStep,
   simulateMovementTick,
 } from "../systems/movement/MovementSimulation.js";
 import {
@@ -110,7 +109,6 @@ import type {
   PlayerTeam,
   RuntimeTuningUpdateMessage,
   UnitCancelMovementMessage,
-  UnitHoldMovementMessage,
   UnitToggleMovementPauseMessage,
   UnitMovementState,
   UnitPathMessage,
@@ -370,12 +368,6 @@ export class BattleRoom extends Room<BattleState> {
       NETWORK_MESSAGE_TYPES.unitToggleMovementPause,
       (client, message: UnitToggleMovementPauseMessage) => {
         this.handleUnitToggleMovementPauseMessage(client, message);
-      },
-    );
-    this.onMessage(
-      NETWORK_MESSAGE_TYPES.unitHoldMovement,
-      (client, message: UnitHoldMovementMessage) => {
-        this.handleUnitHoldMovementMessage(client, message);
       },
     );
     this.onMessage(
@@ -2015,44 +2007,6 @@ export class BattleRoom extends Room<BattleState> {
     this.syncUnitPathState(unit.unitId);
   }
 
-  private handleUnitHoldMovementMessage(
-    client: Client,
-    message: UnitHoldMovementMessage,
-  ): void {
-    if (this.matchPhase !== "BATTLE") {
-      return;
-    }
-
-    const assignedTeam = this.lobbyService.getAssignedTeam(client.sessionId);
-    if (!assignedTeam) {
-      return;
-    }
-
-    if (typeof message?.unitId !== "string") {
-      return;
-    }
-
-    const unit = this.state.units.get(message.unitId);
-    if (!unit) {
-      return;
-    }
-
-    if (unit.team.toUpperCase() !== assignedTeam) {
-      return;
-    }
-
-    const movementState = this.getOrCreateMovementState(unit.unitId);
-    movementState.isPaused = !movementState.isPaused;
-    if (movementState.isPaused) {
-      movementState.movementBudget = 0;
-      movementState.targetRotation = null;
-      movementState.blockedByUnitId = null;
-      movementState.blockedTicks = 0;
-    }
-
-    this.syncUnitPathState(unit.unitId);
-  }
-
   private updateMovement(deltaSeconds: number): void {
     simulateMovementTick({
       deltaSeconds,
@@ -2379,8 +2333,6 @@ export class BattleRoom extends Room<BattleState> {
       );
     };
 
-    this.applyCornerAttractionTowardDiagonalEnemies();
-
     const engagements = updateUnitInteractionsSystem({
       deltaSeconds,
       unitsById: this.state.units,
@@ -2437,106 +2389,6 @@ export class BattleRoom extends Room<BattleState> {
     }
 
     return engagements;
-  }
-
-  private applyCornerAttractionTowardDiagonalEnemies(): void {
-    const liveUnits = Array.from(this.state.units.values()).filter((unit) => unit.health > 0);
-    if (liveUnits.length <= 1) {
-      return;
-    }
-
-    const unitCellByUnitId = new Map<string, GridCoordinate>();
-    const occupiedCellIndexes = new Set<number>();
-    for (const unit of liveUnits) {
-      const cell = this.worldToGridCoordinate(unit.x, unit.y);
-      unitCellByUnitId.set(unit.unitId, cell);
-      occupiedCellIndexes.add(this.getGridCellIndex(cell.col, cell.row));
-    }
-
-    const assignAdvanceCellTowardDiagonalEnemy = (unit: Unit, enemy: Unit): void => {
-      if (unit.team === enemy.team || this.engagedUnitIds.has(unit.unitId)) {
-        return;
-      }
-
-      const movementState = this.getOrCreateMovementState(unit.unitId);
-      if (
-        movementState.isPaused ||
-        movementState.destinationCell !== null ||
-        movementState.queuedCells.length > 0
-      ) {
-        return;
-      }
-
-      const unitCell = unitCellByUnitId.get(unit.unitId);
-      const enemyCell = unitCellByUnitId.get(enemy.unitId);
-      if (!unitCell || !enemyCell) {
-        return;
-      }
-
-      const colDelta = enemyCell.col - unitCell.col;
-      const rowDelta = enemyCell.row - unitCell.row;
-      if (Math.abs(colDelta) !== 1 || Math.abs(rowDelta) !== 1) {
-        return;
-      }
-
-      const colStep = Math.sign(colDelta);
-      const rowStep = Math.sign(rowDelta);
-      const candidateAdvanceCells: GridCoordinate[] = [
-        { col: unitCell.col + colStep, row: unitCell.row },
-        { col: unitCell.col, row: unitCell.row + rowStep },
-      ];
-      const unitTeam = this.normalizeTeam(unit.team);
-
-      for (const candidateCell of candidateAdvanceCells) {
-        if (this.isCellImpassable(candidateCell)) {
-          continue;
-        }
-        if (
-          !isMoraleSafeStep({
-            currentCell: unitCell,
-            destinationCell: candidateCell,
-            getTerrainMoraleBonusAtCell: (cell) =>
-              this.getTerrainMoraleBonusAtCell(cell),
-            getHillGradeAtCell: (cell) => this.getHillGradeAtCell(cell),
-            getCityMoraleBonusAtCell: (cell) =>
-              this.getCityMoraleBonusAtCell(cell, unitTeam),
-          })
-        ) {
-          continue;
-        }
-        const candidateIndex = this.getGridCellIndex(
-          candidateCell.col,
-          candidateCell.row,
-        );
-        if (occupiedCellIndexes.has(candidateIndex)) {
-          continue;
-        }
-
-        movementState.destinationCell = candidateCell;
-        movementState.queuedCells = [];
-        movementState.targetRotation = null;
-        movementState.movementCommandMode = {
-          ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE,
-        };
-        movementState.movementBudget = 0;
-        movementState.blockedByUnitId = null;
-        movementState.blockedTicks = 0;
-        occupiedCellIndexes.add(candidateIndex);
-        return;
-      }
-    };
-
-    for (let i = 0; i < liveUnits.length; i += 1) {
-      const a = liveUnits[i];
-      for (let j = i + 1; j < liveUnits.length; j += 1) {
-        const b = liveUnits[j];
-        if (a.team === b.team) {
-          continue;
-        }
-        assignAdvanceCellTowardDiagonalEnemy(a, b);
-        assignAdvanceCellTowardDiagonalEnemy(b, a);
-      }
-    }
   }
 
   private updateUnitMoraleScoresStepped(

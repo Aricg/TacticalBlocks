@@ -641,7 +641,6 @@ class BattleScene extends Phaser.Scene {
           this.buildCommandPath(path),
         cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
         engageSelectedUnitMovement: () => this.engageSelectedUnitMovement(),
-        holdSelectedUnitMovement: () => this.holdSelectedUnitMovement(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
         clearAllQueuedMovement: () => this.clearAllQueuedMovement(),
       },
@@ -2788,19 +2787,6 @@ class BattleScene extends Phaser.Scene {
         continue;
       }
       this.networkManager.sendUnitToggleMovementPause(unitId);
-    }
-  }
-
-  private holdSelectedUnitMovement(): void {
-    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !this.networkManager) {
-      return;
-    }
-
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
-      this.networkManager.sendUnitHoldMovement(unitId);
     }
   }
 

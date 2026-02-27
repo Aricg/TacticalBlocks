@@ -47,10 +47,6 @@ const CONTROL_SECTIONS: ControlSection[] = [
           'Send staged movement for selected units, or toggle pause if no staged path.',
       },
       {
-        input: 'H',
-        effect: 'Toggle hold for selected units (red border when held).',
-      },
-      {
         input: 'Esc',
         effect: 'Cancel all queued movement for your team.',
       },
