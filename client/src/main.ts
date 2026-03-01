@@ -37,8 +37,6 @@ import {
 import {
   HILL_GRADE_NONE,
   TERRAIN_SWATCHES,
-  getHillGradeFromElevationByte,
-  normalizeHillGrade,
   getSlopeMoraleDeltaFromHillGrades,
   getTerrainTypeFromCode,
 } from '../../shared/src/terrainSemantics.js';
@@ -74,6 +72,19 @@ import { PathPreviewRenderer } from './PathPreviewRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
 import { ControlsOverlay } from './ControlsOverlay';
+import {
+  getTextureKeyForMapId,
+  resolveInitialMapId,
+  resolveMapImageById,
+  resolveRuntimeMapGridSidecarCandidatesById,
+  resolveRuntimeMapImageCandidatesById,
+  resolveServerEndpoint,
+} from './MapAssetResolver';
+import {
+  getGridCellKey,
+  parseRuntimeMapGridSidecarPayload,
+  type RuntimeMapCityZone,
+} from './RuntimeMapSidecar';
 import {
   buildGridRouteFromWorldPath,
   buildMovementCommandMode,
@@ -118,157 +129,6 @@ type RemoteUnitRenderState = {
   durationMs: number;
   pendingRotation: number | null;
 };
-
-type RuntimeMapGridSidecar = {
-  terrainCodeGrid: string;
-  hillGradeGrid: Int8Array;
-  cityZones: RuntimeMapCityZone[];
-};
-
-type RuntimeMapCityZone = {
-  homeTeam: Team | 'NEUTRAL';
-  anchor: GridCoordinate;
-  cellSet: Set<string>;
-};
-
-const getNonEmptyString = (value: unknown): string | null => {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const trimmedValue = value.trim();
-  return trimmedValue.length > 0 ? trimmedValue : null;
-};
-
-const DEFAULT_SERVER_HOST = 'localhost';
-const DEFAULT_SERVER_PORT = 2567;
-
-const parseConfiguredPort = (configuredPort: unknown): number => {
-  const configuredPortValue = getNonEmptyString(configuredPort);
-  if (!configuredPortValue) {
-    return DEFAULT_SERVER_PORT;
-  }
-  const parsedPort = Number.parseInt(configuredPortValue, 10);
-  if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
-    return DEFAULT_SERVER_PORT;
-  }
-  return parsedPort;
-};
-
-const resolveServerEndpoint = (): string => {
-  const explicitEndpoint = getNonEmptyString(import.meta.env.VITE_SERVER_ENDPOINT);
-  if (explicitEndpoint) {
-    return explicitEndpoint;
-  }
-  const host = getNonEmptyString(import.meta.env.VITE_SERVER_HOST)
-    ?? DEFAULT_SERVER_HOST;
-  const port = parseConfiguredPort(import.meta.env.VITE_SERVER_PORT);
-  return `ws://${host}:${port}`;
-};
-
-const normalizeMapImageBaseUrl = (baseUrl: string): string =>
-  baseUrl.replace(/\/+$/, '');
-
-const resolveDefaultMapImageBaseUrl = (): string => {
-  const pathname =
-    typeof window !== 'undefined' ? window.location.pathname : '';
-  if (
-    pathname === '/tacticalblocks'
-    || pathname.startsWith('/tacticalblocks/')
-  ) {
-    return '/tacticalblocks/maps';
-  }
-  return '/maps';
-};
-
-const MAP_IMAGE_BASE_URL = normalizeMapImageBaseUrl(
-  getNonEmptyString(import.meta.env.VITE_MAP_IMAGE_BASE_URL)
-    ?? resolveDefaultMapImageBaseUrl(),
-);
-
-function resolveBackendMapImageBaseUrls(): string[] {
-  const endpoint = resolveServerEndpoint();
-  let parsedEndpoint: URL;
-  try {
-    parsedEndpoint = new URL(endpoint);
-  } catch {
-    return [];
-  }
-
-  const httpProtocol =
-    parsedEndpoint.protocol === 'wss:' ? 'https:' : 'http:';
-  const basePath = parsedEndpoint.pathname.replace(/\/+$/, '');
-  const origin = `${httpProtocol}//${parsedEndpoint.host}`;
-  const candidates: string[] = [];
-
-  if (basePath.length > 0) {
-    candidates.push(`${origin}${basePath}/maps`);
-    if (basePath.endsWith('/ws')) {
-      const withoutWs = basePath.slice(0, -3);
-      candidates.push(`${origin}${withoutWs}/maps`);
-    }
-  } else {
-    candidates.push(`${origin}/maps`);
-  }
-
-  return candidates.map((value) => normalizeMapImageBaseUrl(value));
-}
-
-const BACKEND_MAP_IMAGE_BASE_URLS = resolveBackendMapImageBaseUrls();
-
-function getTextureKeyForMapId(mapId: string): string {
-  return `battle-map-${mapId}`;
-}
-
-function resolveRuntimeMapImageCandidatesById(mapId: string): string[] {
-  const normalizedMapId = mapId.trim();
-  if (normalizedMapId.length === 0) {
-    return [];
-  }
-
-  const mapFileName = `${encodeURIComponent(normalizedMapId)}-16c.png`;
-  const candidateBaseUrls = [MAP_IMAGE_BASE_URL, ...BACKEND_MAP_IMAGE_BASE_URLS];
-  const uniqueCandidates = new Set<string>();
-  for (const baseUrl of candidateBaseUrls) {
-    uniqueCandidates.add(`${baseUrl}/${mapFileName}`);
-  }
-  return Array.from(uniqueCandidates);
-}
-
-function resolveRuntimeMapGridSidecarCandidatesById(mapId: string): string[] {
-  const normalizedMapId = mapId.trim();
-  if (normalizedMapId.length === 0) {
-    return [];
-  }
-
-  const mapFileName = `${encodeURIComponent(normalizedMapId)}.elevation-grid.json`;
-  const candidateBaseUrls = [MAP_IMAGE_BASE_URL, ...BACKEND_MAP_IMAGE_BASE_URLS];
-  const uniqueCandidates = new Set<string>();
-  for (const baseUrl of candidateBaseUrls) {
-    uniqueCandidates.add(`${baseUrl}/${mapFileName}`);
-  }
-  return Array.from(uniqueCandidates);
-}
-
-function resolveMapImageById(mapId: string): string | undefined {
-  const candidates = resolveRuntimeMapImageCandidatesById(mapId);
-  return candidates[0];
-}
-
-function resolveInitialMapId(): string {
-  const configuredMapId = GAMEPLAY_CONFIG.map.activeMapId;
-  if (configuredMapId.trim().length > 0) {
-    return configuredMapId;
-  }
-
-  const fallbackFromConfig = GAMEPLAY_CONFIG.map.availableMapIds.find((mapId) =>
-    mapId.trim().length > 0,
-  );
-  if (fallbackFromConfig) {
-    return fallbackFromConfig;
-  }
-
-  throw new Error('No valid map IDs were configured.');
-}
 
 class BattleScene extends Phaser.Scene {
   private static readonly TERRAIN_BY_COLOR = new Map<number, TerrainType>(
@@ -1193,7 +1053,10 @@ class BattleScene extends Phaser.Scene {
           }
 
           const payload = (await response.json()) as unknown;
-          const sidecar = this.parseRuntimeMapGridSidecarPayload(payload);
+          const sidecar = parseRuntimeMapGridSidecarPayload(payload, {
+            gridWidth: BattleScene.GRID_WIDTH,
+            gridHeight: BattleScene.GRID_HEIGHT,
+          });
           if (!sidecar) {
             continue;
           }
@@ -1212,184 +1075,6 @@ class BattleScene extends Phaser.Scene {
         }
       }
     })();
-  }
-
-  private parseRuntimeMapGridSidecarPayload(payload: unknown): RuntimeMapGridSidecar | null {
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
-
-    const candidate = payload as {
-      gridWidth?: unknown;
-      gridHeight?: unknown;
-      terrainCodeGrid?: unknown;
-      hillGradeGrid?: unknown;
-      elevation?: unknown;
-      cityZones?: unknown;
-    };
-    if (
-      typeof candidate.gridWidth === 'number'
-      && Number.isInteger(candidate.gridWidth)
-      && typeof candidate.gridHeight === 'number'
-      && Number.isInteger(candidate.gridHeight)
-      && (
-        candidate.gridWidth !== BattleScene.GRID_WIDTH
-        || candidate.gridHeight !== BattleScene.GRID_HEIGHT
-      )
-    ) {
-      console.warn(
-        `[map-sidecar][grid-mismatch] Ignoring sidecar with grid ${candidate.gridWidth}x${candidate.gridHeight}; expected ${BattleScene.GRID_WIDTH}x${BattleScene.GRID_HEIGHT}.`,
-      );
-      return null;
-    }
-    const expectedLength = BattleScene.GRID_WIDTH * BattleScene.GRID_HEIGHT;
-    if (
-      typeof candidate.terrainCodeGrid !== 'string'
-      || candidate.terrainCodeGrid.length !== expectedLength
-    ) {
-      return null;
-    }
-
-    const hillGradeGrid = new Int8Array(expectedLength);
-    hillGradeGrid.fill(HILL_GRADE_NONE);
-    const sourceGrid =
-      Array.isArray(candidate.hillGradeGrid) && candidate.hillGradeGrid.length === expectedLength
-        ? candidate.hillGradeGrid
-        : Array.isArray(candidate.elevation) && candidate.elevation.length === expectedLength
-          ? candidate.elevation
-          : null;
-    if (!sourceGrid) {
-      return null;
-    }
-
-    for (let index = 0; index < expectedLength; index += 1) {
-      const rawValue = sourceGrid[index];
-      if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
-        return null;
-      }
-      const terrainCode = candidate.terrainCodeGrid.charAt(index);
-      if (terrainCode !== 'h') {
-        hillGradeGrid[index] = HILL_GRADE_NONE;
-        continue;
-      }
-
-      // Legacy fallback: convert elevation bytes from older sidecars to hill grades.
-      if (sourceGrid === candidate.elevation) {
-        const normalizedElevation = Phaser.Math.Clamp(
-          Math.round(rawValue <= 1 ? rawValue * 255 : rawValue),
-          0,
-          255,
-        );
-        hillGradeGrid[index] = getHillGradeFromElevationByte(normalizedElevation);
-        continue;
-      }
-      const normalizedGrade = normalizeHillGrade(rawValue);
-      hillGradeGrid[index] = normalizedGrade === HILL_GRADE_NONE ? 0 : normalizedGrade;
-    }
-
-    const cityZones = this.parseRuntimeMapCityZones(candidate.cityZones);
-
-    return {
-      terrainCodeGrid: candidate.terrainCodeGrid,
-      hillGradeGrid,
-      cityZones,
-    };
-  }
-
-  private parseRuntimeMapCityZones(payload: unknown): RuntimeMapCityZone[] {
-    if (!Array.isArray(payload)) {
-      return [];
-    }
-
-    const parsedZones: RuntimeMapCityZone[] = [];
-    for (const rawZone of payload) {
-      if (!rawZone || typeof rawZone !== 'object') {
-        continue;
-      }
-
-      const candidateZone = rawZone as {
-        homeTeam?: unknown;
-        anchor?: unknown;
-        cells?: unknown;
-      };
-      const homeTeam =
-        candidateZone.homeTeam === Team.RED
-        || candidateZone.homeTeam === Team.BLUE
-        || candidateZone.homeTeam === 'NEUTRAL'
-          ? candidateZone.homeTeam
-          : null;
-      if (!homeTeam || !Array.isArray(candidateZone.cells)) {
-        continue;
-      }
-
-      const cellSet = new Set<string>();
-      let firstCell: GridCoordinate | null = null;
-      for (const rawCell of candidateZone.cells) {
-        const cell = this.parseRuntimeMapGridCoordinate(rawCell);
-        if (!cell) {
-          continue;
-        }
-        if (!firstCell) {
-          firstCell = cell;
-        }
-        cellSet.add(this.getGridCellKey(cell));
-      }
-      if (cellSet.size === 0) {
-        continue;
-      }
-
-      const anchor = this.parseRuntimeMapGridCoordinate(candidateZone.anchor) ?? firstCell;
-      if (!anchor) {
-        continue;
-      }
-
-      parsedZones.push({
-        homeTeam,
-        anchor,
-        cellSet,
-      });
-    }
-
-    return parsedZones;
-  }
-
-  private parseRuntimeMapGridCoordinate(value: unknown): GridCoordinate | null {
-    if (!value || typeof value !== 'object') {
-      return null;
-    }
-    const candidate = value as {
-      col?: unknown;
-      row?: unknown;
-    };
-    if (
-      typeof candidate.col !== 'number'
-      || !Number.isFinite(candidate.col)
-      || typeof candidate.row !== 'number'
-      || !Number.isFinite(candidate.row)
-    ) {
-      return null;
-    }
-
-    return {
-      col: Phaser.Math.Clamp(
-        Math.round(candidate.col),
-        0,
-        BattleScene.GRID_WIDTH - 1,
-      ),
-      row: Phaser.Math.Clamp(
-        Math.round(candidate.row),
-        0,
-        BattleScene.GRID_HEIGHT - 1,
-      ),
-    };
-  }
-
-  private getGridCellKeyFromColRow(col: number, row: number): string {
-    return `${col}:${row}`;
-  }
-
-  private getGridCellKey(cell: GridCoordinate): string {
-    return this.getGridCellKeyFromColRow(cell.col, cell.row);
   }
 
   private reloadMapTexture(mapId: string, revision: number): void {
@@ -3938,7 +3623,7 @@ class BattleScene extends Phaser.Scene {
       return 0;
     }
 
-    const cellKey = this.getGridCellKey(cell);
+    const cellKey = getGridCellKey(cell);
     for (const zone of this.moraleDebugCityZones) {
       const owner = this.getMoraleDebugCityZoneOwner(zone);
       if (owner !== team) {
@@ -3960,10 +3645,10 @@ class BattleScene extends Phaser.Scene {
       return this.cityOwnerByHomeTeam[Team.BLUE];
     }
 
-    const zoneAnchorKey = this.getGridCellKey(zone.anchor);
+    const zoneAnchorKey = getGridCellKey(zone.anchor);
     for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
       const neutralAnchor = this.neutralCityGridCoordinates[index];
-      if (this.getGridCellKey(neutralAnchor) !== zoneAnchorKey) {
+      if (getGridCellKey(neutralAnchor) !== zoneAnchorKey) {
         continue;
       }
       return this.neutralCityOwners[index] ?? 'NEUTRAL';
