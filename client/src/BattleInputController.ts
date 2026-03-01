@@ -113,7 +113,7 @@ export class BattleInputController {
     gameObject: Phaser.GameObjects.GameObject,
     event: Phaser.Types.Input.EventData,
   ): void => {
-    if (!this.callbacks.isBattleActive()) {
+    if (!this.canProcessBattleInput()) {
       return;
     }
 
@@ -138,10 +138,7 @@ export class BattleInputController {
   };
 
   private readonly handlePointerDown = (pointer: Phaser.Input.Pointer): void => {
-    if (!this.callbacks.isBattleActive()) {
-      return;
-    }
-    if (this.callbacks.isPointerInputBlocked?.()) {
+    if (!this.canProcessPointerInput()) {
       return;
     }
 
@@ -163,10 +160,7 @@ export class BattleInputController {
   };
 
   private readonly handlePointerMove = (pointer: Phaser.Input.Pointer): void => {
-    if (!this.callbacks.isBattleActive()) {
-      return;
-    }
-    if (this.callbacks.isPointerInputBlocked?.()) {
+    if (!this.canProcessPointerInput()) {
       return;
     }
 
@@ -239,10 +233,7 @@ export class BattleInputController {
   };
 
   private readonly handlePointerUp = (pointer: Phaser.Input.Pointer): void => {
-    if (!this.callbacks.isBattleActive()) {
-      return;
-    }
-    if (this.callbacks.isPointerInputBlocked?.()) {
+    if (!this.canProcessPointerInput()) {
       return;
     }
 
@@ -312,21 +303,21 @@ export class BattleInputController {
   };
 
   private readonly handleKeyDownSpace = (): void => {
-    if (!this.callbacks.isBattleActive()) {
+    if (!this.canProcessBattleInput()) {
       return;
     }
     this.callbacks.engageSelectedUnitMovement();
   };
 
   private readonly handleKeyDownEsc = (): void => {
-    if (!this.callbacks.isBattleActive()) {
+    if (!this.canProcessBattleInput()) {
       return;
     }
     this.callbacks.clearAllQueuedMovement();
   };
 
   private readonly handleKeyDownD = (): void => {
-    if (!this.callbacks.isBattleActive()) {
+    if (!this.canProcessBattleInput()) {
       return;
     }
     this.reset();
@@ -334,14 +325,14 @@ export class BattleInputController {
   };
 
   private readonly handleKeyDownS = (): void => {
-    if (!this.callbacks.isBattleActive()) {
+    if (!this.canProcessBattleInput()) {
       return;
     }
     this.callbacks.selectAllOwnedUnits();
   };
 
   private readonly handleKeyDownA = (event: KeyboardEvent): void => {
-    if (!this.callbacks.isBattleActive()) {
+    if (!this.canProcessBattleInput()) {
       return;
     }
     this.callbacks.commandSelectedUnitsTowardEnemyInfluenceLine(
@@ -350,7 +341,7 @@ export class BattleInputController {
   };
 
   private readonly handleKeyDownQ = (event: KeyboardEvent): void => {
-    if (!this.callbacks.isBattleActive()) {
+    if (!this.canProcessBattleInput()) {
       return;
     }
     this.callbacks.commandSelectedUnitsTowardNearestVisibleEnemyUnit(
@@ -385,5 +376,16 @@ export class BattleInputController {
     this.callbacks.clearSelectionBox();
     this.callbacks.clearFormationAreaPreview();
     this.callbacks.clearPathPreview();
+  }
+
+  private canProcessBattleInput(): boolean {
+    return this.callbacks.isBattleActive();
+  }
+
+  private canProcessPointerInput(): boolean {
+    if (!this.canProcessBattleInput()) {
+      return false;
+    }
+    return !this.callbacks.isPointerInputBlocked?.();
   }
 }
