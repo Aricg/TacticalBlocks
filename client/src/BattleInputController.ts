@@ -238,8 +238,6 @@ export class BattleInputController {
     }
 
     if (pointer.button === 2 && this.pathDragStart) {
-      this.pathDragStart = null;
-
       if (this.pathDrawing) {
         const commandPath = this.callbacks.buildCommandPath(this.draggedPath);
         if (commandPath.length > 1) {
@@ -256,8 +254,7 @@ export class BattleInputController {
         );
       }
 
-      this.pathDrawing = false;
-      this.draggedPath = [];
+      this.clearPathDragState();
       this.callbacks.clearPathPreview();
       return;
     }
@@ -361,6 +358,10 @@ export class BattleInputController {
   private resetInteractionState(): void {
     this.suppressCommandOnPointerUp = false;
     this.clearLeftDragState();
+    this.clearPathDragState();
+  }
+
+  private clearPathDragState(): void {
     this.pathDragStart = null;
     this.pathDrawing = false;
     this.draggedPath = [];
