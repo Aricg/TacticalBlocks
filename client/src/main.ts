@@ -98,6 +98,14 @@ import {
   type UnitCommandPlannerGridMetrics,
 } from './UnitCommandPlanner';
 import { type TerrainType, Unit } from './Unit';
+import {
+  clearSelection as clearUnitSelection,
+  forEachSelectedUnitEntry as forEachSelectedUnitEntryState,
+  getSelectedUnitIdsSorted as getSelectedUnitIdsSortedState,
+  selectAllOwnedUnits as selectAllOwnedUnitsState,
+  selectOnlyUnit as selectOnlyUnitState,
+  selectUnitsInBox as selectUnitsInBoxState,
+} from './UnitSelectionState';
 import { buildBattleEndedAnnouncement } from './network/BattleTransitionApplier';
 import { applyCityOwnershipState } from './network/CityStateApplier';
 import {
@@ -2329,13 +2337,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private selectOnlyUnit(unit: Unit): void {
-    for (const selectedUnit of this.selectedUnits) {
-      selectedUnit.setSelected(false);
-    }
-
-    this.selectedUnits.clear();
-    this.selectedUnits.add(unit);
-    unit.setSelected(true);
+    selectOnlyUnitState(this.selectedUnits, unit);
   }
 
   private selectUnitsInBox(
@@ -2344,50 +2346,25 @@ class BattleScene extends Phaser.Scene {
     endX: number,
     endY: number,
   ): void {
-    const minX = Math.min(startX, endX);
-    const maxX = Math.max(startX, endX);
-    const minY = Math.min(startY, endY);
-    const maxY = Math.max(startY, endY);
-
-    for (const unit of this.selectedUnits) {
-      unit.setSelected(false);
-    }
-    this.selectedUnits.clear();
-
-    for (const unit of this.units) {
-      const withinX = unit.x >= minX && unit.x <= maxX;
-      const withinY = unit.y >= minY && unit.y <= maxY;
-      if (withinX && withinY && unit.team === this.localPlayerTeam) {
-        this.selectedUnits.add(unit);
-        unit.setSelected(true);
-      }
-    }
+    selectUnitsInBoxState({
+      selectedUnits: this.selectedUnits,
+      units: this.units,
+      localPlayerTeam: this.localPlayerTeam,
+      startX,
+      startY,
+      endX,
+      endY,
+    });
   }
 
   private selectAllOwnedUnits(): void {
-    for (const unit of this.selectedUnits) {
-      unit.setSelected(false);
-    }
-    this.selectedUnits.clear();
-
-    for (const unit of this.unitsById.values()) {
-      if (unit.team !== this.localPlayerTeam || !unit.isAlive()) {
-        continue;
-      }
-      this.selectedUnits.add(unit);
-      unit.setSelected(true);
-    }
+    selectAllOwnedUnitsState(this.selectedUnits, this.unitsById, this.localPlayerTeam);
   }
 
   private forEachSelectedUnitEntry(
     visitor: (unitId: string, unit: Unit) => void,
   ): void {
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
-      visitor(unitId, unit);
-    }
+    forEachSelectedUnitEntryState(this.unitsById, this.selectedUnits, visitor);
   }
 
   private clearPlannedAndPendingPathCommand(unitId: string): void {
@@ -2876,12 +2853,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private getSelectedUnitIdsSorted(): string[] {
-    const selectedUnitIds: string[] = [];
-    this.forEachSelectedUnitEntry((unitId) => {
-      selectedUnitIds.push(unitId);
-    });
-    selectedUnitIds.sort();
-    return selectedUnitIds;
+    return getSelectedUnitIdsSortedState(this.unitsById, this.selectedUnits);
   }
 
   private selectAutoAdvanceEnemyCityTarget(friendlyTeam: Team): GridCoordinate | null {
@@ -2973,11 +2945,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private clearSelection(): void {
-    for (const unit of this.selectedUnits) {
-      unit.setSelected(false);
-    }
-
-    this.selectedUnits.clear();
+    clearUnitSelection(this.selectedUnits);
   }
 
   private setAllUnitMovementHold(isHeld: boolean): void {
