@@ -108,6 +108,7 @@ import {
 import { AutoAdvanceTargetCycler } from './AutoAdvanceTargetCycler';
 import { buildAutoAdvanceTargetCityCells } from './AutoAdvanceTargets';
 import { buildSelectedUnitsForPlanning } from './SelectedUnitPlanning';
+import { buildOwnedCityCells } from './OwnedCityCells';
 import { type TerrainType, Unit } from './Unit';
 import {
   clearSelection as clearUnitSelection,
@@ -2788,21 +2789,17 @@ class BattleScene extends Phaser.Scene {
   }
 
   private getOwnedCityPositions(ownerTeam: Team): Phaser.Math.Vector2[] {
-    const positions: Phaser.Math.Vector2[] = [];
-    const homeTeams: Team[] = [Team.RED, Team.BLUE];
-    for (const homeTeam of homeTeams) {
-      if (this.cityOwnerByHomeTeam[homeTeam] !== ownerTeam) {
-        continue;
-      }
-      positions.push(this.getCityWorldPosition(homeTeam));
-    }
-    for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
-      if (this.neutralCityOwners[index] !== ownerTeam) {
-        continue;
-      }
-      positions.push(this.toCommandWorld(this.neutralCityGridCoordinates[index]));
-    }
-    return positions;
+    const ownedCityCells = buildOwnedCityCells({
+      ownerTeam,
+      cityOwnerByHomeTeam: this.cityOwnerByHomeTeam,
+      homeCityGridByTeam: {
+        [Team.RED]: this.getCityGridCoordinate(Team.RED),
+        [Team.BLUE]: this.getCityGridCoordinate(Team.BLUE),
+      },
+      neutralCityOwners: this.neutralCityOwners,
+      neutralCityGridCoordinates: this.neutralCityGridCoordinates,
+    });
+    return ownedCityCells.map((cell) => this.toCommandWorld(cell));
   }
 
   private drawPathPreview(draggedPath: Phaser.Math.Vector2[]): void {
