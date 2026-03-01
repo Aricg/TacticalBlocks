@@ -50,7 +50,10 @@ import {
   getUnitHealthMax,
 } from '../../shared/src/unitTypes.js';
 import { City, type CityOwner } from './City';
-import { BattleInputController } from './BattleInputController';
+import {
+  BattleInputController,
+  type BattleInputCallbacks,
+} from './BattleInputController';
 import { FogOfWarController } from './FogOfWarController';
 import { InfluenceRenderer } from './InfluenceRenderer';
 import {
@@ -668,7 +671,7 @@ class BattleScene extends Phaser.Scene {
     this.refreshCitySupplyLabels();
   }
 
-  private buildBattleInputCallbacks() {
+  private buildBattleInputCallbacks(): BattleInputCallbacks {
     return {
       isBattleActive: () => this.isBattleActive(),
       resolveOwnedUnit: (gameObject: Phaser.GameObjects.GameObject) => {
@@ -1531,17 +1534,9 @@ class BattleScene extends Phaser.Scene {
         this.localLobbyReady = lobbyState.localLobbyReady;
       },
       onPhaseTransition: (nextPhase) => {
-        this.resetPointerInteractionState();
-        this.clearSelection();
-        this.plannedPathsByUnitId.clear();
-        this.clearAllPendingUnitPathCommands();
-        this.setAllUnitMovementHold(false);
+        this.resetBattleCommandAndSelectionState();
         if (nextPhase !== 'BATTLE') {
-          this.citySupplyBySourceId.clear();
-          this.refreshCitySupplyLabels();
-          this.supplyLinesByUnitId.clear();
-          this.farmCitySupplyLinesByLinkId.clear();
-          this.syncSupplyLinesToInfluenceRenderer();
+          this.clearSupplyAndLineState();
         }
         if (nextPhase === 'BATTLE') {
           this.lastBattleAnnouncement = null;
@@ -1556,16 +1551,8 @@ class BattleScene extends Phaser.Scene {
   private applyBattleEnded(battleEndedUpdate: NetworkBattleEndedUpdate): void {
     this.lastBattleAnnouncement = buildBattleEndedAnnouncement(battleEndedUpdate);
     this.matchPhase = 'LOBBY';
-    this.resetPointerInteractionState();
-    this.clearSelection();
-    this.plannedPathsByUnitId.clear();
-    this.clearAllPendingUnitPathCommands();
-    this.setAllUnitMovementHold(false);
-    this.citySupplyBySourceId.clear();
-    this.refreshCitySupplyLabels();
-    this.supplyLinesByUnitId.clear();
-    this.farmCitySupplyLinesByLinkId.clear();
-    this.syncSupplyLinesToInfluenceRenderer();
+    this.resetBattleCommandAndSelectionState();
+    this.clearSupplyAndLineState();
     this.syncSupplyDepotMarkers();
     this.refreshLobbyOverlay();
   }
@@ -1603,6 +1590,22 @@ class BattleScene extends Phaser.Scene {
     this.activeSupplyDepotDragCityZoneId = null;
   }
 
+  private resetBattleCommandAndSelectionState(): void {
+    this.resetPointerInteractionState();
+    this.clearSelection();
+    this.plannedPathsByUnitId.clear();
+    this.clearAllPendingUnitPathCommands();
+    this.setAllUnitMovementHold(false);
+  }
+
+  private clearSupplyAndLineState(): void {
+    this.citySupplyBySourceId.clear();
+    this.refreshCitySupplyLabels();
+    this.supplyLinesByUnitId.clear();
+    this.farmCitySupplyLinesByLinkId.clear();
+    this.syncSupplyLinesToInfluenceRenderer();
+  }
+
   private exitBattle(): void {
     if (this.hasExitedBattle) {
       return;
@@ -1615,16 +1618,8 @@ class BattleScene extends Phaser.Scene {
     this.lastBattleAnnouncement = null;
     this.lobbyPlayers = [];
     this.localSessionId = null;
-    this.resetPointerInteractionState();
-    this.clearSelection();
-    this.plannedPathsByUnitId.clear();
-    this.clearAllPendingUnitPathCommands();
-    this.setAllUnitMovementHold(false);
-    this.citySupplyBySourceId.clear();
-    this.refreshCitySupplyLabels();
-    this.supplyLinesByUnitId.clear();
-    this.farmCitySupplyLinesByLinkId.clear();
-    this.syncSupplyLinesToInfluenceRenderer();
+    this.resetBattleCommandAndSelectionState();
+    this.clearSupplyAndLineState();
     this.syncSupplyDepotMarkers();
 
     for (const unitId of Array.from(this.unitsById.keys())) {

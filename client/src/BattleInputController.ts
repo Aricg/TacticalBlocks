@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Unit } from './Unit';
 
-type BattleInputCallbacks = {
+export type BattleInputCallbacks = {
   isBattleActive: () => boolean;
   resolveOwnedUnit: (gameObject: Phaser.GameObjects.GameObject) => Unit | null;
   isUnitSelected: (unit: Unit) => boolean;
@@ -59,7 +59,7 @@ type BattleInputCallbacks = {
   clearAllQueuedMovement: () => void;
 };
 
-type BattleInputConfig = {
+export type BattleInputConfig = {
   dragThreshold: number;
 };
 
@@ -90,16 +90,8 @@ export class BattleInputController {
   }
 
   public reset(): void {
-    this.suppressCommandOnPointerUp = false;
-    this.dragStart = null;
-    this.pathDragStart = null;
-    this.boxSelecting = false;
-    this.leftDragStartedWithSelection = false;
-    this.pathDrawing = false;
-    this.draggedPath = [];
-    this.callbacks.clearSelectionBox();
-    this.callbacks.clearFormationAreaPreview();
-    this.callbacks.clearPathPreview();
+    this.resetInteractionState();
+    this.clearInputPreviews();
   }
 
   public destroy(): void {
@@ -307,18 +299,14 @@ export class BattleInputController {
       }
       this.callbacks.clearSelectionBox();
       this.callbacks.clearFormationAreaPreview();
-      this.dragStart = null;
-      this.boxSelecting = false;
-      this.leftDragStartedWithSelection = false;
+      this.clearLeftDragState();
       return;
     }
 
     if (this.dragStart) {
       this.callbacks.clearSelectionBox();
       this.callbacks.clearFormationAreaPreview();
-      this.dragStart = null;
-      this.boxSelecting = false;
-      this.leftDragStartedWithSelection = false;
+      this.clearLeftDragState();
       this.callbacks.clearSelection();
     }
   };
@@ -341,16 +329,7 @@ export class BattleInputController {
     if (!this.callbacks.isBattleActive()) {
       return;
     }
-    this.suppressCommandOnPointerUp = false;
-    this.dragStart = null;
-    this.pathDragStart = null;
-    this.boxSelecting = false;
-    this.leftDragStartedWithSelection = false;
-    this.pathDrawing = false;
-    this.draggedPath = [];
-    this.callbacks.clearSelectionBox();
-    this.callbacks.clearFormationAreaPreview();
-    this.callbacks.clearPathPreview();
+    this.reset();
     this.callbacks.clearSelection();
   };
 
@@ -383,6 +362,26 @@ export class BattleInputController {
     this.pathDragStart = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
     this.pathDrawing = false;
     this.draggedPath = [this.pathDragStart.clone()];
+    this.callbacks.clearSelectionBox();
+    this.callbacks.clearFormationAreaPreview();
+    this.callbacks.clearPathPreview();
+  }
+
+  private resetInteractionState(): void {
+    this.suppressCommandOnPointerUp = false;
+    this.clearLeftDragState();
+    this.pathDragStart = null;
+    this.pathDrawing = false;
+    this.draggedPath = [];
+  }
+
+  private clearLeftDragState(): void {
+    this.dragStart = null;
+    this.boxSelecting = false;
+    this.leftDragStartedWithSelection = false;
+  }
+
+  private clearInputPreviews(): void {
     this.callbacks.clearSelectionBox();
     this.callbacks.clearFormationAreaPreview();
     this.callbacks.clearPathPreview();
