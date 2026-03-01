@@ -2363,12 +2363,34 @@ class BattleScene extends Phaser.Scene {
     movementCommandMode?: NetworkUnitPathCommand['movementCommandMode'],
   ): void {
     const unitCell = this.toCommandCell(unitWorldX, unitWorldY);
-    if (unitCell.col === targetCell.col && unitCell.row === targetCell.row) {
+    this.stageUnitCommandForTargetCells(
+      unitId,
+      unitCell,
+      [targetCell],
+      movementCommandMode,
+    );
+  }
+
+  private stageUnitCommandForTargetCells(
+    unitId: string,
+    unitCell: GridCoordinate,
+    targetCells: ReadonlyArray<GridCoordinate>,
+    movementCommandMode?: NetworkUnitPathCommand['movementCommandMode'],
+  ): void {
+    if (targetCells.length === 0) {
+      this.clearPlannedAndPendingPathCommand(unitId);
+      return;
+    }
+    if (
+      targetCells.length === 1 &&
+      unitCell.col === targetCells[0].col &&
+      unitCell.row === targetCells[0].row
+    ) {
       this.clearPlannedAndPendingPathCommand(unitId);
       return;
     }
 
-    const unitPath = [this.toCommandWorld(targetCell)];
+    const unitPath = targetCells.map((cell) => this.toCommandWorld(cell));
     this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
   }
 
@@ -2433,20 +2455,12 @@ class BattleScene extends Phaser.Scene {
         unitCell,
         grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
       });
-      if (targetCells.length === 0) {
-        this.clearPlannedAndPendingPathCommand(unitId);
-        return;
-      }
-      if (
-        targetCells.length === 1 &&
-        unitCell.col === targetCells[0].col &&
-        unitCell.row === targetCells[0].row
-      ) {
-        this.clearPlannedAndPendingPathCommand(unitId);
-        return;
-      }
-      const unitPath = targetCells.map((cell) => this.toCommandWorld(cell));
-      this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
+      this.stageUnitCommandForTargetCells(
+        unitId,
+        unitCell,
+        targetCells,
+        movementCommandMode,
+      );
     });
   }
 
