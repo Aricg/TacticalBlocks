@@ -104,6 +104,7 @@ import {
 import {
   collectVisibleEnemyUnitTargets,
   findNearestEnemyUnitTarget,
+  type EnemyUnitTarget,
 } from './EnemyTargeting';
 import { AutoAdvanceTargetCycler } from './AutoAdvanceTargetCycler';
 import { buildAutoAdvanceTargetCityCells } from './AutoAdvanceTargets';
@@ -2582,11 +2583,7 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const visibleEnemyTargets = collectVisibleEnemyUnitTargets(
-      this.unitsById,
-      this.localPlayerTeam,
-      (unit) => this.getAuthoritativeUnitPosition(unit),
-    );
+    const visibleEnemyTargets = this.getVisibleEnemyTargets();
     if (visibleEnemyTargets.length === 0) {
       return;
     }
@@ -2614,17 +2611,21 @@ class BattleScene extends Phaser.Scene {
 
   private resolveNearestVisibleEnemyTargetCell(
     unitPosition: { x: number; y: number },
-    visibleEnemyTargets: ReadonlyArray<{
-      unitId: string;
-      x: number;
-      y: number;
-    }>,
+    visibleEnemyTargets: ReadonlyArray<EnemyUnitTarget>,
   ): GridCoordinate | null {
     const target = findNearestEnemyUnitTarget(unitPosition, visibleEnemyTargets);
     if (!target) {
       return null;
     }
     return this.toCommandCell(target.x, target.y);
+  }
+
+  private getVisibleEnemyTargets(): EnemyUnitTarget[] {
+    return collectVisibleEnemyUnitTargets(
+      this.unitsById,
+      this.localPlayerTeam,
+      (unit) => this.getAuthoritativeUnitPosition(unit),
+    );
   }
 
   private resolveAutoAdvanceTargetCellForUnit(
