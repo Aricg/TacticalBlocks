@@ -105,6 +105,7 @@ import {
   findNearestEnemyUnitTarget,
   type EnemyUnitTarget,
 } from './EnemyTargeting';
+import { AutoAdvanceTargetCycler } from './AutoAdvanceTargetCycler';
 import { type TerrainType, Unit } from './Unit';
 import {
   clearSelection as clearUnitSelection,
@@ -265,9 +266,7 @@ class BattleScene extends Phaser.Scene {
   private moraleDebugCityZones: RuntimeMapCityZone[] = [];
   private moraleDebugMapGridLoadToken = 0;
   private mapTextureRetryTimer: Phaser.Time.TimerEvent | null = null;
-  private autoAdvanceCityCycleSignature: string | null = null;
-  private autoAdvanceCityCycleOrderedTargets: GridCoordinate[] = [];
-  private autoAdvanceCityCycleNextIndex = 0;
+  private readonly autoAdvanceTargetCycler = new AutoAdvanceTargetCycler();
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
@@ -1687,9 +1686,7 @@ class BattleScene extends Phaser.Scene {
       neutralCities: this.neutralCities,
       refreshFogOfWar: () => this.refreshFogOfWar(),
     });
-    this.autoAdvanceCityCycleSignature = null;
-    this.autoAdvanceCityCycleOrderedTargets = [];
-    this.autoAdvanceCityCycleNextIndex = 0;
+    this.autoAdvanceTargetCycler.reset();
   }
 
   private applyCitySupply(citySupplyUpdate: NetworkCitySupplyUpdate): void {
@@ -2810,54 +2807,20 @@ class BattleScene extends Phaser.Scene {
     }
 
     const formationCenter = getFormationCenter(this.selectedUnits);
-    if (!formationCenter) {
-      return candidateTargets[0];
-    }
-    const formationCell = worldToGridCoordinate(
-      formationCenter.x,
-      formationCenter.y,
-      BattleScene.UNIT_COMMAND_GRID_METRICS,
-    );
+    const formationCell = formationCenter
+      ? worldToGridCoordinate(
+          formationCenter.x,
+          formationCenter.y,
+          BattleScene.UNIT_COMMAND_GRID_METRICS,
+        )
+      : null;
 
-    const selectedUnitIds = this.getSelectedUnitIdsSorted();
-    const candidateKeys = candidateTargets
-      .map((cell) => `${cell.col}:${cell.row}`)
-      .sort();
-    const cycleSignature = `${friendlyTeam}|${selectedUnitIds.join(',')}|${candidateKeys.join(';')}`;
-
-    if (
-      this.autoAdvanceCityCycleSignature !== cycleSignature ||
-      this.autoAdvanceCityCycleOrderedTargets.length === 0
-    ) {
-      const sortedByDistance = candidateTargets
-        .map((cell) => ({ cell, key: `${cell.col}:${cell.row}` }))
-        .sort((left, right) => {
-          const leftDistance =
-            (left.cell.col - formationCell.col) * (left.cell.col - formationCell.col) +
-            (left.cell.row - formationCell.row) * (left.cell.row - formationCell.row);
-          const rightDistance =
-            (right.cell.col - formationCell.col) * (right.cell.col - formationCell.col) +
-            (right.cell.row - formationCell.row) * (right.cell.row - formationCell.row);
-          if (leftDistance !== rightDistance) {
-            return leftDistance - rightDistance;
-          }
-          return left.key.localeCompare(right.key);
-        });
-
-      this.autoAdvanceCityCycleSignature = cycleSignature;
-      this.autoAdvanceCityCycleOrderedTargets = sortedByDistance.map(({ cell }) => ({
-        col: cell.col,
-        row: cell.row,
-      }));
-      this.autoAdvanceCityCycleNextIndex = 1;
-      return this.autoAdvanceCityCycleOrderedTargets[0] ?? null;
-    }
-
-    const targetCount = this.autoAdvanceCityCycleOrderedTargets.length;
-    const selectedIndex = this.autoAdvanceCityCycleNextIndex % targetCount;
-    this.autoAdvanceCityCycleNextIndex = (selectedIndex + 1) % targetCount;
-    const target = this.autoAdvanceCityCycleOrderedTargets[selectedIndex];
-    return target ? { col: target.col, row: target.row } : null;
+    return this.autoAdvanceTargetCycler.select({
+      friendlyTeamKey: friendlyTeam,
+      candidateTargets,
+      formationCell,
+      selectedUnitIds: this.getSelectedUnitIdsSorted(),
+    });
   }
 
   private getOwnedCityPositions(ownerTeam: Team): Phaser.Math.Vector2[] {
