@@ -474,83 +474,7 @@ class BattleScene extends Phaser.Scene {
 
     this.inputController = new BattleInputController(
       this,
-      {
-        isBattleActive: () => this.isBattleActive(),
-        resolveOwnedUnit: (gameObject: Phaser.GameObjects.GameObject) => {
-          const clickedUnit = Unit.fromGameObject(gameObject);
-          if (!clickedUnit || clickedUnit.team !== this.localPlayerTeam) {
-            return null;
-          }
-          return clickedUnit;
-        },
-        isUnitSelected: (unit: Unit) => this.selectedUnits.has(unit),
-        hasSelectedUnits: () => this.selectedUnits.size > 0,
-        selectOnlyUnit: (unit: Unit) => this.selectOnlyUnit(unit),
-        selectAllOwnedUnits: () => this.selectAllOwnedUnits(),
-        clearSelection: () => this.clearSelection(),
-        commandSelectedUnits: (
-          targetX: number,
-          targetY: number,
-          shiftHeld: boolean,
-        ) => this.commandSelectedUnits(targetX, targetY, shiftHeld),
-        commandSelectedUnitsAlongPath: (
-          path: Phaser.Math.Vector2[],
-          shiftHeld: boolean,
-        ) => this.commandSelectedUnitsAlongPath(path, shiftHeld),
-        commandSelectedUnitsIntoFormationArea: (
-          startX: number,
-          startY: number,
-          endX: number,
-          endY: number,
-          shiftHeld: boolean,
-        ) => this.commandSelectedUnitsIntoFormationArea(
-          startX,
-          startY,
-          endX,
-          endY,
-          shiftHeld,
-        ),
-        commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) =>
-          this.commandSelectedUnitsTowardEnemyInfluenceLine(shiftHeld),
-        commandSelectedUnitsTowardNearestVisibleEnemyUnit: (shiftHeld: boolean) =>
-          this.commandSelectedUnitsTowardNearestVisibleEnemyUnit(shiftHeld),
-        selectUnitsInBox: (
-          startX: number,
-          startY: number,
-          endX: number,
-          endY: number,
-        ) => this.selectUnitsInBox(startX, startY, endX, endY),
-        drawSelectionBox: (
-          startX: number,
-          startY: number,
-          currentX: number,
-          currentY: number,
-        ) => this.drawSelectionBox(startX, startY, currentX, currentY),
-        clearSelectionBox: () => this.clearSelectionBox(),
-        drawFormationAreaPreview: (
-          startX: number,
-          startY: number,
-          currentX: number,
-          currentY: number,
-        ) => this.drawFormationAreaPreview(startX, startY, currentX, currentY),
-        clearFormationAreaPreview: () => this.clearFormationAreaPreview(),
-        appendDraggedPathPoint: (
-          draggedPath: Phaser.Math.Vector2[],
-          x: number,
-          y: number,
-          forceAppend?: boolean,
-        ) => this.appendDraggedPathPoint(draggedPath, x, y, forceAppend),
-        drawPathPreview: (draggedPath: Phaser.Math.Vector2[]) =>
-          this.drawPathPreview(draggedPath),
-        clearPathPreview: () => this.pathPreviewRenderer?.clear(),
-        buildCommandPath: (path: Phaser.Math.Vector2[]) =>
-          this.buildCommandPath(path),
-        cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
-        engageSelectedUnitMovement: () => this.engageSelectedUnitMovement(),
-        isPointerInputBlocked: () => this.activeSupplyDepotDragCityZoneId !== null,
-        isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
-        clearAllQueuedMovement: () => this.clearAllQueuedMovement(),
-      },
+      this.buildBattleInputCallbacks(),
       {
         dragThreshold: BattleScene.DRAG_THRESHOLD,
       },
@@ -742,6 +666,85 @@ class BattleScene extends Phaser.Scene {
     }
 
     this.refreshCitySupplyLabels();
+  }
+
+  private buildBattleInputCallbacks() {
+    return {
+      isBattleActive: () => this.isBattleActive(),
+      resolveOwnedUnit: (gameObject: Phaser.GameObjects.GameObject) => {
+        const clickedUnit = Unit.fromGameObject(gameObject);
+        if (!clickedUnit || clickedUnit.team !== this.localPlayerTeam) {
+          return null;
+        }
+        return clickedUnit;
+      },
+      isUnitSelected: (unit: Unit) => this.selectedUnits.has(unit),
+      hasSelectedUnits: () => this.selectedUnits.size > 0,
+      selectOnlyUnit: (unit: Unit) => this.selectOnlyUnit(unit),
+      selectAllOwnedUnits: () => this.selectAllOwnedUnits(),
+      clearSelection: () => this.clearSelection(),
+      commandSelectedUnits: (
+        targetX: number,
+        targetY: number,
+        shiftHeld: boolean,
+      ) => this.commandSelectedUnits(targetX, targetY, shiftHeld),
+      commandSelectedUnitsAlongPath: (
+        path: Phaser.Math.Vector2[],
+        shiftHeld: boolean,
+      ) => this.commandSelectedUnitsAlongPath(path, shiftHeld),
+      commandSelectedUnitsIntoFormationArea: (
+        startX: number,
+        startY: number,
+        endX: number,
+        endY: number,
+        shiftHeld: boolean,
+      ) => this.commandSelectedUnitsIntoFormationArea(
+        startX,
+        startY,
+        endX,
+        endY,
+        shiftHeld,
+      ),
+      commandSelectedUnitsTowardEnemyInfluenceLine: (shiftHeld: boolean) =>
+        this.commandSelectedUnitsTowardEnemyInfluenceLine(shiftHeld),
+      commandSelectedUnitsTowardNearestVisibleEnemyUnit: (shiftHeld: boolean) =>
+        this.commandSelectedUnitsTowardNearestVisibleEnemyUnit(shiftHeld),
+      selectUnitsInBox: (
+        startX: number,
+        startY: number,
+        endX: number,
+        endY: number,
+      ) => this.selectUnitsInBox(startX, startY, endX, endY),
+      drawSelectionBox: (
+        startX: number,
+        startY: number,
+        currentX: number,
+        currentY: number,
+      ) => this.drawSelectionBox(startX, startY, currentX, currentY),
+      clearSelectionBox: () => this.clearSelectionBox(),
+      drawFormationAreaPreview: (
+        startX: number,
+        startY: number,
+        currentX: number,
+        currentY: number,
+      ) => this.drawFormationAreaPreview(startX, startY, currentX, currentY),
+      clearFormationAreaPreview: () => this.clearFormationAreaPreview(),
+      appendDraggedPathPoint: (
+        draggedPath: Phaser.Math.Vector2[],
+        x: number,
+        y: number,
+        forceAppend?: boolean,
+      ) => this.appendDraggedPathPoint(draggedPath, x, y, forceAppend),
+      drawPathPreview: (draggedPath: Phaser.Math.Vector2[]) =>
+        this.drawPathPreview(draggedPath),
+      clearPathPreview: () => this.pathPreviewRenderer?.clear(),
+      buildCommandPath: (path: Phaser.Math.Vector2[]) => this.buildCommandPath(path),
+      cancelSelectedUnitMovement: () => this.cancelSelectedUnitMovement(),
+      engageSelectedUnitMovement: () => this.engageSelectedUnitMovement(),
+      isPointerInputBlocked: () => this.activeSupplyDepotDragCityZoneId !== null,
+      isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
+      clearAllQueuedMovement: () => this.clearAllQueuedMovement(),
+    };
   }
 
   private getHomeCitySupplySourceId(homeTeam: Team): string {
