@@ -2338,6 +2338,10 @@ class BattleScene extends Phaser.Scene {
     this.clearPendingUnitPathCommand(unitId);
   }
 
+  private hasActiveSelectionInBattle(): boolean {
+    return this.isBattleActive() && this.selectedUnits.size > 0;
+  }
+
   private toCommandCell(worldX: number, worldY: number): GridCoordinate {
     return worldToGridCoordinate(
       worldX,
@@ -2372,7 +2376,7 @@ class BattleScene extends Phaser.Scene {
     targetY: number,
     shiftHeld = false,
   ): void {
-    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
+    if (!this.hasActiveSelectionInBattle()) {
       return;
     }
 
@@ -2395,8 +2399,7 @@ class BattleScene extends Phaser.Scene {
     shiftHeld = false,
   ): void {
     if (
-      !this.isBattleActive() ||
-      this.selectedUnits.size === 0 ||
+      !this.hasActiveSelectionInBattle() ||
       path.length === 0
     ) {
       return;
@@ -2452,7 +2455,7 @@ class BattleScene extends Phaser.Scene {
     endX: number,
     endY: number,
   ) {
-    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
+    if (!this.hasActiveSelectionInBattle()) {
       return [];
     }
 
@@ -2517,7 +2520,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private commandSelectedUnitsTowardEnemyInfluenceLine(shiftHeld = false): void {
-    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
+    if (!this.hasActiveSelectionInBattle()) {
       return;
     }
 
@@ -2554,7 +2557,7 @@ class BattleScene extends Phaser.Scene {
   private commandSelectedUnitsTowardNearestVisibleEnemyUnit(
     shiftHeld = false,
   ): void {
-    if (!this.isBattleActive() || this.selectedUnits.size === 0) {
+    if (!this.hasActiveSelectionInBattle()) {
       return;
     }
 
@@ -2628,7 +2631,7 @@ class BattleScene extends Phaser.Scene {
 
   private engageSelectedUnitMovement(): void {
     const networkManager = this.networkManager;
-    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !networkManager) {
+    if (!this.hasActiveSelectionInBattle() || !networkManager) {
       return;
     }
 
