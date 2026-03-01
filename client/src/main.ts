@@ -106,6 +106,7 @@ import {
   findNearestEnemyUnitTarget,
 } from './EnemyTargeting';
 import { AutoAdvanceTargetCycler } from './AutoAdvanceTargetCycler';
+import { buildAutoAdvanceTargetCityCells } from './AutoAdvanceTargets';
 import { type TerrainType, Unit } from './Unit';
 import {
   clearSelection as clearUnitSelection,
@@ -2725,27 +2726,16 @@ class BattleScene extends Phaser.Scene {
   }
 
   private getAutoAdvanceTargetCityCells(friendlyTeam: Team): GridCoordinate[] {
-    const uniqueByKey = new Map<string, GridCoordinate>();
-    const homeTeams: Team[] = [Team.RED, Team.BLUE];
-    for (const homeTeam of homeTeams) {
-      const owner = this.cityOwnerByHomeTeam[homeTeam];
-      if (owner === friendlyTeam) {
-        continue;
-      }
-      const cell = this.getCityGridCoordinate(homeTeam);
-      uniqueByKey.set(`${cell.col}:${cell.row}`, cell);
-    }
-
-    for (let index = 0; index < this.neutralCityGridCoordinates.length; index += 1) {
-      const owner = this.neutralCityOwners[index];
-      if (owner === friendlyTeam) {
-        continue;
-      }
-      const cell = this.neutralCityGridCoordinates[index];
-      uniqueByKey.set(`${cell.col}:${cell.row}`, { col: cell.col, row: cell.row });
-    }
-
-    return Array.from(uniqueByKey.values());
+    return buildAutoAdvanceTargetCityCells({
+      friendlyTeam,
+      cityOwnerByHomeTeam: this.cityOwnerByHomeTeam,
+      homeCityGridByTeam: {
+        [Team.RED]: this.getCityGridCoordinate(Team.RED),
+        [Team.BLUE]: this.getCityGridCoordinate(Team.BLUE),
+      },
+      neutralCityOwners: this.neutralCityOwners,
+      neutralCityGridCoordinates: this.neutralCityGridCoordinates,
+    });
   }
 
   private getSelectedUnitIdsSorted(): string[] {
