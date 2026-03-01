@@ -2560,16 +2560,11 @@ class BattleScene extends Phaser.Scene {
     const movementCommandMode = this.buildEnemyAdvanceMovementCommandMode(shiftHeld);
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
-      const autoAdvanceCells = this.buildAutoAdvanceCellsToContestedInfluence(
-        this.toCommandCell(unit.x, unit.y),
-        unit.team,
-        targetCityCell,
-      );
-      if (autoAdvanceCells.length === 0) {
+      const targetCell = this.resolveAutoAdvanceTargetCellForUnit(unit, targetCityCell);
+      if (!targetCell) {
         return;
       }
 
-      const targetCell = autoAdvanceCells[autoAdvanceCells.length - 1];
       this.stageUnitCommandToTargetCell(
         unitId,
         unit.x,
@@ -2600,15 +2595,13 @@ class BattleScene extends Phaser.Scene {
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitPosition = this.getAuthoritativeUnitPosition(unit);
-      const target = findNearestEnemyUnitTarget(
+      const targetCell = this.resolveNearestVisibleEnemyTargetCell(
         unitPosition,
         visibleEnemyTargets,
       );
-      if (!target) {
+      if (!targetCell) {
         return;
       }
-
-      const targetCell = this.toCommandCell(target.x, target.y);
       this.stageUnitCommandToTargetCell(
         unitId,
         unitPosition.x,
@@ -2617,6 +2610,36 @@ class BattleScene extends Phaser.Scene {
         movementCommandMode,
       );
     });
+  }
+
+  private resolveNearestVisibleEnemyTargetCell(
+    unitPosition: { x: number; y: number },
+    visibleEnemyTargets: ReadonlyArray<{
+      unitId: string;
+      x: number;
+      y: number;
+    }>,
+  ): GridCoordinate | null {
+    const target = findNearestEnemyUnitTarget(unitPosition, visibleEnemyTargets);
+    if (!target) {
+      return null;
+    }
+    return this.toCommandCell(target.x, target.y);
+  }
+
+  private resolveAutoAdvanceTargetCellForUnit(
+    unit: Unit,
+    targetCityCell: GridCoordinate,
+  ): GridCoordinate | null {
+    const autoAdvanceCells = this.buildAutoAdvanceCellsToContestedInfluence(
+      this.toCommandCell(unit.x, unit.y),
+      unit.team,
+      targetCityCell,
+    );
+    if (autoAdvanceCells.length === 0) {
+      return null;
+    }
+    return autoAdvanceCells[autoAdvanceCells.length - 1];
   }
 
   private isShiftHeld(pointer: Phaser.Input.Pointer): boolean {
