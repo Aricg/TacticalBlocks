@@ -107,6 +107,7 @@ import {
 } from './EnemyTargeting';
 import { AutoAdvanceTargetCycler } from './AutoAdvanceTargetCycler';
 import { buildAutoAdvanceTargetCityCells } from './AutoAdvanceTargets';
+import { buildSelectedUnitsForPlanning } from './SelectedUnitPlanning';
 import { type TerrainType, Unit } from './Unit';
 import {
   clearSelection as clearUnitSelection,
@@ -2459,13 +2460,10 @@ class BattleScene extends Phaser.Scene {
       return [];
     }
 
-    const selectedUnitsForPlanning = Array.from(this.unitsById.entries())
-      .filter(([, unit]) => this.selectedUnits.has(unit))
-      .map(([unitId, unit]) => ({
-        unitId,
-        x: unit.x,
-        y: unit.y,
-      }));
+    const selectedUnitsForPlanning = buildSelectedUnitsForPlanning(
+      this.unitsById,
+      this.selectedUnits,
+    );
     if (selectedUnitsForPlanning.length === 0) {
       return [];
     }
