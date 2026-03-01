@@ -927,15 +927,8 @@ class BattleScene extends Phaser.Scene {
   } {
     const worldX = Number.isFinite(pointer.worldX) ? pointer.worldX : dragX;
     const worldY = Number.isFinite(pointer.worldY) ? pointer.worldY : dragY;
-    const targetCell = worldToGridCoordinate(
-      worldX,
-      worldY,
-      BattleScene.UNIT_COMMAND_GRID_METRICS,
-    );
-    const snapped = gridToWorldCenter(
-      targetCell,
-      BattleScene.UNIT_COMMAND_GRID_METRICS,
-    );
+    const targetCell = this.toCommandCell(worldX, worldY);
+    const snapped = this.toCommandWorld(targetCell);
     return {
       targetCell,
       snappedX: snapped.x,
@@ -2344,6 +2337,18 @@ class BattleScene extends Phaser.Scene {
     this.clearPendingUnitPathCommand(unitId);
   }
 
+  private toCommandCell(worldX: number, worldY: number): GridCoordinate {
+    return worldToGridCoordinate(
+      worldX,
+      worldY,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
+  }
+
+  private toCommandWorld(cell: GridCoordinate): Phaser.Math.Vector2 {
+    return gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS);
+  }
+
   private stageUnitCommandToTargetCell(
     unitId: string,
     unitWorldX: number,
@@ -2351,19 +2356,13 @@ class BattleScene extends Phaser.Scene {
     targetCell: GridCoordinate,
     movementCommandMode?: NetworkUnitPathCommand['movementCommandMode'],
   ): void {
-    const unitCell = worldToGridCoordinate(
-      unitWorldX,
-      unitWorldY,
-      BattleScene.UNIT_COMMAND_GRID_METRICS,
-    );
+    const unitCell = this.toCommandCell(unitWorldX, unitWorldY);
     if (unitCell.col === targetCell.col && unitCell.row === targetCell.row) {
       this.clearPlannedAndPendingPathCommand(unitId);
       return;
     }
 
-    const unitPath = [
-      gridToWorldCenter(targetCell, BattleScene.UNIT_COMMAND_GRID_METRICS),
-    ];
+    const unitPath = [this.toCommandWorld(targetCell)];
     this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
   }
 
@@ -2377,11 +2376,7 @@ class BattleScene extends Phaser.Scene {
     }
 
     const movementCommandMode = buildMovementCommandMode(shiftHeld);
-    const sharedTargetCell = worldToGridCoordinate(
-      targetX,
-      targetY,
-      BattleScene.UNIT_COMMAND_GRID_METRICS,
-    );
+    const sharedTargetCell = this.toCommandCell(targetX, targetY);
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
       this.stageUnitCommandToTargetCell(
@@ -2407,11 +2402,7 @@ class BattleScene extends Phaser.Scene {
     }
 
     const commandRoute = path.map((point) =>
-      worldToGridCoordinate(
-        point.x,
-        point.y,
-        BattleScene.UNIT_COMMAND_GRID_METRICS,
-      ),
+      this.toCommandCell(point.x, point.y),
     );
     if (commandRoute.length === 0) {
       return;
@@ -2420,10 +2411,9 @@ class BattleScene extends Phaser.Scene {
     if (!formationCenter) {
       return;
     }
-    const formationAnchorCell = worldToGridCoordinate(
+    const formationAnchorCell = this.toCommandCell(
       formationCenter.x,
       formationCenter.y,
-      BattleScene.UNIT_COMMAND_GRID_METRICS,
     );
 
     const movementCommandMode = buildMovementCommandMode(shiftHeld, {
@@ -2431,11 +2421,7 @@ class BattleScene extends Phaser.Scene {
     });
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
-      const unitCell = worldToGridCoordinate(
-        unit.x,
-        unit.y,
-        BattleScene.UNIT_COMMAND_GRID_METRICS,
-      );
+      const unitCell = this.toCommandCell(unit.x, unit.y);
       const targetCells = translateGridRouteForUnit({
         route: commandRoute,
         formationAnchorCell,
@@ -2454,9 +2440,7 @@ class BattleScene extends Phaser.Scene {
         this.clearPlannedAndPendingPathCommand(unitId);
         return;
       }
-      const unitPath = targetCells.map((cell) =>
-        gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
-      );
+      const unitPath = targetCells.map((cell) => this.toCommandWorld(cell));
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
     });
   }
@@ -2517,10 +2501,9 @@ class BattleScene extends Phaser.Scene {
       if (!unit || !this.selectedUnits.has(unit)) {
         continue;
       }
-      const targetCell = worldToGridCoordinate(
+      const targetCell = this.toCommandCell(
         assignment.slot.x,
         assignment.slot.y,
-        BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
       this.stageUnitCommandToTargetCell(
         assignment.unitId,
@@ -2548,11 +2531,7 @@ class BattleScene extends Phaser.Scene {
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
       const autoAdvanceCells = this.buildAutoAdvanceCellsToContestedInfluence(
-        worldToGridCoordinate(
-          unit.x,
-          unit.y,
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
-        ),
+        this.toCommandCell(unit.x, unit.y),
         unit.team,
         targetCityCell,
       );
@@ -2601,11 +2580,7 @@ class BattleScene extends Phaser.Scene {
         return;
       }
 
-      const targetCell = worldToGridCoordinate(
-        target.x,
-        target.y,
-        BattleScene.UNIT_COMMAND_GRID_METRICS,
-      );
+      const targetCell = this.toCommandCell(target.x, target.y);
       this.stageUnitCommandToTargetCell(
         unitId,
         unitPosition.x,
@@ -2733,16 +2708,11 @@ class BattleScene extends Phaser.Scene {
       path,
       BattleScene.UNIT_COMMAND_GRID_METRICS,
     );
-    return gridRoute.map((cell) =>
-      gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
-    );
+    return gridRoute.map((cell) => this.toCommandWorld(cell));
   }
 
   private getCityWorldPosition(team: Team): Phaser.Math.Vector2 {
-    return gridToWorldCenter(
-      this.getCityGridCoordinate(team),
-      BattleScene.UNIT_COMMAND_GRID_METRICS,
-    );
+    return this.toCommandWorld(this.getCityGridCoordinate(team));
   }
 
   private getCityGridCoordinate(team: Team): GridCoordinate {
@@ -2794,11 +2764,7 @@ class BattleScene extends Phaser.Scene {
 
     const formationCenter = getFormationCenter(this.selectedUnits);
     const formationCell = formationCenter
-      ? worldToGridCoordinate(
-          formationCenter.x,
-          formationCenter.y,
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
-        )
+      ? this.toCommandCell(formationCenter.x, formationCenter.y)
       : null;
 
     return this.autoAdvanceTargetCycler.select({
@@ -2822,12 +2788,7 @@ class BattleScene extends Phaser.Scene {
       if (this.neutralCityOwners[index] !== ownerTeam) {
         continue;
       }
-      positions.push(
-        gridToWorldCenter(
-          this.neutralCityGridCoordinates[index],
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
-        ),
-      );
+      positions.push(this.toCommandWorld(this.neutralCityGridCoordinates[index]));
     }
     return positions;
   }
@@ -2859,9 +2820,7 @@ class BattleScene extends Phaser.Scene {
           continue;
         }
         seenSupplyCells.add(cellKey);
-        supplyVisionPositions.push(
-          gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
-        );
+        supplyVisionPositions.push(this.toCommandWorld(cell));
       }
     }
 
