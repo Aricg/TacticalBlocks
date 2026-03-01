@@ -101,6 +101,10 @@ import {
   type GridCoordinate,
   type UnitCommandPlannerGridMetrics,
 } from './UnitCommandPlanner';
+import {
+  findNearestEnemyUnitTarget,
+  type EnemyUnitTarget,
+} from './EnemyTargeting';
 import { type TerrainType, Unit } from './Unit';
 import {
   clearSelection as clearUnitSelection,
@@ -2585,7 +2589,7 @@ class BattleScene extends Phaser.Scene {
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitPosition = this.getAuthoritativeUnitPosition(unit);
-      const target = this.getNearestVisibleEnemyUnitTarget(
+      const target = findNearestEnemyUnitTarget(
         unitPosition,
         visibleEnemyTargets,
       );
@@ -2608,12 +2612,8 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
-  private getVisibleEnemyUnitTargets(): Array<{
-    unitId: string;
-    x: number;
-    y: number;
-  }> {
-    const visibleEnemyTargets: Array<{ unitId: string; x: number; y: number }> = [];
+  private getVisibleEnemyUnitTargets(): EnemyUnitTarget[] {
+    const visibleEnemyTargets: EnemyUnitTarget[] = [];
     for (const [unitId, unit] of this.unitsById) {
       if (
         unit.team === this.localPlayerTeam ||
@@ -2631,34 +2631,6 @@ class BattleScene extends Phaser.Scene {
       });
     }
     return visibleEnemyTargets;
-  }
-
-  private getNearestVisibleEnemyUnitTarget(
-    unitPosition: { x: number; y: number },
-    visibleEnemyTargets: ReadonlyArray<{ unitId: string; x: number; y: number }>,
-  ): { unitId: string; x: number; y: number } | null {
-    let nearestTarget: { unitId: string; x: number; y: number } | null = null;
-    let nearestDistanceSquared = Number.POSITIVE_INFINITY;
-
-    for (const target of visibleEnemyTargets) {
-      const distanceSquared =
-        (unitPosition.x - target.x) * (unitPosition.x - target.x)
-        + (unitPosition.y - target.y) * (unitPosition.y - target.y);
-      if (distanceSquared < nearestDistanceSquared) {
-        nearestDistanceSquared = distanceSquared;
-        nearestTarget = target;
-        continue;
-      }
-      if (
-        distanceSquared === nearestDistanceSquared &&
-        nearestTarget &&
-        target.unitId.localeCompare(nearestTarget.unitId) < 0
-      ) {
-        nearestTarget = target;
-      }
-    }
-
-    return nearestTarget;
   }
 
   private isShiftHeld(pointer: Phaser.Input.Pointer): boolean {
