@@ -102,8 +102,8 @@ import {
   type UnitCommandPlannerGridMetrics,
 } from './UnitCommandPlanner';
 import {
+  collectVisibleEnemyUnitTargets,
   findNearestEnemyUnitTarget,
-  type EnemyUnitTarget,
 } from './EnemyTargeting';
 import { AutoAdvanceTargetCycler } from './AutoAdvanceTargetCycler';
 import { type TerrainType, Unit } from './Unit';
@@ -2590,7 +2590,11 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const visibleEnemyTargets = this.getVisibleEnemyUnitTargets();
+    const visibleEnemyTargets = collectVisibleEnemyUnitTargets(
+      this.unitsById,
+      this.localPlayerTeam,
+      (unit) => this.getAuthoritativeUnitPosition(unit),
+    );
     if (visibleEnemyTargets.length === 0) {
       return;
     }
@@ -2622,27 +2626,6 @@ class BattleScene extends Phaser.Scene {
         movementCommandMode,
       );
     });
-  }
-
-  private getVisibleEnemyUnitTargets(): EnemyUnitTarget[] {
-    const visibleEnemyTargets: EnemyUnitTarget[] = [];
-    for (const [unitId, unit] of this.unitsById) {
-      if (
-        unit.team === this.localPlayerTeam ||
-        !unit.isAlive() ||
-        !unit.visible
-      ) {
-        continue;
-      }
-
-      const position = this.getAuthoritativeUnitPosition(unit);
-      visibleEnemyTargets.push({
-        unitId,
-        x: position.x,
-        y: position.y,
-      });
-    }
-    return visibleEnemyTargets;
   }
 
   private isShiftHeld(pointer: Phaser.Input.Pointer): boolean {
