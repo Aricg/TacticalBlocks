@@ -589,21 +589,7 @@ class BattleScene extends Phaser.Scene {
         this.influenceRenderer.destroy();
         this.influenceRenderer = null;
       }
-      for (const city of this.cities) {
-        city.destroy();
-      }
-      for (const marker of this.supplyDepotMarkersByCityZoneId.values()) {
-        marker.destroy();
-      }
-      for (const supplyText of this.supplyDepotSupplyTextsByCityZoneId.values()) {
-        supplyText.destroy();
-      }
-      this.cities.length = 0;
-      this.neutralCities.length = 0;
-      this.supplyDepotMarkersByCityZoneId.clear();
-      this.supplyDepotSupplyTextsByCityZoneId.clear();
-      this.cityByHomeTeam[Team.RED] = null;
-      this.cityByHomeTeam[Team.BLUE] = null;
+      this.clearCityAndSupplyDepotDisplayState();
       this.neutralCityOwners = this.neutralCityGridCoordinates.map(
         () => 'NEUTRAL',
       );
@@ -614,8 +600,6 @@ class BattleScene extends Phaser.Scene {
       this.supplyLinesByUnitId.clear();
       this.farmCitySupplyLinesByLinkId.clear();
       this.citySupplyDepotLinesByZoneId.clear();
-      this.lastSentSupplyDepotCellByCityZoneId.clear();
-      this.activeSupplyDepotDragCityZoneId = null;
       this.syncSupplyLinesToInfluenceRenderer();
       this.tuningPanel?.destroy();
       this.tuningPanel = null;
@@ -790,6 +774,11 @@ class BattleScene extends Phaser.Scene {
   }
 
   private rebuildCitiesForCurrentMap(): void {
+    this.clearCityAndSupplyDepotDisplayState();
+    this.createCities();
+  }
+
+  private clearCityAndSupplyDepotDisplayState(): void {
     for (const city of this.cities) {
       city.destroy();
     }
@@ -807,7 +796,6 @@ class BattleScene extends Phaser.Scene {
     this.cityByHomeTeam[Team.BLUE] = null;
     this.lastSentSupplyDepotCellByCityZoneId.clear();
     this.activeSupplyDepotDragCityZoneId = null;
-    this.createCities();
   }
 
   private isSupplyDepotLocallyDraggable(owner: 'BLUE' | 'RED' | 'NEUTRAL'): boolean {
