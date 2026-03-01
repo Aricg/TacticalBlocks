@@ -2405,6 +2405,14 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
+  private buildEnemyAdvanceMovementCommandMode(
+    shiftHeld: boolean,
+  ): NetworkUnitPathCommand['movementCommandMode'] {
+    return buildMovementCommandMode(shiftHeld, {
+      preferRoads: false,
+    });
+  }
+
   private commandSelectedUnits(
     targetX: number,
     targetY: number,
@@ -2549,9 +2557,7 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
-      preferRoads: false,
-    });
+    const movementCommandMode = this.buildEnemyAdvanceMovementCommandMode(shiftHeld);
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
       const autoAdvanceCells = this.buildAutoAdvanceCellsToContestedInfluence(
@@ -2590,9 +2596,7 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
-      preferRoads: false,
-    });
+    const movementCommandMode = this.buildEnemyAdvanceMovementCommandMode(shiftHeld);
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitPosition = this.getAuthoritativeUnitPosition(unit);
