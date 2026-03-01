@@ -2660,11 +2660,7 @@ class BattleScene extends Phaser.Scene {
         return;
       }
 
-      if (this.syncPlannedPathToServerRoute) {
-        this.pendingPathServerSyncByUnitId.add(unitId);
-      } else {
-        this.pendingPathServerSyncByUnitId.delete(unitId);
-      }
+      this.applyPendingPathServerSyncIntent(unitId);
       networkManager.sendUnitPathCommand(pendingCommand);
       this.pendingUnitPathCommandsByUnitId.delete(unitId);
       engagedPendingCommand = true;
@@ -2681,6 +2677,14 @@ class BattleScene extends Phaser.Scene {
 
   private clearPendingUnitPathCommand(unitId: string): void {
     this.pendingUnitPathCommandsByUnitId.delete(unitId);
+    this.pendingPathServerSyncByUnitId.delete(unitId);
+  }
+
+  private applyPendingPathServerSyncIntent(unitId: string): void {
+    if (this.syncPlannedPathToServerRoute) {
+      this.pendingPathServerSyncByUnitId.add(unitId);
+      return;
+    }
     this.pendingPathServerSyncByUnitId.delete(unitId);
   }
 
