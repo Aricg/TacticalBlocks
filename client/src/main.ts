@@ -2629,8 +2629,7 @@ class BattleScene extends Phaser.Scene {
     }
 
     this.forEachSelectedUnitEntry((unitId) => {
-      this.networkManager?.sendUnitCancelMovement(unitId);
-      this.clearPlannedAndPendingPathCommand(unitId);
+      this.cancelAndClearUnitMovementCommand(unitId);
     });
   }
 
@@ -2644,8 +2643,7 @@ class BattleScene extends Phaser.Scene {
       if (unit.team !== this.localPlayerTeam) {
         continue;
       }
-      this.networkManager?.sendUnitCancelMovement(unitId);
-      this.clearPlannedAndPendingPathCommand(unitId);
+      this.cancelAndClearUnitMovementCommand(unitId);
     }
   }
 
@@ -2684,6 +2682,11 @@ class BattleScene extends Phaser.Scene {
   private clearPendingUnitPathCommand(unitId: string): void {
     this.pendingUnitPathCommandsByUnitId.delete(unitId);
     this.pendingPathServerSyncByUnitId.delete(unitId);
+  }
+
+  private cancelAndClearUnitMovementCommand(unitId: string): void {
+    this.networkManager?.sendUnitCancelMovement(unitId);
+    this.clearPlannedAndPendingPathCommand(unitId);
   }
 
   private clearAllPendingUnitPathCommands(): void {
