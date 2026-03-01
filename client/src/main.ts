@@ -877,19 +877,13 @@ class BattleScene extends Phaser.Scene {
         if (this.activeSupplyDepotDragCityZoneId !== cityZoneId) {
           return;
         }
-        const worldX = Number.isFinite(pointer.worldX) ? pointer.worldX : dragX;
-        const worldY = Number.isFinite(pointer.worldY) ? pointer.worldY : dragY;
-        const targetCell = worldToGridCoordinate(
-          worldX,
-          worldY,
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
+        const { targetCell, snappedX, snappedY } = this.resolveSnappedSupplyDepotDragPosition(
+          pointer,
+          dragX,
+          dragY,
         );
-        const snapped = gridToWorldCenter(
-          targetCell,
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
-        );
-        marker.setPosition(snapped.x, snapped.y);
-        this.positionSupplyDepotSupplyText(cityZoneId, snapped.x, snapped.y);
+        marker.setPosition(snappedX, snappedY);
+        this.positionSupplyDepotSupplyText(cityZoneId, snappedX, snappedY);
         this.sendSupplyDepotMoveCommand(cityZoneId, targetCell);
       },
     );
@@ -899,19 +893,13 @@ class BattleScene extends Phaser.Scene {
         if (this.activeSupplyDepotDragCityZoneId !== cityZoneId) {
           return;
         }
-        const worldX = Number.isFinite(pointer.worldX) ? pointer.worldX : dragX;
-        const worldY = Number.isFinite(pointer.worldY) ? pointer.worldY : dragY;
-        const targetCell = worldToGridCoordinate(
-          worldX,
-          worldY,
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
+        const { targetCell, snappedX, snappedY } = this.resolveSnappedSupplyDepotDragPosition(
+          pointer,
+          dragX,
+          dragY,
         );
-        const snapped = gridToWorldCenter(
-          targetCell,
-          BattleScene.UNIT_COMMAND_GRID_METRICS,
-        );
-        marker.setPosition(snapped.x, snapped.y);
-        this.positionSupplyDepotSupplyText(cityZoneId, snapped.x, snapped.y);
+        marker.setPosition(snappedX, snappedY);
+        this.positionSupplyDepotSupplyText(cityZoneId, snappedX, snappedY);
         this.sendSupplyDepotMoveCommand(cityZoneId, targetCell, true);
         this.activeSupplyDepotDragCityZoneId = null;
       },
@@ -938,6 +926,33 @@ class BattleScene extends Phaser.Scene {
     text.setDepth(BattleScene.SUPPLY_DEPOT_SUPPLY_TEXT_DEPTH);
     this.supplyDepotSupplyTextsByCityZoneId.set(cityZoneId, text);
     return text;
+  }
+
+  private resolveSnappedSupplyDepotDragPosition(
+    pointer: Phaser.Input.Pointer,
+    dragX: number,
+    dragY: number,
+  ): {
+    targetCell: GridCoordinate;
+    snappedX: number;
+    snappedY: number;
+  } {
+    const worldX = Number.isFinite(pointer.worldX) ? pointer.worldX : dragX;
+    const worldY = Number.isFinite(pointer.worldY) ? pointer.worldY : dragY;
+    const targetCell = worldToGridCoordinate(
+      worldX,
+      worldY,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
+    const snapped = gridToWorldCenter(
+      targetCell,
+      BattleScene.UNIT_COMMAND_GRID_METRICS,
+    );
+    return {
+      targetCell,
+      snappedX: snapped.x,
+      snappedY: snapped.y,
+    };
   }
 
   private positionSupplyDepotSupplyText(
