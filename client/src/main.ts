@@ -2394,6 +2394,16 @@ class BattleScene extends Phaser.Scene {
     this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
   }
 
+  private buildSelectionMovementCommandMode(
+    shiftHeld: boolean,
+    overrides: Parameters<typeof buildMovementCommandMode>[1] = {},
+  ): NetworkUnitPathCommand['movementCommandMode'] {
+    return buildMovementCommandMode(shiftHeld, {
+      preferRoads: this.selectedUnits.size <= 1,
+      ...overrides,
+    });
+  }
+
   private commandSelectedUnits(
     targetX: number,
     targetY: number,
@@ -2443,9 +2453,7 @@ class BattleScene extends Phaser.Scene {
       formationCenter.y,
     );
 
-    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
-      preferRoads: this.selectedUnits.size <= 1,
-    });
+    const movementCommandMode = this.buildSelectionMovementCommandMode(shiftHeld);
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitCell = this.toCommandCell(unit.x, unit.y);
@@ -2507,8 +2515,7 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const movementCommandMode = buildMovementCommandMode(shiftHeld, {
-      preferRoads: this.selectedUnits.size <= 1,
+    const movementCommandMode = this.buildSelectionMovementCommandMode(shiftHeld, {
       directPathing: true,
     });
 
