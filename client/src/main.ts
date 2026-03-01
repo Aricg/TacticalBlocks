@@ -2379,6 +2379,22 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
+  private forEachSelectedUnitEntry(
+    visitor: (unitId: string, unit: Unit) => void,
+  ): void {
+    for (const [unitId, unit] of this.unitsById) {
+      if (!this.selectedUnits.has(unit)) {
+        continue;
+      }
+      visitor(unitId, unit);
+    }
+  }
+
+  private clearPlannedAndPendingPathCommand(unitId: string): void {
+    this.plannedPathsByUnitId.delete(unitId);
+    this.clearPendingUnitPathCommand(unitId);
+  }
+
   private commandSelectedUnits(
     targetX: number,
     targetY: number,
@@ -2395,10 +2411,7 @@ class BattleScene extends Phaser.Scene {
       BattleScene.UNIT_COMMAND_GRID_METRICS,
     );
 
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
+    this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitCell = worldToGridCoordinate(
         unit.x,
         unit.y,
@@ -2408,15 +2421,14 @@ class BattleScene extends Phaser.Scene {
         unitCell.col === sharedTargetCell.col &&
         unitCell.row === sharedTargetCell.row
       ) {
-        this.plannedPathsByUnitId.delete(unitId);
-        this.clearPendingUnitPathCommand(unitId);
-        continue;
+        this.clearPlannedAndPendingPathCommand(unitId);
+        return;
       }
       const unitPath = [sharedTargetCell].map((cell) =>
         gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
-    }
+    });
   }
 
   private commandSelectedUnitsAlongPath(
@@ -2455,10 +2467,7 @@ class BattleScene extends Phaser.Scene {
       preferRoads: this.selectedUnits.size <= 1,
     });
 
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
+    this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitCell = worldToGridCoordinate(
         unit.x,
         unit.y,
@@ -2471,24 +2480,22 @@ class BattleScene extends Phaser.Scene {
         grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
       });
       if (targetCells.length === 0) {
-        this.plannedPathsByUnitId.delete(unitId);
-        this.clearPendingUnitPathCommand(unitId);
-        continue;
+        this.clearPlannedAndPendingPathCommand(unitId);
+        return;
       }
       if (
         targetCells.length === 1 &&
         unitCell.col === targetCells[0].col &&
         unitCell.row === targetCells[0].row
       ) {
-        this.plannedPathsByUnitId.delete(unitId);
-        this.clearPendingUnitPathCommand(unitId);
-        continue;
+        this.clearPlannedAndPendingPathCommand(unitId);
+        return;
       }
       const unitPath = targetCells.map((cell) =>
         gridToWorldCenter(cell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       );
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
-    }
+    });
   }
 
   private getFormationAreaAssignmentsForSelectedUnits(
@@ -2558,8 +2565,7 @@ class BattleScene extends Phaser.Scene {
         BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
       if (unitCell.col === targetCell.col && unitCell.row === targetCell.row) {
-        this.plannedPathsByUnitId.delete(assignment.unitId);
-        this.clearPendingUnitPathCommand(assignment.unitId);
+        this.clearPlannedAndPendingPathCommand(assignment.unitId);
         continue;
       }
       const unitPath = [
@@ -2583,11 +2589,7 @@ class BattleScene extends Phaser.Scene {
       preferRoads: false,
     });
 
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
-
+    this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitCell = worldToGridCoordinate(
         unit.x,
         unit.y,
@@ -2599,7 +2601,7 @@ class BattleScene extends Phaser.Scene {
         targetCityCell,
       );
       if (autoAdvanceCells.length === 0) {
-        continue;
+        return;
       }
 
       const targetCell = autoAdvanceCells[autoAdvanceCells.length - 1];
@@ -2607,7 +2609,7 @@ class BattleScene extends Phaser.Scene {
         gridToWorldCenter(targetCell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       ];
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
-    }
+    });
   }
 
   private commandSelectedUnitsTowardNearestVisibleEnemyUnit(
@@ -2626,18 +2628,14 @@ class BattleScene extends Phaser.Scene {
       preferRoads: false,
     });
 
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
-
+    this.forEachSelectedUnitEntry((unitId, unit) => {
       const unitPosition = this.getAuthoritativeUnitPosition(unit);
       const target = this.getNearestVisibleEnemyUnitTarget(
         unitPosition,
         visibleEnemyTargets,
       );
       if (!target) {
-        continue;
+        return;
       }
 
       const unitCell = worldToGridCoordinate(
@@ -2651,16 +2649,15 @@ class BattleScene extends Phaser.Scene {
         BattleScene.UNIT_COMMAND_GRID_METRICS,
       );
       if (unitCell.col === targetCell.col && unitCell.row === targetCell.row) {
-        this.plannedPathsByUnitId.delete(unitId);
-        this.clearPendingUnitPathCommand(unitId);
-        continue;
+        this.clearPlannedAndPendingPathCommand(unitId);
+        return;
       }
 
       const unitPath = [
         gridToWorldCenter(targetCell, BattleScene.UNIT_COMMAND_GRID_METRICS),
       ];
       this.stageUnitPathCommand(unitId, unitPath, movementCommandMode);
-    }
+    });
   }
 
   private getVisibleEnemyUnitTargets(): Array<{
@@ -2729,14 +2726,10 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
+    this.forEachSelectedUnitEntry((unitId) => {
       this.networkManager?.sendUnitCancelMovement(unitId);
-      this.plannedPathsByUnitId.delete(unitId);
-      this.clearPendingUnitPathCommand(unitId);
-    }
+      this.clearPlannedAndPendingPathCommand(unitId);
+    });
   }
 
   private clearAllQueuedMovement(): void {
@@ -2750,25 +2743,21 @@ class BattleScene extends Phaser.Scene {
         continue;
       }
       this.networkManager?.sendUnitCancelMovement(unitId);
-      this.plannedPathsByUnitId.delete(unitId);
-      this.clearPendingUnitPathCommand(unitId);
+      this.clearPlannedAndPendingPathCommand(unitId);
     }
   }
 
   private engageSelectedUnitMovement(): void {
-    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !this.networkManager) {
+    const networkManager = this.networkManager;
+    if (!this.isBattleActive() || this.selectedUnits.size === 0 || !networkManager) {
       return;
     }
 
     let engagedPendingCommand = false;
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
-
+    this.forEachSelectedUnitEntry((unitId) => {
       const pendingCommand = this.pendingUnitPathCommandsByUnitId.get(unitId);
       if (!pendingCommand) {
-        continue;
+        return;
       }
 
       if (this.syncPlannedPathToServerRoute) {
@@ -2776,21 +2765,18 @@ class BattleScene extends Phaser.Scene {
       } else {
         this.pendingPathServerSyncByUnitId.delete(unitId);
       }
-      this.networkManager.sendUnitPathCommand(pendingCommand);
+      networkManager.sendUnitPathCommand(pendingCommand);
       this.pendingUnitPathCommandsByUnitId.delete(unitId);
       engagedPendingCommand = true;
-    }
+    });
 
     if (engagedPendingCommand) {
       return;
     }
 
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
-      this.networkManager.sendUnitToggleMovementPause(unitId);
-    }
+    this.forEachSelectedUnitEntry((unitId) => {
+      networkManager.sendUnitToggleMovementPause(unitId);
+    });
   }
 
   private clearPendingUnitPathCommand(unitId: string): void {
@@ -2891,12 +2877,9 @@ class BattleScene extends Phaser.Scene {
 
   private getSelectedUnitIdsSorted(): string[] {
     const selectedUnitIds: string[] = [];
-    for (const [unitId, unit] of this.unitsById) {
-      if (!this.selectedUnits.has(unit)) {
-        continue;
-      }
+    this.forEachSelectedUnitEntry((unitId) => {
       selectedUnitIds.push(unitId);
-    }
+    });
     selectedUnitIds.sort();
     return selectedUnitIds;
   }
