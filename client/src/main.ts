@@ -69,6 +69,7 @@ import {
   type MoraleBreakdownOverlayData,
 } from './MoraleBreakdownOverlay';
 import { PathPreviewRenderer } from './PathPreviewRenderer';
+import { SelectionOverlayRenderer } from './SelectionOverlayRenderer';
 import { RuntimeTuningPanel } from './RuntimeTuningPanel';
 import { Team } from './Team';
 import { ControlsOverlay } from './ControlsOverlay';
@@ -228,11 +229,10 @@ class BattleScene extends Phaser.Scene {
   private hasExitedBattle = false;
   private lobbyPlayers: LobbyOverlayPlayerView[] = [];
   private inputController: BattleInputController | null = null;
+  private selectionOverlayRenderer: SelectionOverlayRenderer | null = null;
   private pathPreviewRenderer: PathPreviewRenderer | null = null;
   private fogOfWarController: FogOfWarController | null = null;
   private lobbyOverlayController: LobbyOverlayController | null = null;
-  private selectionBox!: Phaser.GameObjects.Graphics;
-  private formationAreaPreview!: Phaser.GameObjects.Graphics;
   private movementLines!: Phaser.GameObjects.Graphics;
   private influenceRenderer: InfluenceRenderer | null = null;
   private moraleBreakdownOverlay: MoraleBreakdownOverlay | null = null;
@@ -383,10 +383,22 @@ class BattleScene extends Phaser.Scene {
       this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
     this.createCities();
 
-    this.selectionBox = this.add.graphics();
-    this.selectionBox.setDepth(1000);
-    this.formationAreaPreview = this.add.graphics();
-    this.formationAreaPreview.setDepth(BattleScene.FORMATION_PREVIEW_DEPTH);
+    this.selectionOverlayRenderer = new SelectionOverlayRenderer(this, {
+      selectionBoxDepth: 1000,
+      selectionFillColor: 0xffffff,
+      selectionFillAlpha: 0.12,
+      selectionStrokeWidth: 1,
+      selectionStrokeColor: 0xffffff,
+      selectionStrokeAlpha: 0.9,
+      formationAreaDepth: BattleScene.FORMATION_PREVIEW_DEPTH,
+      formationFillColor: BattleScene.FORMATION_PREVIEW_FILL_COLOR,
+      formationFillAlpha: BattleScene.FORMATION_PREVIEW_FILL_ALPHA,
+      formationStrokeWidth: BattleScene.FORMATION_PREVIEW_STROKE_WIDTH,
+      formationStrokeColor: BattleScene.FORMATION_PREVIEW_STROKE_COLOR,
+      formationStrokeAlpha: BattleScene.FORMATION_PREVIEW_STROKE_ALPHA,
+      formationSlotWidth: BattleScene.FORMATION_PREVIEW_SLOT_WIDTH,
+      formationSlotHeight: BattleScene.FORMATION_PREVIEW_SLOT_HEIGHT,
+    });
     this.pathPreviewRenderer = new PathPreviewRenderer(this, {
       depth: 950,
       previewPointSpacing: BattleScene.PREVIEW_PATH_POINT_SPACING,
@@ -630,7 +642,8 @@ class BattleScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.inputController?.destroy();
       this.inputController = null;
-      this.formationAreaPreview?.destroy();
+      this.selectionOverlayRenderer?.destroy();
+      this.selectionOverlayRenderer = null;
       this.pathPreviewRenderer?.destroy();
       this.pathPreviewRenderer = null;
       this.fogOfWarController?.destroy();
@@ -2267,25 +2280,15 @@ class BattleScene extends Phaser.Scene {
     currentX: number,
     currentY: number,
   ): void {
-    const minX = Math.min(startX, currentX);
-    const minY = Math.min(startY, currentY);
-    const width = Math.abs(currentX - startX);
-    const height = Math.abs(currentY - startY);
-
-    this.selectionBox.clear();
-    this.selectionBox.fillStyle(0xffffff, 0.12);
-    this.selectionBox.lineStyle(1, 0xffffff, 0.9);
-    this.selectionBox.fillRect(minX, minY, width, height);
-    this.selectionBox.strokeRect(minX, minY, width, height);
+    this.selectionOverlayRenderer?.drawSelectionBox(startX, startY, currentX, currentY);
   }
 
   private clearSelectionBox(): void {
-    this.selectionBox.clear();
-    this.clearFormationAreaPreview();
+    this.selectionOverlayRenderer?.clearSelectionBox();
   }
 
   private clearFormationAreaPreview(): void {
-    this.formationAreaPreview.clear();
+    this.selectionOverlayRenderer?.clearFormationAreaPreview();
   }
 
   private drawFormationAreaPreview(
@@ -2300,40 +2303,7 @@ class BattleScene extends Phaser.Scene {
       endX,
       endY,
     );
-    this.formationAreaPreview.clear();
-    if (assignments.length === 0) {
-      return;
-    }
-
-    const slotWidth = BattleScene.FORMATION_PREVIEW_SLOT_WIDTH;
-    const slotHeight = BattleScene.FORMATION_PREVIEW_SLOT_HEIGHT;
-    const halfSlotWidth = slotWidth * 0.5;
-    const halfSlotHeight = slotHeight * 0.5;
-    this.formationAreaPreview.fillStyle(
-      BattleScene.FORMATION_PREVIEW_FILL_COLOR,
-      BattleScene.FORMATION_PREVIEW_FILL_ALPHA,
-    );
-    this.formationAreaPreview.lineStyle(
-      BattleScene.FORMATION_PREVIEW_STROKE_WIDTH,
-      BattleScene.FORMATION_PREVIEW_STROKE_COLOR,
-      BattleScene.FORMATION_PREVIEW_STROKE_ALPHA,
-    );
-    for (const assignment of assignments) {
-      const x = assignment.slot.x;
-      const y = assignment.slot.y;
-      this.formationAreaPreview.fillRect(
-        x - halfSlotWidth,
-        y - halfSlotHeight,
-        slotWidth,
-        slotHeight,
-      );
-      this.formationAreaPreview.strokeRect(
-        x - halfSlotWidth,
-        y - halfSlotHeight,
-        slotWidth,
-        slotHeight,
-      );
-    }
+    this.selectionOverlayRenderer?.drawFormationAreaPreview(assignments);
   }
 
   private selectOnlyUnit(unit: Unit): void {
