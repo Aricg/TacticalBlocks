@@ -2755,14 +2755,18 @@ class BattleScene extends Phaser.Scene {
     return { col: cityCell.col, row: cityCell.row };
   }
 
+  private getHomeCityGridByTeam(): Record<Team, GridCoordinate> {
+    return {
+      [Team.RED]: this.getCityGridCoordinate(Team.RED),
+      [Team.BLUE]: this.getCityGridCoordinate(Team.BLUE),
+    };
+  }
+
   private getAutoAdvanceTargetCityCells(friendlyTeam: Team): GridCoordinate[] {
     return buildAutoAdvanceTargetCityCells({
       friendlyTeam,
       cityOwnerByHomeTeam: this.cityOwnerByHomeTeam,
-      homeCityGridByTeam: {
-        [Team.RED]: this.getCityGridCoordinate(Team.RED),
-        [Team.BLUE]: this.getCityGridCoordinate(Team.BLUE),
-      },
+      homeCityGridByTeam: this.getHomeCityGridByTeam(),
       neutralCityOwners: this.neutralCityOwners,
       neutralCityGridCoordinates: this.neutralCityGridCoordinates,
     });
@@ -2799,10 +2803,7 @@ class BattleScene extends Phaser.Scene {
     const ownedCityCells = buildOwnedCityCells({
       ownerTeam,
       cityOwnerByHomeTeam: this.cityOwnerByHomeTeam,
-      homeCityGridByTeam: {
-        [Team.RED]: this.getCityGridCoordinate(Team.RED),
-        [Team.BLUE]: this.getCityGridCoordinate(Team.BLUE),
-      },
+      homeCityGridByTeam: this.getHomeCityGridByTeam(),
       neutralCityOwners: this.neutralCityOwners,
       neutralCityGridCoordinates: this.neutralCityGridCoordinates,
     });
