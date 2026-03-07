@@ -2560,20 +2560,20 @@ class BattleScene extends Phaser.Scene {
 
     const movementCommandMode = this.buildEnemyAdvanceMovementCommandMode(shiftHeld);
 
-    this.forEachSelectedUnitEntry((unitId, unit) => {
-      const targetCell = this.resolveAutoAdvanceTargetCellForUnit(unit, targetCityCell);
-      if (!targetCell) {
-        return;
-      }
-
-      this.stageUnitCommandToTargetCell(
-        unitId,
-        unit.x,
-        unit.y,
-        targetCell,
-        movementCommandMode,
-      );
-    });
+    this.stageSelectedUnitsForResolvedTargetCells(
+      (unit) => {
+        const targetCell = this.resolveAutoAdvanceTargetCellForUnit(unit, targetCityCell);
+        if (!targetCell) {
+          return null;
+        }
+        return {
+          originX: unit.x,
+          originY: unit.y,
+          targetCell,
+        };
+      },
+      movementCommandMode,
+    );
   }
 
   private commandSelectedUnitsTowardNearestVisibleEnemyUnit(
@@ -2590,20 +2590,44 @@ class BattleScene extends Phaser.Scene {
 
     const movementCommandMode = this.buildEnemyAdvanceMovementCommandMode(shiftHeld);
 
+    this.stageSelectedUnitsForResolvedTargetCells(
+      (unit) => {
+        const unitPosition = this.getAuthoritativeUnitPosition(unit);
+        const targetCell = this.resolveNearestVisibleEnemyTargetCell(
+          unitPosition,
+          visibleEnemyTargets,
+        );
+        if (!targetCell) {
+          return null;
+        }
+        return {
+          originX: unitPosition.x,
+          originY: unitPosition.y,
+          targetCell,
+        };
+      },
+      movementCommandMode,
+    );
+  }
+
+  private stageSelectedUnitsForResolvedTargetCells(
+    resolveTarget: (unit: Unit) => {
+      originX: number;
+      originY: number;
+      targetCell: GridCoordinate;
+    } | null,
+    movementCommandMode?: NetworkUnitPathCommand['movementCommandMode'],
+  ): void {
     this.forEachSelectedUnitEntry((unitId, unit) => {
-      const unitPosition = this.getAuthoritativeUnitPosition(unit);
-      const targetCell = this.resolveNearestVisibleEnemyTargetCell(
-        unitPosition,
-        visibleEnemyTargets,
-      );
-      if (!targetCell) {
+      const commandTarget = resolveTarget(unit);
+      if (!commandTarget) {
         return;
       }
       this.stageUnitCommandToTargetCell(
         unitId,
-        unitPosition.x,
-        unitPosition.y,
-        targetCell,
+        commandTarget.originX,
+        commandTarget.originY,
+        commandTarget.targetCell,
         movementCommandMode,
       );
     });
