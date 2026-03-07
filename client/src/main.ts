@@ -2466,12 +2466,10 @@ class BattleScene extends Phaser.Scene {
     const movementCommandMode = this.buildSelectionMovementCommandMode(shiftHeld);
 
     this.forEachSelectedUnitEntry((unitId, unit) => {
-      const unitCell = this.toCommandCell(unit.x, unit.y);
-      const targetCells = translateGridRouteForUnit({
-        route: commandRoute,
+      const { unitCell, targetCells } = this.resolveTranslatedRouteForUnit({
+        unit,
+        commandRoute,
         formationAnchorCell,
-        unitCell,
-        grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
       });
       this.stageUnitCommandForTargetCells(
         unitId,
@@ -2480,6 +2478,24 @@ class BattleScene extends Phaser.Scene {
         movementCommandMode,
       );
     });
+  }
+
+  private resolveTranslatedRouteForUnit(params: {
+    unit: Unit;
+    commandRoute: ReadonlyArray<GridCoordinate>;
+    formationAnchorCell: GridCoordinate;
+  }): {
+    unitCell: GridCoordinate;
+    targetCells: GridCoordinate[];
+  } {
+    const unitCell = this.toCommandCell(params.unit.x, params.unit.y);
+    const targetCells = translateGridRouteForUnit({
+      route: params.commandRoute,
+      formationAnchorCell: params.formationAnchorCell,
+      unitCell,
+      grid: BattleScene.UNIT_COMMAND_GRID_METRICS,
+    });
+    return { unitCell, targetCells };
   }
 
   private getFormationAreaAssignmentsForSelectedUnits(
