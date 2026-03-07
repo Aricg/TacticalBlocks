@@ -22,14 +22,6 @@ import {
 } from './NetworkManager';
 import { GAMEPLAY_CONFIG } from '../../shared/src/gameplayConfig.js';
 import {
-  DEFAULT_GENERATION_PROFILE,
-  GENERATION_WATER_MODES,
-  STARTING_FORCE_LAYOUT_STRATEGIES,
-  type GenerationWaterMode,
-  type StartingForceLayoutStrategy,
-} from '../../shared/src/generationProfile.js';
-import type { MapGenerationMethod } from '../../shared/src/networkContracts.js';
-import {
   getGridCellTerrainType,
   getNeutralCityGridCoordinates,
   getTeamCityGridCoordinate,
@@ -80,15 +72,14 @@ import {
   getTextureKeyForMapId,
   resolveInitialMapId,
   resolveMapImageById,
-  resolveRuntimeMapGridSidecarCandidatesById,
-  resolveRuntimeMapImageCandidatesById,
   resolveServerEndpoint,
 } from './MapAssetResolver';
+import { getGridCellKey, type RuntimeMapCityZone } from './RuntimeMapSidecar';
+import { LobbyGenerationSettings } from './LobbyGenerationSettings';
 import {
-  getGridCellKey,
-  parseRuntimeMapGridSidecarPayload,
-  type RuntimeMapCityZone,
-} from './RuntimeMapSidecar';
+  loadRuntimeMapGridSidecar,
+  reloadMapTextureFromCandidates,
+} from './MapRuntimeLoader';
 import {
   buildGridRouteFromWorldPath,
   buildMovementCommandMode,
@@ -218,18 +209,7 @@ class BattleScene extends Phaser.Scene {
   private activeMapId = resolveInitialMapId();
   private availableMapIds: string[] = [...GAMEPLAY_CONFIG.map.availableMapIds];
   private selectedLobbyMapId = this.activeMapId;
-  private selectedGenerationMethod: MapGenerationMethod = 'wfc';
-  private selectedWaterMode: GenerationWaterMode =
-    DEFAULT_GENERATION_PROFILE.terrain.waterMode;
-  private selectedRiverCount = DEFAULT_GENERATION_PROFILE.terrain.riverCount;
-  private selectedMountainDensity = DEFAULT_GENERATION_PROFILE.terrain.mountainDensity;
-  private selectedForestDensity = DEFAULT_GENERATION_PROFILE.terrain.forestDensity;
-  private selectedLayoutStrategy: StartingForceLayoutStrategy =
-    DEFAULT_GENERATION_PROFILE.startingForces.layoutStrategy;
-  private selectedUnitCountPerTeam =
-    DEFAULT_GENERATION_PROFILE.startingForces.unitCountPerTeam;
-  private selectedNeutralCityCount = DEFAULT_GENERATION_PROFILE.cities.neutralCityCount;
-  private selectedFriendlyCityCount = DEFAULT_GENERATION_PROFILE.cities.friendlyCityCount;
+  private readonly lobbyGenerationSettings = new LobbyGenerationSettings();
   private lobbyMapRevision = 0;
   private isLobbyGeneratingMap = false;
   private lastBattleAnnouncement: string | null = null;
@@ -274,17 +254,6 @@ class BattleScene extends Phaser.Scene {
 
   private static readonly MAP_WIDTH = GAMEPLAY_CONFIG.map.width;
   private static readonly MAP_HEIGHT = GAMEPLAY_CONFIG.map.height;
-  private static readonly GENERATION_METHODS: MapGenerationMethod[] = [
-    'wfc',
-    'noise',
-    'auto',
-  ];
-  private static readonly MOUNTAIN_DENSITY_PRESETS = [0, 0.01, 0.03, 0.05, 0.08, 0.12];
-  private static readonly FOREST_DENSITY_PRESETS = [0, 0.04, 0.08, 0.12, 0.18, 0.24];
-  private static readonly RIVER_COUNT_PRESETS = [0, 1, 2, 3, 4];
-  private static readonly UNIT_COUNT_PER_TEAM_PRESETS = [8, 16, 24, 32, 48, 64, 96, 128, 250];
-  private static readonly NEUTRAL_CITY_COUNT_PRESETS = [0, 1, 2, 3, 4, 5, 6];
-  private static readonly FRIENDLY_CITY_COUNT_PRESETS = [0, 1, 2, 3];
   private static readonly SHROUD_COLOR = GAMEPLAY_CONFIG.visibility.shroudColor;
   private static readonly SHROUD_ALPHA = GAMEPLAY_CONFIG.visibility.shroudAlpha;
   private static readonly ENEMY_VISIBILITY_PADDING =
@@ -1067,101 +1036,29 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const candidateUrls = resolveRuntimeMapGridSidecarCandidatesById(normalizedMapId);
-    if (candidateUrls.length === 0) {
-      return;
-    }
-
-    const cacheBustSuffix = `rev=${encodeURIComponent(String(revision))}&t=${Date.now()}`;
-    void (async () => {
-      for (const candidateUrl of candidateUrls) {
-        const requestUrl = `${candidateUrl}${candidateUrl.includes('?') ? '&' : '?'}${cacheBustSuffix}`;
-        try {
-          const response = await fetch(requestUrl, { cache: 'no-store' });
-          if (!response.ok) {
-            continue;
-          }
-
-          const payload = (await response.json()) as unknown;
-          const sidecar = parseRuntimeMapGridSidecarPayload(payload, {
-            gridWidth: BattleScene.GRID_WIDTH,
-            gridHeight: BattleScene.GRID_HEIGHT,
-          });
-          if (!sidecar) {
-            continue;
-          }
-
-          if (loadToken !== this.moraleDebugMapGridLoadToken) {
-            return;
-          }
-
-          this.moraleDebugTerrainCodeGrid = sidecar.terrainCodeGrid;
-          this.moraleDebugHillGradeGrid = sidecar.hillGradeGrid;
-          this.moraleDebugCityZones = sidecar.cityZones;
-          this.updateMoraleBreakdownOverlay();
-          return;
-        } catch {
-          continue;
-        }
+    void loadRuntimeMapGridSidecar({
+      mapId: normalizedMapId,
+      revision,
+      gridWidth: BattleScene.GRID_WIDTH,
+      gridHeight: BattleScene.GRID_HEIGHT,
+    }).then((sidecar) => {
+      if (!sidecar || loadToken !== this.moraleDebugMapGridLoadToken) {
+        return;
       }
-    })();
+      this.moraleDebugTerrainCodeGrid = sidecar.terrainCodeGrid;
+      this.moraleDebugHillGradeGrid = sidecar.hillGradeGrid;
+      this.moraleDebugCityZones = sidecar.cityZones;
+      this.updateMoraleBreakdownOverlay();
+    });
   }
 
   private reloadMapTexture(mapId: string, revision: number): void {
-    const imagePathCandidates = resolveRuntimeMapImageCandidatesById(mapId);
-    if (imagePathCandidates.length === 0) {
-      return;
-    }
-
-    const textureKey = getTextureKeyForMapId(mapId);
-    const attemptedPaths: string[] = [];
-
-    const tryLoadFromCandidate = (candidateIndex: number): void => {
-      if (candidateIndex >= imagePathCandidates.length) {
-        console.error(
-          `Failed to load map texture "${mapId}" from all candidates: ${attemptedPaths.join(', ')}`,
-        );
-        return;
-      }
-
-      const imagePath = imagePathCandidates[candidateIndex];
-      const pendingTextureKey = `${textureKey}--pending-${revision}-${candidateIndex}`;
-      const cacheBustedPath = `${imagePath}${imagePath.includes('?') ? '&' : '?'}rev=${revision}&t=${Date.now()}`;
-      attemptedPaths.push(cacheBustedPath);
-      if (this.textures.exists(pendingTextureKey)) {
-        this.textures.remove(pendingTextureKey);
-      }
-
-      const onLoadError = (file: Phaser.Loader.File): void => {
-        if (file.key !== pendingTextureKey) {
-          return;
-        }
-        this.load.off('loaderror', onLoadError);
-        if (this.textures.exists(pendingTextureKey)) {
-          this.textures.remove(pendingTextureKey);
-        }
-        if (candidateIndex + 1 < imagePathCandidates.length) {
-          console.warn(
-            `Failed map texture candidate for "${mapId}": ${cacheBustedPath}. Retrying...`,
-          );
-          tryLoadFromCandidate(candidateIndex + 1);
-          return;
-        }
-        console.error(`Failed to load map texture "${mapId}" from ${cacheBustedPath}.`);
-      };
-      this.load.on('loaderror', onLoadError);
-
-      this.load.once(`filecomplete-image-${pendingTextureKey}`, () => {
-        this.load.off('loaderror', onLoadError);
-        if (!this.textures.exists(pendingTextureKey)) {
-          return;
-        }
-        if (this.textures.exists(textureKey)) {
-          this.textures.remove(textureKey);
-        }
-        const renamed = this.textures.renameTexture(pendingTextureKey, textureKey);
-        this.mapTextureKey = renamed ? textureKey : pendingTextureKey;
-
+    reloadMapTextureFromCandidates({
+      scene: this,
+      mapId,
+      revision,
+      onTextureReady: (textureKey) => {
+        this.mapTextureKey = textureKey;
         if (!this.mapBackground || this.activeMapId !== mapId) {
           return;
         }
@@ -1169,14 +1066,8 @@ class BattleScene extends Phaser.Scene {
         this.initializeMapTerrainSampling();
         this.refreshFogOfWar();
         this.stopMapTextureRetryLoop();
-      });
-      this.load.image(pendingTextureKey, cacheBustedPath);
-      if (!this.load.isLoading()) {
-        this.load.start();
-      }
-    };
-
-    tryLoadFromCandidate(0);
+      },
+    });
   }
 
   private stopMapTextureRetryLoop(): void {
@@ -1342,126 +1233,11 @@ class BattleScene extends Phaser.Scene {
       return;
     }
 
+    const generateMapRequest = this.lobbyGenerationSettings.toGenerateMapRequest();
     this.networkManager.sendLobbyGenerateMap(
-      this.selectedGenerationMethod,
-      {
-        terrain: {
-          waterMode: this.selectedWaterMode,
-          riverCount: this.selectedRiverCount,
-          mountainDensity: this.selectedMountainDensity,
-          forestDensity: this.selectedForestDensity,
-        },
-        cities: {
-          neutralCityCount: this.selectedNeutralCityCount,
-          friendlyCityCount: this.selectedFriendlyCityCount,
-        },
-        startingForces: {
-          layoutStrategy: this.selectedLayoutStrategy,
-          unitCountPerTeam: this.selectedUnitCountPerTeam,
-        },
-      },
+      generateMapRequest.method,
+      generateMapRequest.profile,
     );
-  }
-
-  private cycleGenerationMethod(step: number): void {
-    const methods = BattleScene.GENERATION_METHODS;
-    const currentIndex = methods.indexOf(this.selectedGenerationMethod);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const methodCount = methods.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex =
-      (safeCurrentIndex + normalizedStep + methodCount) % methodCount;
-    this.selectedGenerationMethod = methods[nextIndex] ?? methods[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleLayoutStrategy(step: number): void {
-    const layouts = STARTING_FORCE_LAYOUT_STRATEGIES;
-    const currentIndex = layouts.indexOf(this.selectedLayoutStrategy);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const layoutCount = layouts.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex =
-      (safeCurrentIndex + normalizedStep + layoutCount) % layoutCount;
-    this.selectedLayoutStrategy = layouts[nextIndex] ?? layouts[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleWaterMode(step: number): void {
-    const modes = GENERATION_WATER_MODES;
-    const currentIndex = modes.indexOf(this.selectedWaterMode);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const modeCount = modes.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex = (safeCurrentIndex + normalizedStep + modeCount) % modeCount;
-    this.selectedWaterMode = modes[nextIndex] ?? modes[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleMountainDensity(step: number): void {
-    const presets = BattleScene.MOUNTAIN_DENSITY_PRESETS;
-    const currentIndex = presets.indexOf(this.selectedMountainDensity);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const presetCount = presets.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
-    this.selectedMountainDensity = presets[nextIndex] ?? presets[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleRiverCount(step: number): void {
-    const presets = BattleScene.RIVER_COUNT_PRESETS;
-    const currentIndex = presets.indexOf(this.selectedRiverCount);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const presetCount = presets.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
-    this.selectedRiverCount = presets[nextIndex] ?? presets[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleForestDensity(step: number): void {
-    const presets = BattleScene.FOREST_DENSITY_PRESETS;
-    const currentIndex = presets.indexOf(this.selectedForestDensity);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const presetCount = presets.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
-    this.selectedForestDensity = presets[nextIndex] ?? presets[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleUnitCountPerTeam(step: number): void {
-    const presets = BattleScene.UNIT_COUNT_PER_TEAM_PRESETS;
-    const currentIndex = presets.indexOf(this.selectedUnitCountPerTeam);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const presetCount = presets.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
-    this.selectedUnitCountPerTeam = presets[nextIndex] ?? presets[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleNeutralCityCount(step: number): void {
-    const presets = BattleScene.NEUTRAL_CITY_COUNT_PRESETS;
-    const currentIndex = presets.indexOf(this.selectedNeutralCityCount);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const presetCount = presets.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
-    this.selectedNeutralCityCount = presets[nextIndex] ?? presets[0];
-    this.refreshLobbyOverlay();
-  }
-
-  private cycleFriendlyCityCount(step: number): void {
-    const presets = BattleScene.FRIENDLY_CITY_COUNT_PRESETS;
-    const currentIndex = presets.indexOf(this.selectedFriendlyCityCount);
-    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const presetCount = presets.length;
-    const normalizedStep = step >= 0 ? 1 : -1;
-    const nextIndex = (safeCurrentIndex + normalizedStep + presetCount) % presetCount;
-    this.selectedFriendlyCityCount = presets[nextIndex] ?? presets[0];
-    this.refreshLobbyOverlay();
   }
 
   private createLobbyOverlay(): void {
@@ -1470,15 +1246,42 @@ class BattleScene extends Phaser.Scene {
       {
         onCycleMap: (step: number) => this.requestLobbyMapStep(step),
         onRandomMap: () => this.requestRandomLobbyMap(),
-        onCycleGenerationMethod: (step: number) => this.cycleGenerationMethod(step),
-        onCycleWaterMode: (step: number) => this.cycleWaterMode(step),
-        onCycleRiverCount: (step: number) => this.cycleRiverCount(step),
-        onCycleMountainDensity: (step: number) => this.cycleMountainDensity(step),
-        onCycleForestDensity: (step: number) => this.cycleForestDensity(step),
-        onCycleLayoutStrategy: (step: number) => this.cycleLayoutStrategy(step),
-        onCycleUnitCountPerTeam: (step: number) => this.cycleUnitCountPerTeam(step),
-        onCycleNeutralCityCount: (step: number) => this.cycleNeutralCityCount(step),
-        onCycleFriendlyCityCount: (step: number) => this.cycleFriendlyCityCount(step),
+        onCycleGenerationMethod: (step: number) => {
+          this.lobbyGenerationSettings.cycleGenerationMethod(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleWaterMode: (step: number) => {
+          this.lobbyGenerationSettings.cycleWaterMode(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleRiverCount: (step: number) => {
+          this.lobbyGenerationSettings.cycleRiverCount(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleMountainDensity: (step: number) => {
+          this.lobbyGenerationSettings.cycleMountainDensity(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleForestDensity: (step: number) => {
+          this.lobbyGenerationSettings.cycleForestDensity(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleLayoutStrategy: (step: number) => {
+          this.lobbyGenerationSettings.cycleLayoutStrategy(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleUnitCountPerTeam: (step: number) => {
+          this.lobbyGenerationSettings.cycleUnitCountPerTeam(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleNeutralCityCount: (step: number) => {
+          this.lobbyGenerationSettings.cycleNeutralCityCount(step);
+          this.refreshLobbyOverlay();
+        },
+        onCycleFriendlyCityCount: (step: number) => {
+          this.lobbyGenerationSettings.cycleFriendlyCityCount(step);
+          this.refreshLobbyOverlay();
+        },
         onGenerateMap: () => this.requestGenerateLobbyMap(),
         onToggleReady: () => this.toggleLobbyReady(),
         isShiftHeld: (pointer: Phaser.Input.Pointer) => this.isShiftHeld(pointer),
@@ -1561,6 +1364,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   private refreshLobbyOverlay(): void {
+    const generationSettings = this.lobbyGenerationSettings.toSnapshot();
     this.lobbyOverlayController?.render({
       matchPhase: this.matchPhase,
       hasExitedBattle: this.hasExitedBattle,
@@ -1569,15 +1373,15 @@ class BattleScene extends Phaser.Scene {
       localSessionId: this.localSessionId,
       selectedLobbyMapId: this.selectedLobbyMapId,
       availableMapIds: this.availableMapIds,
-      selectedGenerationMethod: this.selectedGenerationMethod,
-      selectedWaterMode: this.selectedWaterMode,
-      selectedRiverCount: this.selectedRiverCount,
-      selectedMountainDensity: this.selectedMountainDensity,
-      selectedForestDensity: this.selectedForestDensity,
-      selectedLayoutStrategy: this.selectedLayoutStrategy,
-      selectedUnitCountPerTeam: this.selectedUnitCountPerTeam,
-      selectedNeutralCityCount: this.selectedNeutralCityCount,
-      selectedFriendlyCityCount: this.selectedFriendlyCityCount,
+      selectedGenerationMethod: generationSettings.selectedGenerationMethod,
+      selectedWaterMode: generationSettings.selectedWaterMode,
+      selectedRiverCount: generationSettings.selectedRiverCount,
+      selectedMountainDensity: generationSettings.selectedMountainDensity,
+      selectedForestDensity: generationSettings.selectedForestDensity,
+      selectedLayoutStrategy: generationSettings.selectedLayoutStrategy,
+      selectedUnitCountPerTeam: generationSettings.selectedUnitCountPerTeam,
+      selectedNeutralCityCount: generationSettings.selectedNeutralCityCount,
+      selectedFriendlyCityCount: generationSettings.selectedFriendlyCityCount,
       isLobbyGeneratingMap: this.isLobbyGeneratingMap,
       localLobbyReady: this.localLobbyReady,
       lastBattleAnnouncement: this.lastBattleAnnouncement,
