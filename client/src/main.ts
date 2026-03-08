@@ -827,10 +827,12 @@ class BattleScene extends Phaser.Scene {
       const supplyDepotLine = this.citySupplyDepotLinesByZoneId.get(cityZoneId);
       if (!supplyDepotLine || !this.isSupplyDepotLocallyDraggable(supplyDepotLine.owner)) {
         this.activeSupplyDepotDragCityZoneId = null;
+        this.pathPreviewRenderer?.clear();
         return;
       }
       this.activeSupplyDepotDragCityZoneId = cityZoneId;
       this.lastSupplyDepotDragSendAtMs = 0;
+      this.pathPreviewRenderer?.clear();
     });
     marker.on(
       'drag',
@@ -845,6 +847,7 @@ class BattleScene extends Phaser.Scene {
         );
         marker.setPosition(snappedX, snappedY);
         this.positionSupplyDepotSupplyText(cityZoneId, snappedX, snappedY);
+        this.drawSupplyDepotDragPathPreview(cityZoneId, targetCell);
         this.sendSupplyDepotMoveCommand(cityZoneId, targetCell);
       },
     );
@@ -861,8 +864,10 @@ class BattleScene extends Phaser.Scene {
         );
         marker.setPosition(snappedX, snappedY);
         this.positionSupplyDepotSupplyText(cityZoneId, snappedX, snappedY);
+        this.drawSupplyDepotDragPathPreview(cityZoneId, targetCell);
         this.sendSupplyDepotMoveCommand(cityZoneId, targetCell, true);
         this.activeSupplyDepotDragCityZoneId = null;
+        this.pathPreviewRenderer?.clear();
       },
     );
 
@@ -957,12 +962,39 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
+  private drawSupplyDepotDragPathPreview(
+    cityZoneId: string,
+    targetCell: GridCoordinate,
+  ): void {
+    if (!this.pathPreviewRenderer) {
+      return;
+    }
+    const supplyDepotLine = this.citySupplyDepotLinesByZoneId.get(cityZoneId);
+    if (!supplyDepotLine) {
+      this.pathPreviewRenderer.clear();
+      return;
+    }
+
+    const start = this.toCommandWorld({
+      col: supplyDepotLine.depotCol,
+      row: supplyDepotLine.depotRow,
+    });
+    const target = this.toCommandWorld(targetCell);
+    const previewPath = this.buildCommandPath([start, target]);
+    if (previewPath.length <= 1) {
+      this.pathPreviewRenderer.clear();
+      return;
+    }
+    this.pathPreviewRenderer.drawPathPreview(previewPath);
+  }
+
   private syncSupplyDepotMarkers(): void {
     if (
       this.activeSupplyDepotDragCityZoneId &&
       !this.citySupplyDepotLinesByZoneId.has(this.activeSupplyDepotDragCityZoneId)
     ) {
       this.activeSupplyDepotDragCityZoneId = null;
+      this.pathPreviewRenderer?.clear();
     }
 
     const activeCityZoneIds = new Set<string>();
@@ -1010,6 +1042,7 @@ class BattleScene extends Phaser.Scene {
       this.lastSentSupplyDepotCellByCityZoneId.delete(cityZoneId);
       if (this.activeSupplyDepotDragCityZoneId === cityZoneId) {
         this.activeSupplyDepotDragCityZoneId = null;
+        this.pathPreviewRenderer?.clear();
       }
     }
   }

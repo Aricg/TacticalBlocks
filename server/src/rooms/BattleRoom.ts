@@ -42,6 +42,7 @@ import {
 } from "../systems/movement/MovementCommandRouter.js";
 import {
   simulateMovementTick,
+  type SimulatedMover,
 } from "../systems/movement/MovementSimulation.js";
 import {
   computeSupplyPathOneWayTravelSeconds,
@@ -149,6 +150,8 @@ type ComputedCitySupplyDepotLineState = {
   path: GridCoordinate[];
 };
 
+type SupplyDepotMover = SimulatedMover;
+
 export class BattleRoom extends Room<BattleState> {
   private readonly lobbyService = new LobbyService(
     GAMEPLAY_CONFIG.map.availableMapIds,
@@ -164,6 +167,11 @@ export class BattleRoom extends Room<BattleState> {
   private readonly farmCitySupplySignatureByLinkId = new Map<string, string>();
   private readonly citySupplyDepotSignatureByZoneId = new Map<string, string>();
   private readonly citySupplyDepotCellByZoneId = new Map<string, GridCoordinate>();
+  private readonly supplyDepotMoverByCityZoneId = new Map<string, SupplyDepotMover>();
+  private readonly supplyDepotMovementStateByCityZoneId = new Map<
+    string,
+    UnitMovementState
+  >();
   private readonly depotSupplyStockByCityZoneId = new Map<string, number>();
   private readonly depotSupplyPulseElapsedSecondsByCityZoneId = new Map<string, number>();
   private readonly depotSupplyTripPhaseByCityZoneId = new Map<string, number>();
@@ -471,6 +479,8 @@ export class BattleRoom extends Room<BattleState> {
 
   onDispose(): void {
     this.movementStateByUnitId.clear();
+    this.supplyDepotMovementStateByCityZoneId.clear();
+    this.supplyDepotMoverByCityZoneId.clear();
     this.lastBroadcastPathSignatureByUnitId.clear();
     this.clearSupplyLineState();
     this.citySupplyDepotCellByZoneId.clear();
@@ -481,18 +491,53 @@ export class BattleRoom extends Room<BattleState> {
     this.resetCityUnitGenerationState();
   }
 
-  private createMovementState(): UnitMovementState {
+  private createMovementState(options?: {
+    rotateToFace?: boolean;
+  }): UnitMovementState {
+    const movementCommandMode = this.normalizeMovementCommandMode(
+      typeof options?.rotateToFace === "boolean"
+        ? { rotateToFace: options.rotateToFace }
+        : undefined,
+    );
     return {
       destinationCell: null,
       queuedCells: [],
       targetRotation: null,
-      movementCommandMode: { ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE },
+      movementCommandMode,
       movementBudget: 0,
       isPaused: false,
       terrainTransitionPauseRemainingSeconds: 0,
       blockedByUnitId: null,
       blockedTicks: 0,
     };
+  }
+
+  private resetMovementState(
+    movementState: UnitMovementState,
+    options?: {
+      rotateToFace?: boolean;
+    },
+  ): void {
+    const movementCommandMode = this.normalizeMovementCommandMode(
+      typeof options?.rotateToFace === "boolean"
+        ? { rotateToFace: options.rotateToFace }
+        : undefined,
+    );
+    movementState.destinationCell = null;
+    movementState.queuedCells = [];
+    movementState.targetRotation = null;
+    movementState.movementCommandMode = movementCommandMode;
+    movementState.movementBudget = 0;
+    movementState.isPaused = false;
+    movementState.terrainTransitionPauseRemainingSeconds = 0;
+    movementState.blockedByUnitId = null;
+    movementState.blockedTicks = 0;
+  }
+
+  private hasPendingMovement(movementState: UnitMovementState): boolean {
+    return (
+      movementState.destinationCell !== null || movementState.queuedCells.length > 0
+    );
   }
 
   private getOrCreateMovementState(unitId: string): UnitMovementState {
@@ -506,23 +551,33 @@ export class BattleRoom extends Room<BattleState> {
     return created;
   }
 
+  private getOrCreateSupplyDepotMovementState(cityZoneId: string): UnitMovementState {
+    const existing = this.supplyDepotMovementStateByCityZoneId.get(cityZoneId);
+    if (existing) {
+      return existing;
+    }
+
+    const created = this.createMovementState({ rotateToFace: false });
+    this.supplyDepotMovementStateByCityZoneId.set(cityZoneId, created);
+    return created;
+  }
+
+  private clearSupplyDepotMovementForCityZone(cityZoneId: string): void {
+    const movementState = this.supplyDepotMovementStateByCityZoneId.get(cityZoneId);
+    if (!movementState) {
+      return;
+    }
+
+    this.resetMovementState(movementState, { rotateToFace: false });
+  }
+
   private clearMovementForUnit(unitId: string): void {
     const movementState = this.movementStateByUnitId.get(unitId);
     if (!movementState) {
       return;
     }
 
-    movementState.destinationCell = null;
-    movementState.queuedCells = [];
-    movementState.targetRotation = null;
-    movementState.movementCommandMode = {
-      ...BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE,
-    };
-    movementState.movementBudget = 0;
-    movementState.isPaused = false;
-    movementState.terrainTransitionPauseRemainingSeconds = 0;
-    movementState.blockedByUnitId = null;
-    movementState.blockedTicks = 0;
+    this.resetMovementState(movementState);
   }
 
   private buildPathSignature(movementState: UnitMovementState): string {
@@ -736,7 +791,10 @@ export class BattleRoom extends Room<BattleState> {
     return movementCommandMode?.directPathing === true;
   }
 
-  private faceCurrentDestination(unit: Unit, movementState: UnitMovementState): void {
+  private faceCurrentDestination(
+    unit: SimulatedMover,
+    movementState: UnitMovementState,
+  ): void {
     if (!movementState.destinationCell) {
       movementState.targetRotation = null;
       return;
@@ -756,7 +814,7 @@ export class BattleRoom extends Room<BattleState> {
     return Math.atan2(Math.sin(angle), Math.cos(angle));
   }
 
-  private ensureFiniteUnitState(unit: Unit): void {
+  private ensureFiniteUnitState(unit: SimulatedMover): void {
     if (!Number.isFinite(unit.x)) {
       unit.x = 0;
     }
@@ -1166,7 +1224,7 @@ export class BattleRoom extends Room<BattleState> {
     };
   }
 
-  private snapUnitToGrid(unit: Unit): GridCoordinate {
+  private snapUnitToGrid(unit: SimulatedMover): GridCoordinate {
     const cell = this.worldToGridCoordinate(unit.x, unit.y);
     const snapped = this.gridToWorldCenter(cell);
     unit.x = snapped.x;
@@ -1468,6 +1526,37 @@ export class BattleRoom extends Room<BattleState> {
     return fallbackCell;
   }
 
+  private ensureSupplyDepotMover(
+    cityZoneId: string,
+    depotCell: GridCoordinate,
+  ): SupplyDepotMover {
+    const existing = this.supplyDepotMoverByCityZoneId.get(cityZoneId);
+    const depotWorld = this.gridToWorldCenter(depotCell);
+    if (existing) {
+      if (
+        !Number.isFinite(existing.x) ||
+        !Number.isFinite(existing.y) ||
+        !Number.isFinite(existing.rotation)
+      ) {
+        existing.x = depotWorld.x;
+        existing.y = depotWorld.y;
+        existing.rotation = 0;
+      }
+      existing.health = 1;
+      return existing;
+    }
+
+    const created: SupplyDepotMover = {
+      unitId: cityZoneId,
+      x: depotWorld.x,
+      y: depotWorld.y,
+      rotation: 0,
+      health: 1,
+    };
+    this.supplyDepotMoverByCityZoneId.set(cityZoneId, created);
+    return created;
+  }
+
   private syncCitySupplyDepotCellsToCurrentZones(
     cityZones: readonly SupplyCityZoneState[],
   ): void {
@@ -1494,6 +1583,21 @@ export class BattleRoom extends Room<BattleState> {
       }
       this.state.citySupplyDepotLines.delete(cityZoneId);
     }
+    for (const cityZoneId of Array.from(this.supplyDepotMoverByCityZoneId.keys())) {
+      if (zoneById.has(cityZoneId)) {
+        continue;
+      }
+      this.supplyDepotMoverByCityZoneId.delete(cityZoneId);
+      this.supplyDepotMovementStateByCityZoneId.delete(cityZoneId);
+    }
+    for (const cityZoneId of Array.from(
+      this.supplyDepotMovementStateByCityZoneId.keys(),
+    )) {
+      if (zoneById.has(cityZoneId)) {
+        continue;
+      }
+      this.supplyDepotMovementStateByCityZoneId.delete(cityZoneId);
+    }
 
     for (const cityZone of cityZones) {
       const existingCell = this.citySupplyDepotCellByZoneId.get(cityZone.cityZoneId);
@@ -1515,10 +1619,20 @@ export class BattleRoom extends Room<BattleState> {
       }
 
       this.citySupplyDepotCellByZoneId.set(cityZone.cityZoneId, nextCell);
+      const mover = this.ensureSupplyDepotMover(cityZone.cityZoneId, nextCell);
+      const movementState = this.supplyDepotMovementStateByCityZoneId.get(
+        cityZone.cityZoneId,
+      );
+      if (!movementState || !this.hasPendingMovement(movementState)) {
+        const snapped = this.gridToWorldCenter(nextCell);
+        mover.x = snapped.x;
+        mover.y = snapped.y;
+        mover.rotation = 0;
+      }
     }
   }
 
-  private setCitySupplyDepotCell(
+  private queueCitySupplyDepotMovement(
     cityZoneId: string,
     targetCell: GridCoordinate,
     cityZones: readonly SupplyCityZoneState[],
@@ -1541,10 +1655,32 @@ export class BattleRoom extends Room<BattleState> {
       previous.col === normalizedTarget.col &&
       previous.row === normalizedTarget.row
     ) {
+      this.clearSupplyDepotMovementForCityZone(cityZoneId);
+      return true;
+    }
+
+    const mover = this.ensureSupplyDepotMover(cityZoneId, previous);
+    const startCell = this.worldToGridCoordinate(mover.x, mover.y);
+    const route = buildTerrainAwareRoute(
+      startCell,
+      [this.gridToWorldCenter(normalizedTarget)],
+      (x, y) => this.worldToGridCoordinate(x, y),
+      (_fromCell, toCell) => this.getPathfindingStepCostAtCell(toCell, true),
+      (cell) => this.isCellImpassable(cell),
+      {
+        maxExpansionsPerSegment:
+          BattleRoom.PATHFINDING_MAX_ROUTE_EXPANSIONS_PER_SEGMENT,
+        heuristicMinStepCost: BattleRoom.PATHFINDING_HEURISTIC_MIN_STEP_COST,
+      },
+    );
+    if (route.length === 0) {
       return false;
     }
 
-    this.citySupplyDepotCellByZoneId.set(cityZoneId, normalizedTarget);
+    const movementState = this.getOrCreateSupplyDepotMovementState(cityZoneId);
+    this.resetMovementState(movementState, { rotateToFace: false });
+    movementState.destinationCell = route[0];
+    movementState.queuedCells = route.slice(1);
     return true;
   }
 
@@ -2041,6 +2177,8 @@ export class BattleRoom extends Room<BattleState> {
     this.depotSupplyPulseElapsedSecondsByCityZoneId.clear();
     this.depotSupplyTripPhaseByCityZoneId.clear();
     this.depotSupplyOwnerByCityZoneId.clear();
+    this.supplyDepotMoverByCityZoneId.clear();
+    this.supplyDepotMovementStateByCityZoneId.clear();
     this.unitSupplyLineRefreshElapsedSeconds = 0;
     this.supplySourceRetryStateByUnitId.clear();
     this.blockedSupplyEndpointInfluenceTracker.clear();
@@ -2062,6 +2200,15 @@ export class BattleRoom extends Room<BattleState> {
     this.unitSupplyLineRefreshElapsedSeconds %=
       BattleRoom.CITY_DEPOT_SUPPLY_PULSE_INTERVAL_SECONDS;
     return true;
+  }
+
+  private hasAnySupplyDepotMovement(): boolean {
+    for (const movementState of this.supplyDepotMovementStateByCityZoneId.values()) {
+      if (this.hasPendingMovement(movementState)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private clearUnits(): void {
@@ -2334,8 +2481,7 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const hasPath =
-      movementState.destinationCell !== null || movementState.queuedCells.length > 0;
+    const hasPath = this.hasPendingMovement(movementState);
     if (!hasPath) {
       return;
     }
@@ -2383,7 +2529,7 @@ export class BattleRoom extends Room<BattleState> {
       return;
     }
 
-    const updated = this.setCitySupplyDepotCell(
+    const updated = this.queueCitySupplyDepotMovement(
       matchingZone.cityZoneId,
       {
         col: Math.round(message.col),
@@ -2423,6 +2569,44 @@ export class BattleRoom extends Room<BattleState> {
         this.faceCurrentDestination(unit, movementState),
       wrapAngle: (angle) => BattleRoom.wrapAngle(angle),
     });
+    this.updateSupplyDepotMovement(deltaSeconds);
+  }
+
+  private updateSupplyDepotMovement(deltaSeconds: number): void {
+    if (this.supplyDepotMoverByCityZoneId.size === 0) {
+      return;
+    }
+
+    simulateMovementTick({
+      deltaSeconds,
+      units: this.supplyDepotMoverByCityZoneId.values(),
+      movementStateByUnitId: this.supplyDepotMovementStateByCityZoneId,
+      unitMoveSpeed: this.runtimeTuning.unitMoveSpeed,
+      unitTurnSpeed: BattleRoom.UNIT_TURN_SPEED,
+      unitForwardOffset: BattleRoom.UNIT_FORWARD_OFFSET,
+      refaceAngleThreshold: BattleRoom.REFACE_ANGLE_THRESHOLD,
+      waypointMoveAngleTolerance: BattleRoom.WAYPOINT_MOVE_ANGLE_TOLERANCE,
+      ensureFiniteUnitState: (unit) => this.ensureFiniteUnitState(unit),
+      snapUnitToGrid: (unit) => this.snapUnitToGrid(unit),
+      worldToGridCoordinate: (x, y) => this.worldToGridCoordinate(x, y),
+      getTerrainSpeedMultiplierAtCell: (cell) =>
+        this.getTerrainSpeedMultiplierAtCell(cell),
+      isCellImpassable: (cell) => this.isCellImpassable(cell),
+      isWaterCell: (cell) => this.getTerrainTypeAtCell(cell) === "water",
+      waterTransitionPauseSeconds: BattleRoom.WATER_TRANSITION_PAUSE_SECONDS,
+      gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
+      clearMovementForUnit: (cityZoneId) =>
+        this.clearSupplyDepotMovementForCityZone(cityZoneId),
+      isUnitMovementSuppressed: () => false,
+      faceCurrentDestination: (unit, movementState) =>
+        this.faceCurrentDestination(unit, movementState),
+      wrapAngle: (angle) => BattleRoom.wrapAngle(angle),
+    });
+
+    for (const [cityZoneId, mover] of this.supplyDepotMoverByCityZoneId) {
+      const nextCell = this.worldToGridCoordinate(mover.x, mover.y);
+      this.citySupplyDepotCellByZoneId.set(cityZoneId, nextCell);
+    }
   }
 
   private computeCitySupplyDepotLines(
@@ -2600,7 +2784,10 @@ export class BattleRoom extends Room<BattleState> {
     });
     this.syncCitySupplyDepotLines(computedCitySupplyDepotLines);
 
-    if (this.shouldRefreshUnitSupplyLines(deltaSeconds)) {
+    if (
+      this.hasAnySupplyDepotMovement() ||
+      this.shouldRefreshUnitSupplyLines(deltaSeconds)
+    ) {
       const suppliedDepotCellKeys = new Set<string>();
       for (const supplyDepotLine of computedCitySupplyDepotLines) {
         if (!eligibleDepotCityZoneIds.has(supplyDepotLine.cityZoneId)) {

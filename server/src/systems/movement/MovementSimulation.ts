@@ -1,4 +1,3 @@
-import type { Unit } from "../../schema/Unit.js";
 import type {
   GridCoordinate,
   UnitMovementState,
@@ -7,7 +6,14 @@ import type {
 import { getDestinationBlockers } from "./gridPathing.js";
 
 type OccupiedByCellKey = Map<string, Set<string>>;
-type UnitByUnitId = Map<string, Unit>;
+export type SimulatedMover = {
+  unitId: string;
+  x: number;
+  y: number;
+  rotation: number;
+  health: number;
+};
+type UnitByUnitId = Map<string, SimulatedMover>;
 
 const BLOCKED_TICKS_BEFORE_SIDESTEP = 6;
 const SIDESTEP_NEIGHBOR_OFFSETS: ReadonlyArray<{
@@ -163,7 +169,10 @@ function tryQueueArrivedUnitSidestep({
   occupiedByCellKey: OccupiedByCellKey;
   isCellImpassable: (cell: GridCoordinate) => boolean;
   isWaterCell: (cell: GridCoordinate) => boolean;
-  faceCurrentDestination: (unit: Unit, movementState: UnitMovementState) => void;
+  faceCurrentDestination: (
+    unit: SimulatedMover,
+    movementState: UnitMovementState,
+  ) => void;
 }): boolean {
   const blockerMovementState = movementStateByUnitId.get(blockerUnitId);
   const blockerUnit = unitByUnitId.get(blockerUnitId);
@@ -211,15 +220,15 @@ function tryQueueArrivedUnitSidestep({
 
 export interface MovementSimulationParams {
   deltaSeconds: number;
-  units: Iterable<Unit>;
+  units: Iterable<SimulatedMover>;
   movementStateByUnitId: Map<string, UnitMovementState>;
   unitMoveSpeed: number;
   unitTurnSpeed: number;
   unitForwardOffset: number;
   refaceAngleThreshold: number;
   waypointMoveAngleTolerance: number;
-  ensureFiniteUnitState: (unit: Unit) => void;
-  snapUnitToGrid: (unit: Unit) => GridCoordinate;
+  ensureFiniteUnitState: (unit: SimulatedMover) => void;
+  snapUnitToGrid: (unit: SimulatedMover) => GridCoordinate;
   worldToGridCoordinate: (x: number, y: number) => GridCoordinate;
   getTerrainSpeedMultiplierAtCell: (cell: GridCoordinate) => number;
   isCellImpassable: (cell: GridCoordinate) => boolean;
@@ -228,7 +237,10 @@ export interface MovementSimulationParams {
   gridToWorldCenter: (cell: GridCoordinate) => Vector2;
   clearMovementForUnit: (unitId: string) => void;
   isUnitMovementSuppressed: (unitId: string) => boolean;
-  faceCurrentDestination: (unit: Unit, movementState: UnitMovementState) => void;
+  faceCurrentDestination: (
+    unit: SimulatedMover,
+    movementState: UnitMovementState,
+  ) => void;
   wrapAngle: (angle: number) => number;
 }
 
@@ -300,8 +312,8 @@ export function simulateMovementTick({
       ? waterTransitionPauseSeconds
       : 0;
 
-  const aliveUnits: Unit[] = [];
-  const unitByUnitId: UnitByUnitId = new Map<string, Unit>();
+  const aliveUnits: SimulatedMover[] = [];
+  const unitByUnitId: UnitByUnitId = new Map<string, SimulatedMover>();
   const cellByUnitId = new Map<string, GridCoordinate>();
   const occupiedByCellKey: OccupiedByCellKey = new Map<string, Set<string>>();
 
