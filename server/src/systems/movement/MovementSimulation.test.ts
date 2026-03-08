@@ -42,7 +42,6 @@ function runMovementSimulationTickForTest({
     getTerrainSpeedMultiplierAtCell: () => 1,
     isCellImpassable: isCellImpassable ?? (() => false),
     isWaterCell: () => false,
-    waterTransitionPauseSeconds: 0,
     gridToWorldCenter: (cell) => ({ x: cell.col, y: cell.row }),
     clearMovementForUnit: () => {},
     isUnitMovementSuppressed: () => false,
@@ -63,7 +62,6 @@ function runRoadMultiplierMovementBudgetTest(): void {
     },
     movementBudget: 0,
     isPaused: false,
-    terrainTransitionPauseRemainingSeconds: 0,
   };
   const movementStateByUnitId = new Map<string, UnitMovementState>([
     ['u-no-road', noRoadMovementState],
@@ -84,7 +82,6 @@ function runRoadMultiplierMovementBudgetTest(): void {
     getTerrainSpeedMultiplierAtCell: () => 1,
     isCellImpassable: () => false,
     isWaterCell: () => false,
-    waterTransitionPauseSeconds: 0,
     gridToWorldCenter: (cell) => ({ x: cell.col, y: cell.row }),
     clearMovementForUnit: () => {},
     isUnitMovementSuppressed: () => false,
@@ -106,7 +103,6 @@ function runRoadMultiplierMovementBudgetTest(): void {
     },
     movementBudget: 0,
     isPaused: false,
-    terrainTransitionPauseRemainingSeconds: 0,
   };
   const roadMovementStateByUnitId = new Map<string, UnitMovementState>([
     ['u-road', roadMovementState],
@@ -127,7 +123,6 @@ function runRoadMultiplierMovementBudgetTest(): void {
     getTerrainSpeedMultiplierAtCell: () => 2,
     isCellImpassable: () => false,
     isWaterCell: () => false,
-    waterTransitionPauseSeconds: 0,
     gridToWorldCenter: (cell) => ({ x: cell.col, y: cell.row }),
     clearMovementForUnit: () => {},
     isUnitMovementSuppressed: () => false,
@@ -216,7 +211,6 @@ function runBlockedByUnitTrackingTest(): void {
     },
     movementBudget: 0,
     isPaused: false,
-    terrainTransitionPauseRemainingSeconds: 0,
     blockedByUnitId: null,
     blockedTicks: 0,
   };
@@ -230,7 +224,6 @@ function runBlockedByUnitTrackingTest(): void {
     },
     movementBudget: 0,
     isPaused: false,
-    terrainTransitionPauseRemainingSeconds: 0,
     blockedByUnitId: null,
     blockedTicks: 0,
   };
@@ -274,7 +267,6 @@ function runArrivedUnitSidestepUnblocksFollowerTest(): void {
     },
     movementBudget: 0,
     isPaused: false,
-    terrainTransitionPauseRemainingSeconds: 0,
     blockedByUnitId: null,
     blockedTicks: 0,
   };
@@ -288,7 +280,6 @@ function runArrivedUnitSidestepUnblocksFollowerTest(): void {
     },
     movementBudget: 0,
     isPaused: false,
-    terrainTransitionPauseRemainingSeconds: 0,
     blockedByUnitId: null,
     blockedTicks: 0,
   };

@@ -263,11 +263,6 @@ export class BattleRoom extends Room<BattleState> {
     GAMEPLAY_CONFIG.movement.rotateToFaceDisabledSpeedMultiplier > 0
       ? GAMEPLAY_CONFIG.movement.rotateToFaceDisabledSpeedMultiplier
       : BattleRoom.DEFAULT_MOVEMENT_COMMAND_MODE.speedMultiplier;
-  private static readonly WATER_TRANSITION_PAUSE_SECONDS =
-    Number.isFinite(GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds) &&
-    GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds > 0
-      ? GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds
-      : 3;
   private static readonly TERRAIN_SPEED_MULTIPLIER: Record<TerrainType, number> =
     GAMEPLAY_CONFIG.terrain.movementMultiplierByType;
   private static readonly TERRAIN_MORALE_BONUS: Record<TerrainType, number> =
@@ -506,7 +501,6 @@ export class BattleRoom extends Room<BattleState> {
       movementCommandMode,
       movementBudget: 0,
       isPaused: false,
-      terrainTransitionPauseRemainingSeconds: 0,
       blockedByUnitId: null,
       blockedTicks: 0,
     };
@@ -529,7 +523,6 @@ export class BattleRoom extends Room<BattleState> {
     movementState.movementCommandMode = movementCommandMode;
     movementState.movementBudget = 0;
     movementState.isPaused = false;
-    movementState.terrainTransitionPauseRemainingSeconds = 0;
     movementState.blockedByUnitId = null;
     movementState.blockedTicks = 0;
   }
@@ -2373,7 +2366,6 @@ export class BattleRoom extends Room<BattleState> {
     movementState.targetRotation = null;
     movementState.movementBudget = 0;
     movementState.isPaused = false;
-    movementState.terrainTransitionPauseRemainingSeconds = 0;
     movementState.blockedByUnitId = null;
     movementState.blockedTicks = 0;
 
@@ -2561,7 +2553,6 @@ export class BattleRoom extends Room<BattleState> {
         this.getTerrainSpeedMultiplierAtCell(cell),
       isCellImpassable: (cell) => this.isCellImpassable(cell),
       isWaterCell: (cell) => this.getTerrainTypeAtCell(cell) === "water",
-      waterTransitionPauseSeconds: BattleRoom.WATER_TRANSITION_PAUSE_SECONDS,
       gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
       clearMovementForUnit: (unitId) => this.clearMovementForUnit(unitId),
       isUnitMovementSuppressed: (unitId) => this.engagedUnitIds.has(unitId),
@@ -2593,7 +2584,6 @@ export class BattleRoom extends Room<BattleState> {
         this.getTerrainSpeedMultiplierAtCell(cell),
       isCellImpassable: (cell) => this.isCellImpassable(cell),
       isWaterCell: (cell) => this.getTerrainTypeAtCell(cell) === "water",
-      waterTransitionPauseSeconds: BattleRoom.WATER_TRANSITION_PAUSE_SECONDS,
       gridToWorldCenter: (cell) => this.gridToWorldCenter(cell),
       clearMovementForUnit: (cityZoneId) =>
         this.clearSupplyDepotMovementForCityZone(cityZoneId),

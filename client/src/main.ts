@@ -159,8 +159,6 @@ class BattleScene extends Phaser.Scene {
     new Map<string, RemoteUnitTransform>();
   private readonly remoteUnitRenderStateByUnitId: Map<string, RemoteUnitRenderState> =
     new Map<string, RemoteUnitRenderState>();
-  private readonly authoritativeTerrainByUnitId: Map<string, TerrainType> =
-    new Map<string, TerrainType>();
   private readonly lastKnownHealthByUnitId: Map<string, number> =
     new Map<string, number>();
   private readonly attackingUnitIds: Set<string> = new Set<string>();
@@ -293,10 +291,6 @@ class BattleScene extends Phaser.Scene {
   private static readonly REMOTE_POSITION_INTERPOLATION_MIN_DURATION_MS =
     GAMEPLAY_CONFIG.network.positionSyncIntervalMs;
   private static readonly REMOTE_POSITION_INTERPOLATION_MAX_DURATION_MS = 3000;
-  private static readonly WATER_TRANSITION_FLASH_DURATION_MS = Math.max(
-    0,
-    Math.round(GAMEPLAY_CONFIG.movement.waterTransitionPauseSeconds * 1000),
-  );
   private static readonly COMBAT_WIGGLE_AMPLITUDE = 1.8;
   private static readonly COMBAT_WIGGLE_FREQUENCY = 0.018;
   private static readonly MORALE_SAMPLE_RADIUS = 1;
@@ -1208,10 +1202,6 @@ class BattleScene extends Phaser.Scene {
         applyLoadedMapTexture: (mapId: string) => {
           this.activeMapId = mapId;
           this.mapTextureKey = getTextureKeyForMapId(mapId);
-          this.authoritativeTerrainByUnitId.clear();
-          for (const unit of this.unitsById.values()) {
-            unit.clearWaterTransitionFlash();
-          }
           if (!this.textures.exists(this.mapTextureKey)) {
             this.reloadMapTexture(mapId, this.lobbyMapRevision);
             return;
@@ -1668,7 +1658,6 @@ class BattleScene extends Phaser.Scene {
     this.clearPendingUnitPathCommand(unitId);
     this.remoteUnitLatestTransformByUnitId.delete(unitId);
     this.remoteUnitRenderStateByUnitId.delete(unitId);
-    this.authoritativeTerrainByUnitId.delete(unitId);
     this.removeSupplyLine(unitId);
     this.updateMoraleBreakdownOverlay();
   }
@@ -1868,19 +1857,6 @@ class BattleScene extends Phaser.Scene {
       y,
       rotation: latestTransform.rotation,
     };
-    const nextTerrain = this.resolveTerrainType(this.sampleMapColorAt(x, y));
-    const previousTerrain = this.authoritativeTerrainByUnitId.get(unitId) ?? null;
-    this.authoritativeTerrainByUnitId.set(unitId, nextTerrain);
-    if (
-      !snapImmediately &&
-      previousTerrain !== null &&
-      this.didCrossWaterBoundary(previousTerrain, nextTerrain)
-    ) {
-      unit.triggerWaterTransitionFlash(
-        nowMs,
-        BattleScene.WATER_TRANSITION_FLASH_DURATION_MS,
-      );
-    }
     this.remoteUnitLatestTransformByUnitId.set(unitId, nextTransform);
 
     if (snapImmediately) {
@@ -2010,7 +1986,6 @@ class BattleScene extends Phaser.Scene {
     const nowMs = this.time.now;
     this.remoteUnitLatestTransformByUnitId.clear();
     this.remoteUnitRenderStateByUnitId.clear();
-    this.authoritativeTerrainByUnitId.clear();
     for (const [unitId, unit] of this.unitsById) {
       const transform: RemoteUnitTransform = {
         x: unit.x,
@@ -2112,23 +2087,6 @@ class BattleScene extends Phaser.Scene {
         Math.cos(phase * 1.21) * BattleScene.COMBAT_WIGGLE_AMPLITUDE * 0.5;
       unit.setCombatVisualOffset(offsetX, offsetY);
     }
-  }
-
-  private updateWaterTransitionFlashes(timeMs: number): void {
-    for (const unit of this.unitsById.values()) {
-      unit.updateWaterTransitionFlash(timeMs);
-    }
-  }
-
-  private didCrossWaterBoundary(
-    previousTerrain: TerrainType,
-    nextTerrain: TerrainType,
-  ): boolean {
-    if (previousTerrain === 'unknown' || nextTerrain === 'unknown') {
-      return false;
-    }
-
-    return (previousTerrain === 'water') !== (nextTerrain === 'water');
   }
 
   private drawSelectionBox(
@@ -3480,8 +3438,6 @@ class BattleScene extends Phaser.Scene {
       callbacks: {
         smoothRemoteUnitPositions: (deltaMs) => this.smoothRemoteUnitPositions(deltaMs),
         applyCombatVisualWiggle: (timeMs) => this.applyCombatVisualWiggle(timeMs),
-        updateTerrainTransitionFlash: (timeMs) =>
-          this.updateWaterTransitionFlashes(timeMs),
         refreshTerrainTint: () => this.updateUnitTerrainColors(),
         refreshFogOfWar: () => this.refreshFogOfWar(),
         renderPlannedPaths: () => this.renderMovementLines(),

@@ -50,7 +50,6 @@ function createMovementStateByUnitId(unitIds: string[]): Map<string, UnitMovemen
       },
       movementBudget: 0,
       isPaused: false,
-      terrainTransitionPauseRemainingSeconds: 0,
     });
   }
   return movementStateByUnitId;
