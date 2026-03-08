@@ -804,11 +804,14 @@ class BattleScene extends Phaser.Scene {
     marker.on(
       'pointerdown',
       (
-        _pointer: Phaser.Input.Pointer,
+        pointer: Phaser.Input.Pointer,
         _localX: number,
         _localY: number,
         event?: Phaser.Types.Input.EventData,
       ) => {
+        if (pointer.button === 2) {
+          this.commandSupplyDepotReturnToOwningCity(cityZoneId);
+        }
         event?.stopPropagation();
       },
     );
@@ -960,6 +963,24 @@ class BattleScene extends Phaser.Scene {
       col: targetCell.col,
       row: targetCell.row,
     });
+  }
+
+  private commandSupplyDepotReturnToOwningCity(cityZoneId: string): void {
+    const supplyDepotLine = this.citySupplyDepotLinesByZoneId.get(cityZoneId);
+    if (!supplyDepotLine || !this.isSupplyDepotLocallyDraggable(supplyDepotLine.owner)) {
+      return;
+    }
+
+    this.activeSupplyDepotDragCityZoneId = null;
+    this.pathPreviewRenderer?.clear();
+    this.sendSupplyDepotMoveCommand(
+      cityZoneId,
+      {
+        col: supplyDepotLine.cityCol,
+        row: supplyDepotLine.cityRow,
+      },
+      true,
+    );
   }
 
   private drawSupplyDepotDragPathPreview(
