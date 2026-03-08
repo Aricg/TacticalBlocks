@@ -422,6 +422,9 @@ class BattleScene extends Phaser.Scene {
             this.pendingPathServerSyncByUnitId.clear();
           }
         },
+        onForceRedVictory: () => {
+          this.networkManager?.sendDebugForceRedVictory();
+        },
       },
     );
     this.moraleBreakdownOverlay = new MoraleBreakdownOverlay(

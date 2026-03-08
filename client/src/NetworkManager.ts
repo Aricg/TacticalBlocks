@@ -1,6 +1,7 @@
 import { Client, Room, getStateCallbacks } from 'colyseus.js';
 import {
   type CitySupplyDepotMoveMessage,
+  type DebugForceRedVictoryMessage,
   NETWORK_MESSAGE_TYPES,
   type BattleEndedMessage,
   type LobbyGenerateMapMessage,
@@ -980,6 +981,15 @@ export class NetworkManager {
     }
 
     this.room.send(NETWORK_MESSAGE_TYPES.runtimeTuningUpdate, update);
+  }
+
+  public sendDebugForceRedVictory(): void {
+    if (!this.room) {
+      return;
+    }
+
+    const message: DebugForceRedVictoryMessage = {};
+    this.room.send(NETWORK_MESSAGE_TYPES.debugForceRedVictory, message);
   }
 
   public sendLobbyReady(ready: boolean): void {

@@ -103,6 +103,7 @@ import type {
   CitySupplyDepotMoveMessage,
   CityOwner,
   CitySpawnSource,
+  DebugForceRedVictoryMessage,
   GridCoordinate,
   LobbyGenerateMapMessage,
   LobbyRandomMapMessage,
@@ -433,6 +434,12 @@ export class BattleRoom extends Room<BattleState> {
       NETWORK_MESSAGE_TYPES.runtimeTuningUpdate,
       (client, message: RuntimeTuningUpdateMessage) => {
         this.handleRuntimeTuningUpdate(client, message);
+      },
+    );
+    this.onMessage(
+      NETWORK_MESSAGE_TYPES.debugForceRedVictory,
+      (client, _message: DebugForceRedVictoryMessage) => {
+        this.handleDebugForceRedVictoryMessage(client);
       },
     );
     this.onMessage(NETWORK_MESSAGE_TYPES.lobbyReady, (client, message: LobbyReadyMessage) => {
@@ -2026,6 +2033,25 @@ export class BattleRoom extends Room<BattleState> {
     this.broadcast(NETWORK_MESSAGE_TYPES.runtimeTuningSnapshot, this.runtimeTuning);
     this.updateInfluenceGrid(true);
     this.updateSupplyLines(0);
+  }
+
+  private handleDebugForceRedVictoryMessage(client: Client): void {
+    if (!this.lobbyService.hasSession(client.sessionId)) {
+      return;
+    }
+    if (this.matchPhase !== "BATTLE") {
+      return;
+    }
+
+    this.concludeBattle({
+      winner: "RED",
+      loser: "BLUE",
+      reason: "TIEBREAKER",
+      blueUnits: 0,
+      redUnits: 0,
+      blueCities: 0,
+      redCities: 0,
+    });
   }
 
   private handleLobbyReadyMessage(

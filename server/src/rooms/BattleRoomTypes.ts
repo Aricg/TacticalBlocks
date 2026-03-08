@@ -7,6 +7,7 @@ import type {
 export type {
   BattleEndReason,
   BattleEndedMessage,
+  DebugForceRedVictoryMessage,
   LobbyGenerateMapMessage,
   LobbyPlayerSnapshot,
   LobbyRandomMapMessage,

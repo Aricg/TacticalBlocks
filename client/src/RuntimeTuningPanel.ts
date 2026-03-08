@@ -91,6 +91,7 @@ export class RuntimeTuningPanel {
       onMoraleBreakdownOverlayVisibilityChange?: (visible: boolean) => void;
       initialServerRouteSyncEnabled?: boolean;
       onServerRouteSyncEnabledChange?: (enabled: boolean) => void;
+      onForceRedVictory?: () => void;
     },
   ) {
     const existingPanel = document.getElementById('runtime-tuning-panel');
@@ -193,6 +194,24 @@ export class RuntimeTuningPanel {
       options?.onServerRouteSyncEnabledChange?.(this.serverRouteSyncInput.checked);
     });
     serverRouteSyncRow.appendChild(this.serverRouteSyncInput);
+
+    const forceRedVictoryButton = document.createElement('button');
+    forceRedVictoryButton.type = 'button';
+    forceRedVictoryButton.textContent = 'End Game (RED Victory)';
+    forceRedVictoryButton.style.width = '100%';
+    forceRedVictoryButton.style.marginBottom = '10px';
+    forceRedVictoryButton.style.padding = '4px 8px';
+    forceRedVictoryButton.style.border = '1px solid rgba(255,255,255,0.24)';
+    forceRedVictoryButton.style.borderRadius = '4px';
+    forceRedVictoryButton.style.background = 'rgba(230, 76, 60, 0.24)';
+    forceRedVictoryButton.style.color = '#ffe5e1';
+    forceRedVictoryButton.style.fontFamily = 'inherit';
+    forceRedVictoryButton.style.fontSize = '11px';
+    forceRedVictoryButton.style.cursor = 'pointer';
+    forceRedVictoryButton.addEventListener('click', () => {
+      options?.onForceRedVictory?.();
+    });
+    this.content.appendChild(forceRedVictoryButton);
 
     const groupContainerByName = new Map<string, HTMLDivElement>();
     for (const slider of SLIDERS) {

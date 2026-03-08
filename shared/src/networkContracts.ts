@@ -8,6 +8,7 @@ export const NETWORK_MESSAGE_TYPES = {
   unitToggleMovementPause: 'unitToggleMovementPause',
   citySupplyDepotMove: 'citySupplyDepotMove',
   runtimeTuningUpdate: 'runtimeTuningUpdate',
+  debugForceRedVictory: 'debugForceRedVictory',
   lobbyReady: 'lobbyReady',
   lobbySelectMap: 'lobbySelectMap',
   lobbyRandomMap: 'lobbyRandomMap',
@@ -66,6 +67,7 @@ export type CitySupplyDepotMoveMessage = {
 
 export type RuntimeTuningSnapshotMessage = RuntimeTuning;
 export type RuntimeTuningUpdateMessage = Partial<RuntimeTuning>;
+export type DebugForceRedVictoryMessage = Record<string, never>;
 
 export type LobbyReadyMessage = {
   ready: boolean;
